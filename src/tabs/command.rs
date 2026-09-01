@@ -145,6 +145,7 @@ mod tests {
             wait_for_ci: true,
             ci_wait: None,
             review_cmd: None,
+            skills: crate::skills::Source::Bundled,
             workspace: None,
             startup_notes: vec![],
         }
