@@ -137,6 +137,22 @@ impl RunDir {
         is_uuid_shaped(&s).then_some(s)
     }
 
+    /// Set aside what one orchestrator's failed attempt wrote -- `pr-N.log`,
+    /// `pr-N.json`, `pr-N.meta.json` -- under that orchestrator's name, so
+    /// the fallback's attempt can write the plain names without covering
+    /// the failure's own explanation. Best effort: a file that was never
+    /// written has nothing to move.
+    pub fn archive_attempt(&self, pr: u64, backend: &str) {
+        for (from, suffix) in [
+            (self.log_path(pr), "log"),
+            (self.stdout_path(pr), "json"),
+            (self.meta_path(pr), "meta.json"),
+        ] {
+            let to = self.pass_dir.join(format!("pr-{pr}.{backend}.{suffix}"));
+            let _ = std::fs::rename(&from, &to);
+        }
+    }
+
     /// A pass that failed leaves nothing to re-check: without this marker the
     /// next pass would fall through to the derived session and "re-check"
     /// whatever an earlier run left on disk.
@@ -224,6 +240,25 @@ mod tests {
         assert!(rd.last_pass_failed(9));
         rd.clear_failed(9);
         assert!(!rd.last_pass_failed(9));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_failed_attempt_is_set_aside_under_its_orchestrator() {
+        let base = tmp_base();
+        let mut rd = RunDir::new(Some(base.clone())).unwrap();
+        rd.start_pass(1).unwrap();
+        std::fs::write(rd.log_path(9), "claude said no").unwrap();
+        std::fs::write(rd.meta_path(9), "{}").unwrap();
+        // No stdout: an exit 10 usually leaves none, and that is fine.
+        rd.archive_attempt(9, "claude");
+        assert_eq!(
+            std::fs::read_to_string(rd.pass_dir.join("pr-9.claude.log")).unwrap(),
+            "claude said no"
+        );
+        assert!(rd.pass_dir.join("pr-9.claude.meta.json").is_file());
+        assert!(!rd.log_path(9).exists() && !rd.meta_path(9).exists());
+        assert!(!rd.pass_dir.join("pr-9.claude.json").exists());
         let _ = std::fs::remove_dir_all(&base);
     }
 

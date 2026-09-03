@@ -98,6 +98,10 @@ pub struct Job {
 pub struct FailedAttempt {
     pub orchestrator: Orchestrator,
     pub exit_code: Option<i32>,
+    /// Why the harness said it failed -- a usage-limit notice, an API
+    /// error. The exit code says a provider failed; this says which way,
+    /// which is the difference between "retry later" and "stop".
+    pub error: Option<String>,
     pub elapsed_secs: u64,
 }
 
@@ -151,6 +155,7 @@ impl Job {
         self.first_attempt = Some(FailedAttempt {
             orchestrator: std::mem::replace(&mut self.orchestrator, fallback),
             exit_code: self.exit_code,
+            error: self.error.take(),
             elapsed_secs: self.elapsed_secs,
         });
         self.state = JobState::Queued;
@@ -166,6 +171,7 @@ impl Job {
         self.started_epoch = 0;
         self.elapsed_secs = 0;
         self.exit_code = None;
+        self.error = None;
         self.guard_tripped = false;
         self.cost = None;
         self.model = None;

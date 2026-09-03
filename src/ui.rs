@@ -335,6 +335,40 @@ impl Ui {
         }
     }
 
+    /// The orchestrator gave up and the fallback is taking the review over.
+    /// Not a finish: the row stays on the board and the finished count does
+    /// not move, because this PR still has a review to come. Called after
+    /// the job was reset for the retry, so the job names the stand-in and
+    /// its first attempt names the failure.
+    pub fn note_retry(&mut self, job: &Job) {
+        let Some(first) = &job.first_attempt else { return };
+        let n = job.pr;
+        let why = match &first.error {
+            // The harness's own words, where it gave any: "exit 10" alone
+            // does not separate a usage limit from an outage.
+            Some(why) => format!("{} {}: {why}", first.orchestrator.label(), first.outcome()),
+            None => format!("{} {}", first.orchestrator.label(), first.outcome()),
+        };
+        let tail = format!("{why} · retrying with {}", job.orchestrator.label());
+        if !self.tty {
+            println!("RETRY   #{n} ({tail})");
+            return;
+        }
+        let label = board_label(n);
+        let Some(board) = &mut self.board else { return };
+        // "  " + the mark + two joining spaces, plus the label itself.
+        let fixed = 2 + 1 + 2 + cols(&label);
+        let tail = fit_str(&tail, board.width().saturating_sub(fixed));
+        let _ = board.println(Line::from(vec![
+            Span::raw("  "),
+            Span::from("↻").yellow().bold(),
+            Span::raw(" "),
+            Span::from(label).cyan().bold(),
+            Span::raw(" "),
+            Span::from(tail).yellow(),
+        ]));
+    }
+
     /// Print the pass header and stand up the live board.
     pub fn begin_pass(&mut self, total: usize, jobs_max: u32, pass_dir: &std::path::Path) {
         self.finished = 0;

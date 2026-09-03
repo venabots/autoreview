@@ -7,6 +7,7 @@
 use crate::cli::Config;
 use crate::job::{self, GUARD_GRACE_SECS, Job, JobState};
 use crate::ledger;
+use crate::orchestrator::Fallback;
 use crate::report;
 use crate::repo::RepoContext;
 use crate::rundir::RunDir;
@@ -86,6 +87,16 @@ struct Deadline {
 /// fresh still pins the derived id when no transcript exists, so the review
 /// stays reachable afterwards.
 fn plan_job(job: &mut Job, cfg: &Config, ctx: &RepoContext, rundir: &RunDir, ui: &mut Ui) {
+    job.orchestrator = cfg.orchestrator.clone();
+    // dash-p hands a session flag to claude alone. Any other orchestrator
+    // reviews fresh, in a session it allocates itself -- said once at
+    // startup rather than here, once per PR per pass.
+    if !job.orchestrator.supports_sessions() {
+        job.sid = None;
+        job.flag = SessionFlag::None;
+        job.resume = false;
+        return;
+    }
     let mut prior = if cfg.continue_sessions { rundir.recorded_session(job.pr) } else { None };
     let mut busy = false;
     if let Some(p) = &prior
@@ -160,6 +171,88 @@ fn deadline_for(cfg: &Config, is_override: bool) -> Option<Duration> {
     Some(Duration::from_secs(secs))
 }
 
+/// Start the review for `jobs[idx]` and its monitor thread. True when it is
+/// running; false when it could not even be spawned, in which case the job
+/// is already marked failed -- a reviewer that cannot start is a failed
+/// review, not a dead run, and the other PRs still get theirs.
+#[allow(clippy::too_many_arguments)]
+fn launch(
+    idx: usize,
+    jobs: &mut [Job],
+    deadlines: &mut [Option<Deadline>],
+    cfg: &Config,
+    ctx: &RepoContext,
+    rundir: &RunDir,
+    dashp: &str,
+    tx: &Sender<Event>,
+    ui: &mut Ui,
+) -> bool {
+    let is_override = cfg.review_cmd.is_some();
+    match job::spawn(&jobs[idx], cfg, ctx, rundir, dashp) {
+        Ok(child) => {
+            let started = Instant::now();
+            jobs[idx].pgid = Some(child.id() as i32);
+            jobs[idx].started = Some(started);
+            jobs[idx].started_epoch = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            jobs[idx].state = JobState::Running;
+            jobs[idx].activity = follow(&jobs[idx], is_override, rundir);
+            deadlines[idx] = deadline_for(cfg, is_override).map(|d| Deadline { at: Instant::now() + d });
+            ui.note_transition(&jobs[idx]);
+            let tx = tx.clone();
+            let pr = jobs[idx].pr;
+            let me = ctx.me.clone();
+            let started_epoch = jobs[idx].started_epoch;
+            std::thread::spawn(move || {
+                let mut child = child;
+                // A wait() error (ECHILD, if anything else reaped the
+                // child) still frees the slot: a dropped event would
+                // hang the pass forever, in a tool built for cron.
+                let status = child
+                    .wait()
+                    .unwrap_or_else(|_| std::os::unix::process::ExitStatusExt::from_raw(127 << 8));
+                // Reap first, then read back: JobReaped disarms the
+                // deadline and pins the elapsed time, so the readback
+                // below -- off the event loop, bounded by its own
+                // deadline -- delays only this slot's release, never
+                // the guard, the clock, or the other jobs.
+                let _ = tx.send(Event::JobReaped { idx, elapsed_secs: started.elapsed().as_secs() });
+                let readback = status.success().then(|| report::github_verdict(pr, &me, started_epoch));
+                let _ = tx.send(Event::JobExited { idx, status, readback });
+            });
+            true
+        }
+        Err(e) => {
+            ui.note(format!("error: could not start the review for PR #{}: {e}", jobs[idx].pr));
+            jobs[idx].state = JobState::Failed;
+            jobs[idx].exit_code = Some(127);
+            // The failed marker too, like the exit path: the next babysit
+            // pass must review fresh, not re-check a stale session for a PR
+            // this run never reviewed.
+            rundir.mark_failed(jobs[idx].pr);
+            ui.note_transition(&jobs[idx]);
+            false
+        }
+    }
+}
+
+/// Whether a finished attempt is one the fallback should retry: the
+/// orchestrator itself failed (dash-p's exit 10 -- an outage, a usage limit,
+/// an is_error turn), there is a fallback to retry under, and this was the
+/// first attempt. Nothing else is retried. A timeout already ran for the
+/// whole allowance; a signal-death was somebody's decision; and an override
+/// is judged by its exit status alone, with no dash-p behind it to have
+/// said what the status means.
+fn should_fall_back(job: &Job, state: JobState, code: Option<i32>, cfg: &Config) -> bool {
+    state == JobState::Failed
+        && code == Some(10)
+        && cfg.review_cmd.is_none()
+        && matches!(cfg.fallback, Fallback::Spec(_))
+        && !job.fell_back()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_pass(
     queue: &[u64],
@@ -193,69 +286,29 @@ pub fn run_pass(
     let mut running = 0usize;
     let mut next = 0usize;
     let mut finished = 0usize;
+    // Reviews waiting to be retried under the fallback. They go ahead of the
+    // queue -- a PR that has already had one attempt is closer to done than
+    // one that has had none -- but not ahead of the cap: a retry is a whole
+    // review, and --jobs is the promise about how many run at once.
+    let mut retries: Vec<usize> = Vec::new();
 
     while finished < total {
         // Fill free slots in queue order -- the order the tests (and eyes)
         // expect the starts to happen.
-        while running < jobs_max && next < total {
-            let idx = next;
-            next += 1;
-            plan_job(&mut jobs[idx], cfg, ctx, rundir, ui);
-            match job::spawn(&jobs[idx], cfg, ctx, rundir, dashp) {
-                Ok(child) => {
-                    let started = Instant::now();
-                    jobs[idx].pgid = Some(child.id() as i32);
-                    jobs[idx].started = Some(started);
-                    jobs[idx].started_epoch = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0);
-                    jobs[idx].state = JobState::Running;
-                    jobs[idx].activity = follow(&jobs[idx], is_override, rundir);
-                    deadlines[idx] =
-                        deadline_for(cfg, is_override).map(|d| Deadline { at: Instant::now() + d });
-                    ui.note_transition(&jobs[idx]);
-                    running += 1;
-                    let tx = tx.clone();
-                    let pr = jobs[idx].pr;
-                    let me = ctx.me.clone();
-                    let started_epoch = jobs[idx].started_epoch;
-                    std::thread::spawn(move || {
-                        let mut child = child;
-                        // A wait() error (ECHILD, if anything else reaped the
-                        // child) still frees the slot: a dropped event would
-                        // hang the pass forever, in a tool built for cron.
-                        let status = child.wait().unwrap_or_else(|_| {
-                            std::os::unix::process::ExitStatusExt::from_raw(127 << 8)
-                        });
-                        // Reap first, then read back: JobReaped disarms the
-                        // deadline and pins the elapsed time, so the readback
-                        // below -- off the event loop, bounded by its own
-                        // deadline -- delays only this slot's release, never
-                        // the guard, the clock, or the other jobs.
-                        let _ = tx.send(Event::JobReaped {
-                            idx,
-                            elapsed_secs: started.elapsed().as_secs(),
-                        });
-                        let readback = status
-                            .success()
-                            .then(|| report::github_verdict(pr, &me, started_epoch));
-                        let _ = tx.send(Event::JobExited { idx, status, readback });
-                    });
-                }
-                Err(e) => {
-                    // A reviewer that cannot even spawn is a failed review,
-                    // not a dead run: the other PRs still get theirs.
-                    ui.note(format!("error: could not start the review for PR #{}: {e}", jobs[idx].pr));
-                    jobs[idx].state = JobState::Failed;
-                    jobs[idx].exit_code = Some(127);
-                    // The failed marker too, like the exit path: the next
-                    // babysit pass must review fresh, not re-check a stale
-                    // session for a PR this run never reviewed.
-                    rundir.mark_failed(jobs[idx].pr);
-                    finished += 1;
-                    ui.note_transition(&jobs[idx]);
-                }
+        while running < jobs_max && (!retries.is_empty() || next < total) {
+            let idx = if retries.is_empty() {
+                let idx = next;
+                next += 1;
+                plan_job(&mut jobs[idx], cfg, ctx, rundir, ui);
+                idx
+            } else {
+                // Already planned: a retry is always a fresh, unpinned review.
+                retries.remove(0)
+            };
+            if launch(idx, &mut jobs, &mut deadlines, cfg, ctx, rundir, dashp, tx, ui) {
+                running += 1;
+            } else {
+                finished += 1;
             }
         }
 
@@ -315,8 +368,21 @@ pub fn run_pass(
                 job.sid = job::summary_sid(job, meta.as_ref(), is_override);
             }
             Ok(Event::JobExited { idx, status, readback }) => {
+                let (state, code) = job::classify(status, jobs[idx].guard_tripped, is_override);
+                if should_fall_back(&jobs[idx], state, code, cfg)
+                    && let Fallback::Spec(fallback) = &cfg.fallback
+                {
+                    // The failed attempt's files are kept under its own
+                    // name: its log is where the failure explains itself,
+                    // and the retry would otherwise write over it.
+                    jobs[idx].exit_code = code;
+                    rundir.archive_attempt(jobs[idx].pr, &jobs[idx].orchestrator.backend);
+                    jobs[idx].retry_under(fallback.clone());
+                    ui.note_retry(&jobs[idx]);
+                    retries.push(idx);
+                    continue;
+                }
                 let job = &mut jobs[idx];
-                let (state, code) = job::classify(status, job.guard_tripped, is_override);
                 job.state = state;
                 job.exit_code = code;
                 // A failed built-in review leaves its reason in the envelope:
@@ -338,7 +404,11 @@ pub fn run_pass(
                 // Cost, model and sid were read at JobReaped. Only a review
                 // that finished is worth resuming, and only an envelope id
                 // names the session it actually ran in.
+                // A session is recorded only when the next pass could hand
+                // it back: a codex thread id resumed under claude would
+                // fail, and fall back, every interval.
                 if ok && !is_override
+                    && job.orchestrator.supports_sessions()
                     && let Some(m) = job::read_meta(rundir, job.pr)
                     && session::is_uuid_shaped(&m.session_id)
                 {
