@@ -155,6 +155,132 @@ assert_equals "a built-in reviewer that answers in prose fails the run" \
 assert_contains "...and is named" "$out" "FAILED  #9"
 assert_contains "...while the other PR still succeeds" "$out" "done    #8"
 
+# --- Orchestrators --------------------------------------------------------
+# Which agent CLI drives the review is a choice, and the run says what it
+# chose before it spends anything.
+out="$(run_autoreview --auto)"
+assert_contains "a run names its orchestrator and its fallback" \
+  "$out" "orchestrator: claude · fallback: codex"
+assert_contains "the claude orchestrator is named to dash-p" \
+  "$(claude_call_for '/auto-review 9')" "-H claude"
+
+# Codex drives the whole review when it is asked to. The prompt is codex's own
+# explicit skill invocation -- "/" is reserved for its built-in commands, so a
+# slash name would reach the model as prose and might not trigger the skill.
+out="$(run_autoreview --auto --orchestrator codex)"
+assert_equals "a codex run succeeds" "$(last_status)" "0"
+assert_contains "...naming codex as the orchestrator" "$out" "orchestrator: codex"
+assert_contains "...and claude as its fallback" "$out" "fallback: claude"
+call="$(claude_call_for '$auto-review 9')"
+assert_contains "codex is the harness dash-p drives" "$call" "-H codex"
+assert_contains "...told to run the skill in its own explicit form" "$call" '$auto-review 9'
+# dash-p forwards these to claude alone. Sending them anyway would promise a
+# session that was never pinned and a cap that was never enforced.
+assert_not_contains "...with no session flag it cannot honour" "$call" "--session-id"
+assert_not_contains "...and no system prompt it never receives" \
+  "$call" "--append-system-prompt"
+assert_contains "...so the trailer request rides in the prompt instead" \
+  "$call" "fenced code block tagged autoreview"
+assert_contains "the model codex ran is reported" "$out" "gpt-5.5"
+assert_contains "...and a codex review is reopened with codex" \
+  "$out" "codex resume <SESSION>"
+
+out="$(run_autoreview --auto --orchestrator codex:gpt-5.5-high)"
+assert_contains "an orchestrator model is pinned" \
+  "$(claude_call_for '$auto-review 9')" "--model gpt-5.5-high"
+
+# A codex run cannot resume, so it must not record a session for the next pass
+# to hand back: a codex thread id resumed under claude would fail every
+# interval, and fall back every interval.
+run_autoreview --auto --orchestrator codex >/dev/null
+if [[ -e "$(echo "$SANDBOX"/out/logs/run-*/session-9.id)" ]]; then
+  not_ok "a codex review records no session to resume" "session-9.id was written"
+else
+  ok "a codex review records no session to resume"
+fi
+out="$(run_autoreview --auto --orchestrator codex --continue)"
+assert_contains "...and says so rather than silently reviewing fresh" \
+  "$out" "codex cannot resume a review session; every pass reviews fresh"
+
+# --- The fallback ---------------------------------------------------------
+# exit 10 is dash-p saying the orchestrator itself failed -- an outage, a
+# usage limit, an errored turn. Nothing about the PR caused it, so the review
+# is retried once under the other provider.
+out="$(FAKE_HARNESS_FAIL="9:claude" run_autoreview --auto)"
+assert_equals "an orchestrator outage no longer fails the run" "$(last_status)" "0"
+assert_contains "...the review is retried under the fallback" \
+  "$out" "PR #9: claude failed (exit 10); reviewed with codex instead"
+assert_contains "...and the retry actually ran on codex" \
+  "$(claude_call_for '$auto-review 9')" "-H codex"
+assert_contains "...while the healthy PR was never retried" \
+  "$(claude_call_for '/auto-review 8')" "-H claude"
+
+# A retry is a fresh review, never a re-check: the failed attempt has no
+# findings to check, and its session belongs to a provider that just failed.
+assert_not_contains "a retry never resumes the attempt that failed" \
+  "$(claude_call_for '$auto-review 9')" "--resume"
+
+# The failed attempt's log is where the outage explains itself. The retry
+# writes the plain names, so the first attempt is set aside under its own.
+FAKE_HARNESS_FAIL="9:claude" run_autoreview --auto >/dev/null
+if [[ -f "$(echo "$SANDBOX"/out/logs/run-*/pass-1/pr-9.claude.log)" ]]; then
+  ok "the failed attempt's log is kept under its orchestrator"
+else
+  not_ok "the failed attempt's log is kept under its orchestrator" "pr-9.claude.log missing"
+fi
+
+# Both down is still a failed run: the retry is one more chance, not a promise.
+out="$(FAKE_CLAUDE_FAIL="9" run_autoreview --auto)"
+assert_equals "a PR both orchestrators fail still fails the run" "$(last_status)" "1"
+assert_contains "...naming both attempts" \
+  "$out" "PR #9: claude failed (exit 10), then codex failed (exit 10)"
+
+# Turning the retry off is a choice the run reports, and then honours.
+out="$(FAKE_HARNESS_FAIL="9:claude" run_autoreview --auto --fallback none)"
+assert_equals "--fallback none leaves an exit 10 as a failure" "$(last_status)" "1"
+assert_contains "...and says the run has no stand-in" "$out" "fallback: none"
+assert_not_contains "...retrying nothing" "$(claude_calls)" '$auto-review 9'
+
+# Only exit 10 is retried. A timeout already had the whole allowance, and
+# retrying it would spend it twice.
+out="$(FAKE_CLAUDE_SLEEP=30 run_autoreview --auto --jobs 2 --timeout 1)"
+assert_contains "a timed-out review is not retried" "$out" "TIMEOUT #9"
+assert_not_contains "...under the fallback" "$(claude_calls)" '$auto-review 9'
+
+# An override owns its own failures: there is no dash-p behind it to have
+# said what its exit status means.
+AUTOREVIEW_AUTO_CMD='my-review' run_autoreview --auto >/dev/null
+assert_equals "an overridden reviewer is never retried by us" "$(claude_calls)" ""
+
+# --- Fallback configuration -----------------------------------------------
+out="$(run_autoreview --auto --fallback claude)"
+assert_equals "a fallback that is the orchestrator is refused" "$(last_status)" "1"
+assert_contains "...by name" "$out" "is the orchestrator itself"
+
+out="$(run_autoreview --auto --orchestrator gemini)"
+assert_equals "an orchestrator nothing can drive is refused" "$(last_status)" "1"
+assert_contains "...listing the ones that work" "$out" "expected one of: codex, claude"
+
+out="$(AUTOREVIEW_ORCHESTRATOR=codex run_autoreview --auto)"
+assert_contains "the orchestrator can be set from the environment" \
+  "$out" "orchestrator: codex"
+
+# A box with only one of them installed has no automatic fallback. That is not
+# an error, but it is worth saying: the operator who wanted one would
+# otherwise find out from the pass that needed it.
+assert_sandbox_survives_pruning
+out="$(without_cli codex run_autoreview --auto)"
+assert_equals "a missing fallback CLI does not stop the run" "$(last_status)" "0"
+assert_contains "...but the run says there is no stand-in, and why" \
+  "$out" "fallback: none (codex is not installed)"
+out="$(without_cli codex run_autoreview --auto --fallback codex)"
+assert_equals "a fallback named by hand must be installed" "$(last_status)" "1"
+assert_contains "...saying which one is missing" "$out" "missing required command: codex"
+out="$(without_cli codex run_autoreview --auto --orchestrator codex)"
+assert_equals "an orchestrator that is not installed is refused up front" \
+  "$(last_status)" "1"
+assert_contains "...rather than once per PR" "$out" "missing required command: codex"
+
 # --- Concurrency ----------------------------------------------------------
 FAKE_CLAUDE_SLEEP=0.4 run_autoreview --auto --jobs 1 >/dev/null
 assert_equals "--jobs 1 runs one review at a time" \
