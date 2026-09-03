@@ -83,6 +83,24 @@ impl Orchestrator {
         self.backend == "claude"
     }
 
+    /// Whether this backend finds a skill in the directory a run stages and
+    /// hands over with `--add-dir`. The staged tree is a `.claude/skills`
+    /// directory, which claude reads and codex does not: codex resolves
+    /// skills from its own roots (`$CODEX_HOME/skills` and
+    /// `~/.agents/skills`) and from its project root, never from a
+    /// directory added at run time. Verified against both CLIs rather than
+    /// assumed -- a review whose skill never triggered is an expensive way
+    /// to find out.
+    pub fn discovers_staged_skills(&self) -> bool {
+        self.backend == "claude"
+    }
+
+    /// Where this backend does look for the review skills, for the message
+    /// that tells an operator how to make them reachable.
+    pub fn skills_home(&self) -> &'static str {
+        if self.backend == "codex" { "~/.agents/skills" } else { "~/.claude/skills" }
+    }
+
     /// How this backend is told to run a skill by name. Claude Code takes a
     /// slash command; codex reserves `/` for its own commands and takes
     /// `$name` as the explicit skill invocation. Both are named rather than
@@ -204,6 +222,17 @@ mod tests {
         assert!(claude.supports_sessions() && claude.supports_budget() && claude.supports_system_prompt());
         let codex = Orchestrator::parse("codex").unwrap();
         assert!(!codex.supports_sessions() && !codex.supports_budget() && !codex.supports_system_prompt());
+    }
+
+    #[test]
+    fn only_claude_finds_the_skills_a_run_stages() {
+        // The staged tree is a .claude/skills directory. Handing it to
+        // codex would widen its writable set and buy nothing.
+        assert!(Orchestrator::claude().discovers_staged_skills());
+        let codex = Orchestrator::parse("codex").unwrap();
+        assert!(!codex.discovers_staged_skills());
+        assert_eq!(codex.skills_home(), "~/.agents/skills");
+        assert_eq!(Orchestrator::claude().skills_home(), "~/.claude/skills");
     }
 
     #[test]

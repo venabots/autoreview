@@ -2,14 +2,19 @@
 //! meta envelope contributes to the summary.
 //!
 //! The built-in reviewer runs through dash-p, which owns the hard parts: it
-//! setsids claude, enforces the timeout with killpg, and reports the truth in
-//! a stable exit code -- 0 ok, 10 agent-error (including an is_error turn and
-//! garbage output), 20 timeout -- so there is no envelope to sniff for a
-//! failure it has already reported. An override is judged by its exit status
-//! alone; prose on stdout is its normal shape, not a failure.
+//! setsids the orchestrator, enforces the timeout with killpg, and reports
+//! the truth in a stable exit code -- 0 ok, 10 agent-error (including an
+//! is_error turn and garbage output), 20 timeout -- so there is no envelope
+//! to sniff for a failure it has already reported. An override is judged by
+//! its exit status alone; prose on stdout is its normal shape, not a failure.
+//!
+//! Exit 10 is the orchestrator itself failing rather than the review finding
+//! something, which is why it is the one status worth retrying elsewhere:
+//! see `retry_under` and `crate::orchestrator`.
 
 use crate::activity::Tail;
 use crate::cli::Config;
+use crate::orchestrator::Orchestrator;
 use crate::report::Trailer;
 use crate::repo::RepoContext;
 use crate::rundir::RunDir;
@@ -78,6 +83,31 @@ pub struct Job {
     /// What the review is doing right now, for the board. Silent until the
     /// pool decides what there is to follow.
     pub activity: Tail,
+    /// The orchestrator this attempt runs under: the primary, or the
+    /// fallback once the primary has failed.
+    pub orchestrator: Orchestrator,
+    /// The attempt that failed before this one, when the review was retried
+    /// under the fallback. The summary owes the reader both halves: which
+    /// orchestrator gave up, and which one finished the review.
+    pub first_attempt: Option<FailedAttempt>,
+}
+
+/// What is kept of an orchestrator that exited 10 before the fallback took
+/// over: enough to say what happened in the words the reader needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailedAttempt {
+    pub orchestrator: Orchestrator,
+    pub exit_code: Option<i32>,
+    pub elapsed_secs: u64,
+}
+
+impl FailedAttempt {
+    pub fn outcome(&self) -> String {
+        match self.exit_code {
+            Some(code) => format!("exit {code}"),
+            None => "no result".into(),
+        }
+    }
 }
 
 impl Job {
@@ -103,28 +133,69 @@ impl Job {
             verdict: None,
             trailer: None,
             activity: Tail::silent("not started"),
+            orchestrator: Orchestrator::claude(),
+            first_attempt: None,
         }
+    }
+
+    /// Whether the orchestrator that ran this attempt was the stand-in.
+    pub fn fell_back(&self) -> bool {
+        self.first_attempt.is_some()
+    }
+
+    /// Reset for a second attempt under `fallback`. Everything the first
+    /// attempt reported is dropped: its session names a thread that failed,
+    /// and its cost is not this review's cost. What the first attempt was is
+    /// kept, so the summary can say so.
+    pub fn retry_under(&mut self, fallback: Orchestrator) {
+        self.first_attempt = Some(FailedAttempt {
+            orchestrator: std::mem::replace(&mut self.orchestrator, fallback),
+            exit_code: self.exit_code,
+            elapsed_secs: self.elapsed_secs,
+        });
+        self.state = JobState::Queued;
+        self.pgid = None;
+        // A fallback review is always a fresh review. The failed attempt's
+        // session cannot be resumed by another backend, and codex cannot be
+        // handed a session at all.
+        self.flag = SessionFlag::None;
+        self.sid = None;
+        self.resume = false;
+        self.started = None;
+        self.reaped = false;
+        self.started_epoch = 0;
+        self.elapsed_secs = 0;
+        self.exit_code = None;
+        self.guard_tripped = false;
+        self.cost = None;
+        self.model = None;
+        self.verdict = None;
+        self.trailer = None;
     }
 
     /// Resuming and reviewing from scratch are different work, so they get
     /// different prompts: a resumed session already holds the earlier review,
     /// which is exactly what recheck-pr needs and what a fresh panel review
-    /// would throw away. Slash names, not prose: an unattended one-shot has
-    /// no human to correct a prompt that failed to trigger the skill.
+    /// would throw away. The skill is named in the backend's own explicit
+    /// form rather than described in prose: an unattended one-shot has no
+    /// human to correct a prompt that failed to trigger the skill.
     pub fn prompt(&self, cfg: &Config) -> String {
-        let base = if cfg.no_post {
+        let skill = if cfg.no_post {
             // Structural, not a request. /panel-review reviews and reports;
             // it has no posting step to skip. Telling /auto-review not to
             // post would leave a model holding gh write access and an
             // instruction, which is not the same thing as being unable to.
-            format!("/panel-review {}", self.pr)
+            "panel-review"
         } else if self.resume {
-            format!("/recheck-pr {}", self.pr)
+            "recheck-pr"
         } else if cfg.unattended() {
-            format!("/auto-review {}", self.pr)
+            "auto-review"
         } else {
-            format!("/panel-review {}", self.pr)
+            "panel-review"
         };
+        // Each backend has its own way of being handed a skill by name;
+        // the orchestrator knows which.
+        let base = self.orchestrator.skill_prompt(skill, self.pr);
         // /panel-review and /auto-review both define --focus and pass it down
         // to the panel, so it travels as the option it already is rather than
         // as prose a skill would have to interpret.
@@ -156,9 +227,18 @@ impl Job {
 /// The budget is the single-token `=` form -- dash-p forwards unrecognized
 /// flags only that way, and a silently dropped cap on an unattended sweep is
 /// exactly the failure it exists to prevent.
+///
+/// dash-p forwards those pass-through flags to claude alone, so under any
+/// other orchestrator they are left out rather than sent to be dropped: the
+/// session flag (a codex review is never pinned or resumed), the budget cap
+/// (announced at startup as not enforced), and the system prompt -- whose
+/// one job, the trailer request, moves into the prompt itself.
 pub fn dashp_args(job: &Job, cfg: &Config, rundir: &RunDir) -> Vec<String> {
     let timeout = if cfg.timeout_secs > 0 { cfg.timeout_secs } else { DASHP_TIMEOUT_DISABLED };
+    let orch = &job.orchestrator;
     let mut argv = vec![
+        "-H".into(),
+        orch.backend.clone(),
         "--output-format".into(),
         "json".into(),
         "--meta-file".into(),
@@ -166,34 +246,60 @@ pub fn dashp_args(job: &Job, cfg: &Config, rundir: &RunDir) -> Vec<String> {
         "--timeout".into(),
         timeout.to_string(),
         "--dangerously-skip-permissions".into(),
+    ];
+    if let Some(model) = &orch.model {
+        argv.push("--model".into());
+        argv.push(model.clone());
+    }
+    if orch.supports_system_prompt() {
         // The trailer request rides in the system prompt rather than the
         // user prompt, so the slash command stays the whole prompt and the
         // skill trigger is never at risk. Single-token `=` form: dash-p
         // forwards unrecognized flags only that way.
-        format!("--append-system-prompt={}", crate::report::TRAILER_INSTRUCTION),
-    ];
+        argv.push(format!("--append-system-prompt={}", crate::report::TRAILER_INSTRUCTION));
+    }
     // The skills staged for this run, when it staged any. An installed
     // skill of the same name still wins inside claude; the startup note
     // says so.
-    if let Some(dir) = rundir.skills_dir() {
+    //
+    // Only claude finds a skill this way. The staged tree is a
+    // `.claude/skills` directory handed over with --add-dir, and codex
+    // reads its skills from its own roots instead -- so sending it would
+    // widen that run's writable set and buy nothing. What a codex run needs
+    // instead is checked at startup.
+    if let Some(dir) = rundir.skills_dir()
+        && orch.discovers_staged_skills()
+    {
         argv.push(crate::skills::add_dir_flag(dir));
     }
-    match &job.flag {
-        SessionFlag::Pin(id) => {
-            argv.push("--session-id".into());
-            argv.push(id.clone());
+    if orch.supports_sessions() {
+        match &job.flag {
+            SessionFlag::Pin(id) => {
+                argv.push("--session-id".into());
+                argv.push(id.clone());
+            }
+            SessionFlag::Resume(id) => {
+                argv.push("--resume".into());
+                argv.push(id.clone());
+            }
+            SessionFlag::None => {}
         }
-        SessionFlag::Resume(id) => {
-            argv.push("--resume".into());
-            argv.push(id.clone());
-        }
-        SessionFlag::None => {}
     }
-    if let Some(b) = &cfg.budget {
+    if let Some(b) = &cfg.budget
+        && orch.supports_budget()
+    {
         argv.push(format!("--max-budget-usd={b}"));
     }
     argv.push("--".into());
-    argv.push(job.prompt(cfg));
+    let prompt = job.prompt(cfg);
+    if orch.supports_system_prompt() {
+        argv.push(prompt);
+    } else {
+        // The skill invocation stays the first line, on its own, so it is
+        // read as the instruction; the trailer request follows as a
+        // paragraph of its own rather than as more words on the skill line.
+        argv.push(format!("{prompt}\n\n{}", crate::report::TRAILER_INSTRUCTION));
+    }
     argv
 }
 
@@ -322,6 +428,8 @@ mod tests {
             ci_wait: None,
             review_cmd: None,
             skills: crate::skills::Source::Bundled,
+            orchestrator: Orchestrator::claude(),
+            fallback: crate::orchestrator::Fallback::None,
             startup_notes: vec![],
         }
     }
@@ -390,6 +498,62 @@ mod tests {
         assert!(argv.contains(&"--max-budget-usd=2.50".to_string()));
         assert_eq!(argv.last().unwrap(), "/auto-review 9");
         assert_eq!(argv[argv.len() - 2], "--");
+    }
+
+    #[test]
+    fn a_codex_orchestrator_gets_what_dashp_can_forward_to_it() {
+        let rd = rundir();
+        let mut job = Job::new(9);
+        job.orchestrator = Orchestrator::parse("codex:gpt-5.5").unwrap();
+        // A planned session must not reach codex: dash-p would drop the flag
+        // and the summary would promise a session that never existed.
+        job.flag = SessionFlag::Pin("7442b624-5cba-5d44-ae67-9c390cfe70a1".into());
+        let argv = dashp_args(&job, &cfg_with(3600, Some("2.50"), false), &rd);
+        let joined = argv.join(" ");
+        assert!(joined.starts_with("-H codex "), "got {joined}");
+        assert!(joined.contains("--model gpt-5.5"));
+        assert!(!joined.contains("--session-id"), "got {joined}");
+        assert!(!joined.contains("--max-budget-usd"), "got {joined}");
+        assert!(!argv.iter().any(|a| a.starts_with("--append-system-prompt=")));
+        // Codex is handed the skill by its own explicit form, with the
+        // trailer request in the prompt because no system prompt reaches it.
+        let prompt = argv.last().unwrap();
+        assert!(prompt.starts_with("$auto-review 9\n\n"), "got {prompt}");
+        assert!(prompt.ends_with(crate::report::TRAILER_INSTRUCTION));
+        assert_eq!(argv[argv.len() - 2], "--");
+    }
+
+    #[test]
+    fn the_claude_argv_names_its_harness() {
+        let rd = rundir();
+        let argv = dashp_args(&Job::new(9), &cfg_with(0, None, false), &rd);
+        assert_eq!(&argv[..2], ["-H", "claude"]);
+        assert_eq!(argv.last().unwrap(), "/auto-review 9");
+    }
+
+    #[test]
+    fn a_retry_starts_over_under_the_fallback_and_remembers_the_first() {
+        let mut job = Job::new(9);
+        job.flag = SessionFlag::Resume("7442b624-5cba-5d44-ae67-9c390cfe70a1".into());
+        job.sid = Some("7442b624-5cba-5d44-ae67-9c390cfe70a1".into());
+        job.resume = true;
+        job.state = JobState::Failed;
+        job.exit_code = Some(10);
+        job.elapsed_secs = 3;
+        job.cost = Some(0.10);
+        job.retry_under(Orchestrator::parse("codex").unwrap());
+        assert!(job.fell_back());
+        let first = job.first_attempt.as_ref().unwrap();
+        assert_eq!(first.orchestrator, Orchestrator::claude());
+        assert_eq!(first.outcome(), "exit 10");
+        assert_eq!(first.elapsed_secs, 3);
+        assert_eq!(job.orchestrator.backend, "codex");
+        // Fresh: no session, no resume, nothing carried from the failure.
+        assert_eq!(job.flag, SessionFlag::None);
+        assert!(job.sid.is_none() && !job.resume && job.cost.is_none() && job.exit_code.is_none());
+        assert_eq!(job.state, JobState::Queued);
+        // And the prompt is a first review, in codex's own form.
+        assert_eq!(job.prompt(&cfg_with(0, None, false)), "$auto-review 9");
     }
 
     #[test]
