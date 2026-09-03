@@ -312,7 +312,8 @@ impl Ui {
         match job.state {
             JobState::Running => {
                 let verb = if job.resume { "rechecking" } else { "reviewing" };
-                println!("start   #{n}{who} ({verb})");
+                let via = if job.fell_back() { format!(" with {}", job.orchestrator.backend) } else { String::new() };
+                println!("start   #{n}{who} ({verb}{via})");
             }
             JobState::Done => {
                 println!("done    #{n} ({})", fmt_dur(job.elapsed_secs));
@@ -583,11 +584,16 @@ impl Ui {
                 println!("panel #{}: {}", job.pr, panelists.join("; "));
             }
         }
+        for line in jobs.iter().filter_map(fallback_line) {
+            println!("{line}");
+        }
         for line in error_lines(jobs) {
             println!("{line}");
         }
         println!("\nlogs: {}", pass_dir.display());
-        println!("reopen any review with: claude --resume <SESSION>");
+        for hint in reopen_hints(jobs) {
+            println!("{hint}");
+        }
     }
 
     /// What each review concluded. Split out from the printing so a test can
@@ -662,9 +668,14 @@ impl Ui {
             println!("{}", style(line).red());
         }
 
+        for line in jobs.iter().filter_map(fallback_line) {
+            println!("{}", style(line).yellow());
+        }
         let resumable: Vec<&Job> = jobs.iter().filter(|j| j.sid.is_some()).collect();
         if !resumable.is_empty() {
-            println!("{}", style("reopen any review with: claude --resume <SESSION>").dim());
+            for hint in reopen_hints(jobs) {
+                println!("{}", style(hint).dim());
+            }
             // Padded by the number's own width: the label may carry a
             // hyperlink, whose bytes are not columns.
             let widest =
@@ -680,6 +691,54 @@ impl Ui {
         }
         println!("{}", style(format!("logs: {}", pass_dir.display())).dim());
     }
+}
+
+/// What the summary owes about a review the fallback took over: which
+/// orchestrator gave up and how, and whether the stand-in finished the job.
+/// None for a review that ran on its first attempt.
+fn fallback_line(job: &Job) -> Option<String> {
+    let first = job.first_attempt.as_ref()?;
+    let to = job.orchestrator.label();
+    // The harness's own words where it gave any. `error_lines` reports a
+    // reason only for a job that ended Failed, so a review the fallback
+    // rescued would otherwise lose the reason it was rescued from -- which
+    // is the case most worth reading, because nothing else records it.
+    let from = match &first.error {
+        Some(why) => format!("{} failed ({}: {why})", first.orchestrator.label(), first.outcome()),
+        None => format!("{} failed ({})", first.orchestrator.label(), first.outcome()),
+    };
+    Some(match job.state {
+        JobState::Done => format!("PR #{}: {from}; reviewed with {to} instead", job.pr),
+        JobState::Timeout => format!("PR #{}: {from}, then {to} timed out", job.pr),
+        _ => format!("PR #{}: {from}, then {to} failed ({})", job.pr, job.outcome()),
+    })
+}
+
+/// How to reopen the reviews in this summary, one line per backend that ran
+/// one. Every session id is printed against the CLI that can take it: a
+/// codex thread id handed to `claude --resume` opens nothing.
+fn reopen_hints(jobs: &[Job]) -> Vec<String> {
+    let mut commands: Vec<(&str, &'static str)> = Vec::new();
+    for job in jobs.iter().filter(|j| j.sid.is_some()) {
+        let entry = (job.orchestrator.backend.as_str(), job.orchestrator.reopen_command());
+        if !commands.contains(&entry) {
+            commands.push(entry);
+        }
+    }
+    if commands.is_empty() {
+        commands.push(("claude", crate::orchestrator::Orchestrator::claude().reopen_command()));
+    }
+    commands
+        .iter()
+        .enumerate()
+        .map(|(i, (backend, cmd))| {
+            if i == 0 {
+                format!("reopen any review with: {cmd}")
+            } else {
+                format!("  or, for a {backend} review: {cmd}")
+            }
+        })
+        .collect()
 }
 
 pub fn new_table() -> Table {
@@ -853,7 +912,10 @@ fn running_line(label: String, job: &Job, width: usize, spinner: &'static str) -
             job.started.map(|s| s.elapsed().as_secs()).unwrap_or(0),
         )
     };
-    let status = format!("· {verb} {}", fmt_dur(secs));
+    // A retry names its stand-in: the row would otherwise read exactly like
+    // the attempt that just failed.
+    let via = if job.fell_back() { format!(" with {}", job.orchestrator.backend) } else { String::new() };
+    let status = format!("· {verb}{via} {}", fmt_dur(secs));
     let lead = spinner_lead(spinner);
     let reserve: usize = lead.iter().map(Span::width).sum();
     // Two single spaces join the three parts; an absent title takes its space
@@ -978,6 +1040,9 @@ fn finished_line(label: String, job: &Job, width: usize) -> Line<'static> {
     if let Some(cost) = job.cost {
         extras.push(format!("${cost:.2}"));
     }
+    if job.fell_back() {
+        extras.push(format!("via {}", job.orchestrator.backend));
+    }
     let extras = format!("· {}", extras.join(" · "));
     // "  " + mark + the three joining spaces, plus the parts themselves.
     let fixed = 2 + mark.width() + cols(&label) + headline.width() + cols(&extras) + 4;
@@ -1082,6 +1147,68 @@ mod tests {
         assert_eq!(fmt_dur(252), "4m12s");
         assert_eq!(fmt_dur(3600), "1h00m");
         assert_eq!(fmt_dur(3900), "1h05m");
+    }
+
+    #[test]
+    fn a_review_the_fallback_took_over_says_so_in_the_summary() {
+        use crate::orchestrator::Orchestrator;
+        let mut job = Job::new(9);
+        assert_eq!(fallback_line(&job), None, "a first-attempt review has nothing to add");
+        job.exit_code = Some(10);
+        job.error = Some("usage limit reached".into());
+        job.retry_under(Orchestrator::parse("codex").unwrap());
+        // The reason travels with the attempt that failed, and is cleared
+        // from the job: it does not belong to the review that succeeded.
+        assert!(job.error.is_none());
+        job.state = JobState::Done;
+        // On a rescued review this line is the only record of why the
+        // first attempt gave up -- error_lines reports a reason only for a
+        // job that ended Failed, and this one ended Done.
+        assert_eq!(
+            fallback_line(&job).unwrap(),
+            "PR #9: claude failed (exit 10: usage limit reached); reviewed with codex instead"
+        );
+        job.first_attempt.as_mut().unwrap().error = None;
+        assert_eq!(
+            fallback_line(&job).unwrap(),
+            "PR #9: claude failed (exit 10); reviewed with codex instead"
+        );
+        job.state = JobState::Failed;
+        job.exit_code = Some(10);
+        assert_eq!(
+            fallback_line(&job).unwrap(),
+            "PR #9: claude failed (exit 10), then codex failed (exit 10)"
+        );
+        job.state = JobState::Timeout;
+        assert_eq!(
+            fallback_line(&job).unwrap(),
+            "PR #9: claude failed (exit 10), then codex timed out"
+        );
+    }
+
+    #[test]
+    fn reopen_hints_name_the_cli_that_can_take_each_session() {
+        use crate::orchestrator::Orchestrator;
+        // No sessions at all: the claude line still prints, so the reader
+        // learns how a review is reopened even when none of these can be.
+        assert_eq!(reopen_hints(&[Job::new(9)]), vec!["reopen any review with: claude --resume <SESSION>"]);
+        let mut claude = Job::new(9);
+        claude.sid = Some("7442b624-5cba-5d44-ae67-9c390cfe70a1".into());
+        let mut codex = Job::new(8);
+        codex.orchestrator = Orchestrator::parse("codex").unwrap();
+        codex.sid = Some("0199c4a1-4a2b-7c3d-8e4f-5a6b7c8d9e0f".into());
+        assert_eq!(
+            reopen_hints(&[claude, codex]),
+            vec![
+                "reopen any review with: claude --resume <SESSION>",
+                "  or, for a codex review: codex resume <SESSION>",
+            ]
+        );
+        // A run that was all codex leads with codex.
+        let mut only = Job::new(8);
+        only.orchestrator = Orchestrator::parse("codex").unwrap();
+        only.sid = Some("0199c4a1-4a2b-7c3d-8e4f-5a6b7c8d9e0f".into());
+        assert_eq!(reopen_hints(&[only]), vec!["reopen any review with: codex resume <SESSION>"]);
     }
 
     #[test]
