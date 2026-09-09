@@ -500,7 +500,7 @@ impl Ui {
     }
 }
 
-fn new_table() -> Table {
+pub fn new_table() -> Table {
     let mut table = Table::new();
     table
         .load_style(UTF8_FULL_CONDENSED.with_rounded_corners())

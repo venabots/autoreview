@@ -114,6 +114,11 @@ $REVIEW_PRS_SESSION_ID and a 0/1 $REVIEW_PRS_SESSION_RESUME.
 
 Exit status is 0 only when every review in the final pass succeeded.
 
+Every finished review is appended to a ledger (~/.local/state/autoreview, or
+$AUTOREVIEW_LEDGER; "off" disables it). `autoreview stats` reads it back per
+model: how often each panelist answered, how much it reported, and how much
+of that the synthesis kept. `autoreview stats --help` explains the columns.
+
 To fan the same PRs into terminal tabs you can watch and steer instead, use
 `review-prs`.
 
@@ -306,7 +311,7 @@ pub fn require_int(flag: &str, value: &str, min: u64, max: u64) -> Result<u64, C
 /// Both spellings of a flag need a value: "--flag value" is checked when the
 /// next argument is taken, "--flag=value" after unpacking. A bare "--budget="
 /// must not pass silently for an empty cap while "--budget ''" is refused.
-fn require_value(flag: &str, value: Option<String>) -> Result<String, CliError> {
+pub fn require_value(flag: &str, value: Option<String>) -> Result<String, CliError> {
     match value {
         // A value that is itself a flag is a forgotten argument, not a value.
         // This matters beyond tidiness: "--focus --no-post" would otherwise
