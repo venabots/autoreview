@@ -107,7 +107,8 @@ fn footer(r: &Report) -> Vec<String> {
         .filter_map(|c| c.median_secs().map(|s| format!("{} {}", model_label(c), fmt_dur(s))))
         .collect();
     if !timed.is_empty() {
-        lines.push(format!("median time per review: {}", timed.join(", ")));
+        // Per panelist launch, and only panel runs record a duration.
+        lines.push(format!("median time per panelist (panel runs): {}", timed.join(", ")));
     }
     for note in &r.attention {
         // The note carries an agent-reported model name, so it is sanitized
@@ -309,7 +310,7 @@ mod tests {
         assert!(out.contains("MODEL    BACKEND  RUNS  AVAIL        RAW/RUN  KEPT  UNIQUE  HIGH+  DROPPED  KEEP RATE    SAMPLE"), "{out}");
         assert!(out.contains("gpt-5.5  codex    12    92% (65-99)  2.0      9     4       2      1        41% (23-61)  emerging"), "{out}");
         assert!(out.contains("decisions: 8 commented, 4 approved\n"), "{out}");
-        assert!(out.contains("median time per review: gpt-5.5 1m00s\n"), "{out}");
+        assert!(out.contains("median time per panelist (panel runs): gpt-5.5 1m00s\n"), "{out}");
         assert!(out.contains("needs attention: fable on claude answered 0 of 5 launches\n"), "{out}");
         assert!(out.ends_with("ledger: /l/ledger.jsonl\n"), "{out}");
     }

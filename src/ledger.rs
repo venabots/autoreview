@@ -252,7 +252,9 @@ pub fn autoreview_run(r: Reviewed) -> Run {
         driver_model: r.driver_model.map(str::to_string),
         panel: r.trailer.panel.iter().map(PanelEntry::from).collect(),
         findings: r.review.map(findings::parse).unwrap_or_default(),
-        reviewed: r.review.is_some(),
+        // Not merely that some final text existed, but that it was a real
+        // synthesis: a sign-off with no findings must not count as zero kept.
+        reviewed: r.review.is_some_and(findings::is_synthesis),
     }
 }
 
@@ -277,13 +279,12 @@ pub struct Panelled<'a> {
 /// The record for one `panel` run. There is no PR and no GitHub verdict: the
 /// target is whatever diff was reviewed, named by the repo directory.
 pub fn panel_run(
-    repo_dir: &Path,
+    repo: Option<String>,
     started_epoch: i64,
     panel: &[Panelled],
     synthesis: &str,
     driver_model: Option<&str>,
 ) -> Run {
-    let repo = repo_dir.file_name().map(|n| n.to_string_lossy().into_owned());
     Run {
         v: VERSION,
         id: format!("panel:{started_epoch}:{}", std::process::id()),
@@ -311,7 +312,7 @@ pub fn panel_run(
             })
             .collect(),
         findings: findings::parse(synthesis),
-        reviewed: true,
+        reviewed: findings::is_synthesis(synthesis),
     }
 }
 
@@ -455,9 +456,9 @@ mod tests {
             },
         ];
         let synthesis = "### Risk\nHIGH\n### must-fix\n- [HIGH] b.rs:2 — bug. Flagged by: codex (gpt-5.5)";
-        let r = panel_run(Path::new("/x/widgets"), 100, &panel, synthesis, Some("opus-5"));
+        let r = panel_run(Some("acme/widgets".into()), 100, &panel, synthesis, Some("opus-5"));
         assert_eq!(r.source, "panel");
-        assert_eq!(r.repo.as_deref(), Some("widgets"));
+        assert_eq!(r.repo.as_deref(), Some("acme/widgets"), "panel records owner/name, like autoreview");
         assert_eq!(r.risk.as_deref(), Some("HIGH"));
         assert_eq!(r.driver_model.as_deref(), Some("opus-5"));
         assert_eq!(r.panel[0].findings, Some(2));

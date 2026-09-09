@@ -91,10 +91,19 @@ pub fn parse(text: &str) -> Vec<Finding> {
         };
         let Some((finding, issue)) = parsed else { continue };
         match out.iter_mut().find(|(f, i)| same_finding(f, i, &finding, &issue)) {
-            // A later Disagreements copy is the synthesis' final word: the
-            // finding it once kept did not hold, so the kept copy becomes
-            // dropped rather than staying counted.
             Some((existing, _)) => {
+                // The same finding re-stated, often with more panelists the
+                // second time. Keep the fullest credit: add the new sources
+                // and take the higher count, so nobody loses a mention and a
+                // shared finding is not mistaken for a unique one.
+                for s in finding.flagged_by {
+                    if !existing.flagged_by.contains(&s) {
+                        existing.flagged_by.push(s);
+                    }
+                }
+                existing.count = existing.count.max(finding.count).max(existing.flagged_by.len() as u32);
+                // A later Disagreements copy is the synthesis' final word: the
+                // finding it once kept did not hold, so it becomes dropped.
                 if finding.dropped {
                     existing.dropped = true;
                 }
@@ -120,6 +129,20 @@ fn parse_disagreement(line: &str) -> Option<(Finding, String)> {
         .or_else(|| text.split_once(" -- "))
         .or_else(|| text.split_once(": "))?;
     let first = source_list(after).into_iter().next()?;
+    // Credit the panelist that RAISED the overruled claim, not one named as a
+    // defender. "X and Y found the guard sufficient. Z rated it HIGH." names X
+    // first, but Z is the one overruled. Only debit the first name when a
+    // claim verb follows it; otherwise the bullet is too ambiguous to score.
+    const CLAIMED: [&str; 8] = ["claim", "rated", "flag", "raised", "tagged", "said", "called", "argued"];
+    let tail = after.find(&first.name).map_or(after, |i| &after[i + first.name.len()..]);
+    // Only the first name's own clause, so a claim verb attached to a later,
+    // different panelist ("...found it fine. codex rated it HIGH") does not
+    // make the first name read as the claimant.
+    let clause = tail.split(". ").next().unwrap_or(tail);
+    let clause = clause.split(" and ").next().unwrap_or(clause).to_ascii_lowercase();
+    if !CLAIMED.iter().any(|v| clause.contains(v)) {
+        return None;
+    }
     let finding = Finding {
         severity: SEVERITIES.iter().find(|s| head.contains(&format!("[{s}]"))).map(|s| s.to_string()),
         location: location_in(head),
@@ -323,6 +346,17 @@ fn location_in(head: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// True when the text holds a real synthesized review, not just a sign-off.
+/// A review that landed on the PR can leave the session with only "Posted the
+/// review." as its last text; counting its reported findings as zero kept
+/// would sink the keep rate. A synthesis names its panelists or carries one
+/// of its fixed section headings -- a bare "### Next steps" is neither.
+pub fn is_synthesis(text: &str) -> bool {
+    const HEADINGS: [&str; 7] =
+        ["### Overview", "### Risk", "### must-fix", "### should-fix", "### polish", "### Disagreements", "### Approach"];
+    text.contains("Flagged by") || HEADINGS.iter().any(|h| text.contains(h))
+}
+
 /// The synthesized risk, from the line under `### Risk`.
 pub fn risk(text: &str) -> Option<String> {
     let mut in_risk = false;
@@ -481,6 +515,38 @@ Panel: codex (gpt-5.6-sol) NO_FINDINGS; claude-fable (claude-fable-5) 2 LOW.";
             f[0].flagged_by,
             vec![src("claude", Some("claude-opus-4.7")), src("opencode", Some("qwen3.6-plus"))]
         );
+    }
+
+    #[test]
+    fn a_restated_finding_keeps_every_panelist() {
+        // The same finding, stated once with one panelist and again with two.
+        // The merge keeps both, so it is not mistaken for a unique finding.
+        let line = "- [MEDIUM] src/a.rs:1 — the issue. Fix: the change.";
+        let text = format!("{line} Flagged by: codex (gpt-5.5)\n\nlater:\n{line} Flagged by 2: codex (gpt-5.5), claude (claude-opus-5)");
+        let f = parse(&text);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].count, 2);
+        assert_eq!(
+            f[0].flagged_by,
+            vec![src("codex", Some("gpt-5.5")), src("claude", Some("claude-opus-5"))]
+        );
+    }
+
+    #[test]
+    fn a_disagreement_credits_the_claimant_not_the_defender() {
+        let text = "### Disagreements\n- `src/a.ts:1` — claude (claude-opus-5) and opencode (glm-5.3) both read the path and found the guard sufficient. codex (gpt-5.5) rated it HIGH.";
+        let f = parse(text);
+        // The first name is a defender; only codex raised the overruled claim.
+        // Rather than debit claude, the ambiguous-first-name bullet is skipped.
+        assert!(f.iter().all(|x| x.flagged_by != vec![src("claude", Some("claude-opus-5"))]), "{f:?}");
+    }
+
+    #[test]
+    fn a_synthesis_is_told_apart_from_a_sign_off() {
+        assert!(is_synthesis("### Risk\nLOW\n### Overview\n..."));
+        assert!(is_synthesis("- [LOW] a.rs:1 — nit. Flagged by: codex (gpt-5)"));
+        assert!(!is_synthesis("Posted the review with gh."));
+        assert!(!is_synthesis("### Next steps\n- ran the panel and posted it"));
     }
 
     #[test]

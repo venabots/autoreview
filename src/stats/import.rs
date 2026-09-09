@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 /// How close a live record's time must be to a trailer's for them to be the
 /// same review. A live record is written within the review's run time of the
-/// trailer, and review passes of one PR are spaced much wider, so an hour
+/// trailer, and review passes of one PR are spaced much wider, so 15 minutes
 /// separates "already recorded" from "a later, unrecorded review".
 const LIVE_MATCH_SECS: i64 = 900;
 
@@ -95,9 +95,12 @@ fn trailers_in(text: &str) -> Vec<(Trailer, usize)> {
         // A fence with no decision and no panel is not a review trailer: it is
         // an empty object, or a doc that explains the format. Every Trailer
         // field is optional, so without this check `{}` imports as a review.
-        if let Ok(t) = serde_json::from_str::<Trailer>(body)
+        if let Ok(mut t) = serde_json::from_str::<Trailer>(body)
             && (t.decision.is_some() || !t.panel.is_empty())
         {
+            // The same sanitize a live trailer gets: strip control bytes and
+            // cap the roster, so an imported record is no less safe to store.
+            crate::report::sanitize(&mut t);
             out.push((t, body_start + end_rel + 3));
         }
         from = body_start + end_rel + 3;
@@ -112,23 +115,28 @@ fn repo_label(cwd: &str, cache: &mut HashMap<String, String>) -> String {
     if let Some(r) = cache.get(cwd) {
         return r.clone();
     }
-    let basename = Path::new(cwd)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| cwd.to_string());
-    let label = if Path::new(cwd).is_dir() {
-        std::process::Command::new("git")
-            .args(["-C", cwd, "config", "--get", "remote.origin.url"])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .and_then(|o| slug_of_remote(String::from_utf8_lossy(&o.stdout).trim()))
-            .unwrap_or(basename)
-    } else {
-        basename
-    };
+    let label = repo_slug(Path::new(cwd));
     cache.insert(cwd.to_string(), label.clone());
     label
+}
+
+/// A repository's `owner/name`, from the origin remote when the checkout is
+/// still there to ask, and the directory basename otherwise. Both `panel` and
+/// the import name a repository this way, so one repository is one row however
+/// it was recorded -- a worktree's own directory name does not become a second.
+pub fn repo_slug(dir: &Path) -> String {
+    let basename =
+        dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.display().to_string());
+    if !dir.is_dir() {
+        return basename;
+    }
+    std::process::Command::new("git")
+        .args(["-C", &dir.display().to_string(), "config", "--get", "remote.origin.url"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| slug_of_remote(String::from_utf8_lossy(&o.stdout).trim()))
+        .unwrap_or(basename)
 }
 
 /// `git@github.com:acme/widgets.git` and `https://github.com/acme/widgets`
@@ -185,10 +193,9 @@ pub fn runs_in_transcript(text: &str, repo_of: &mut dyn FnMut(&str) -> String) -
                     cursor = *end;
                     pending.clear();
                     // The review text was captured only when it holds a real
-                    // synthesis -- a bucket heading or a Flagged by clause. A
-                    // bare sign-off before the trailer is not a synthesis, so
-                    // its reported counts must not enter the keep rate.
-                    let reviewed = review.contains("Flagged by") || review.contains("### ");
+                    // synthesis. A bare sign-off before the trailer is not one,
+                    // so its reported counts must not enter the keep rate.
+                    let reviewed = findings::is_synthesis(&review);
                     let sid = session.clone().unwrap_or_default();
                     runs.push(Run {
                         v: VERSION,
@@ -246,7 +253,7 @@ pub fn from_transcripts(dir: &Path, path: &Path, existing: &[Run]) -> std::io::R
     // A review autoreview recorded live holds the same trailer this import
     // would read, under a different id, so it must not be counted twice. The
     // match is per review, by session and time: the live record is written
-    // within an hour of the trailer it read, so a trailer far from every live
+    // within 15 minutes of the trailer it read, so a trailer far from every live
     // record in its session is a separate review that was never recorded.
     let live: Vec<(&str, i64)> = existing
         .iter()

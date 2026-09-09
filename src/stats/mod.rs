@@ -115,6 +115,9 @@ pub struct Cohort {
     /// reported count, over the reported count.
     pub keep_num: u64,
     pub keep_den: u64,
+    /// Per-launch durations, for the median. Not serialized: a JSON reader
+    /// wants `median_secs`, not one number per launch.
+    #[serde(skip)]
     pub durations: Vec<u64>,
     pub first_at: i64,
     pub last_at: i64,
@@ -194,18 +197,18 @@ pub fn wilson(k: u64, n: u64) -> Option<(f64, f64)> {
 /// the panel when there was one; anything else is taken at face value.
 fn resolve(source: &crate::findings::Source, roster: &[(String, Key)]) -> Option<Key> {
     let name = source.name.trim().to_ascii_lowercase();
-    if let Some((_, key)) = roster.iter().find(|(n, _)| n.eq_ignore_ascii_case(&name)) {
-        return Some(key.clone());
-    }
-    // The common case: "opencode (glm-5.3)" names a backend and a model, and
-    // the run launched that model under a longer id. Match the source's own
-    // (backend, model) against the roster. A model no panelist ran stays
-    // unscored -- "claude (claude-opus-5)" on a codex-only run is not credited.
+    // An explicit model is the strongest signal, so it is matched first: when
+    // two panelists share a backend, "claude (claude-opus-5)" must credit the
+    // opus panelist, not whichever one the run happened to name "claude". A
+    // model no panelist ran stays unscored.
     if source.model.is_some() {
         let with_model = canonical(&source.name, source.model.as_deref());
         if roster.iter().any(|(_, k)| *k == with_model) {
             return Some(with_model);
         }
+    }
+    if let Some((_, key)) = roster.iter().find(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+        return Some(key.clone());
     }
     // The synthesis sometimes names a panelist by its model alone ("glm-5.3"),
     // by backend and model ("opencode-glm-5.3") when the run called it plain
@@ -639,6 +642,17 @@ mod tests {
         assert_eq!(resolve(&src("opencode", Some("zai-coding-plan/glm-5.3")), &roster), Some(key("opencode", "glm-5.3")), "...however the model was spelled");
         assert_eq!(resolve(&src("claude", Some("claude-opus-5")), &roster), None, "a model no panelist ran is not scored");
         assert_eq!(resolve(&src("ci-sdk", Some("v2")), &roster), None, "a credited non-panelist is not scored");
+        // An explicit model beats a bare name when a panelist is named for the
+        // backend but runs a different model.
+        let two_claude = vec![
+            ("claude".to_string(), key("claude", "claude-fable-5")),
+            ("claude-opus".to_string(), key("claude", "claude-opus-5")),
+        ];
+        assert_eq!(
+            resolve(&src("claude", Some("claude-opus-5")), &two_claude),
+            Some(key("claude", "claude-opus-5")),
+            "the model, not the name, decides"
+        );
         assert_eq!(resolve(&src("opencode", None), &roster), None, "two opencodes, no model: ambiguous");
         assert_eq!(resolve(&src("coderabbitai", None), &roster), None, "not a panelist");
         assert_eq!(resolve(&src("coderabbitai", None), &[]), None, "...even with no roster to check");
