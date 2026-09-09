@@ -74,12 +74,41 @@ pub fn parse(text: &str) -> Vec<Finding> {
             section = section_of(line);
             continue;
         }
-        let Some(finding) = parse_line(line, section) else { continue };
+        let parsed = match (line.contains("Flagged by"), section) {
+            (true, _) => parse_line(line, section),
+            (false, Section::Disagreements) => parse_disagreement(line),
+            _ => None,
+        };
+        let Some(finding) = parsed else { continue };
         if !out.iter().any(|f| same_finding(f, &finding)) {
             out.push(finding);
         }
     }
     out
+}
+
+/// A Disagreements bullet is prose, but prose to a shape: the location, a
+/// dash, then the panelist that made the claim -- `codex (gpt-5.6-sol)
+/// claimed...`, `grok-4.6 rated...` -- and what verification made of it.
+/// The first name is the one overruled; a second one usually agreed with
+/// the synthesizer and is not credited with anything here.
+fn parse_disagreement(line: &str) -> Option<Finding> {
+    if !(line.starts_with('-') || line.starts_with('*')) {
+        return None;
+    }
+    let text = unlink(line.trim_start_matches(['-', '*', ' ']));
+    let (head, after) = text
+        .split_once(" — ")
+        .or_else(|| text.split_once(" -- "))
+        .or_else(|| text.split_once(": "))?;
+    let first = source_list(after).into_iter().next()?;
+    Some(Finding {
+        severity: SEVERITIES.iter().find(|s| head.contains(&format!("[{s}]"))).map(|s| s.to_string()),
+        location: location_in(head),
+        flagged_by: vec![first],
+        count: 1,
+        dropped: true,
+    })
 }
 
 fn same_finding(a: &Finding, b: &Finding) -> bool {
@@ -135,38 +164,75 @@ fn parse_sources(tail: &str) -> (u32, Vec<Source>) {
     if explicit.is_none() && !count_part.is_empty() {
         return (0, Vec::new());
     }
-    let sources: Vec<Source> = list
-        .map(|l| l.split(',').filter_map(parse_source).collect())
-        .unwrap_or_default();
+    let sources = list.map(|l| source_list(&unlink(l))).unwrap_or_default();
     let count = explicit.unwrap_or(sources.len() as u32).max(sources.len() as u32);
     (count, sources)
 }
 
-fn parse_source(item: &str) -> Option<Source> {
-    let item = unlink(item);
-    // An inline severity ("[LOW]") records which panelist said what; the
-    // finding's own severity is the one the synthesis chose.
-    let item = match item.find('[') {
-        Some(i) => &item[..i],
-        None => item.as_str(),
-    };
-    let item = item.trim().trim_end_matches('.').trim_matches(|c| c == '`' || c == '*').trim();
-    if item.is_empty() {
-        return None;
+fn is_name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')
+}
+
+fn is_model_char(c: char) -> bool {
+    is_name_char(c) || matches!(c, ':' | '/')
+}
+
+/// `a (m) [LOW], b (m2) and c` -- names, each with an optional model in
+/// parentheses and an optional inline severity, separated by commas or
+/// "and". Reading stops at the first thing that is not one of those, so the
+/// sentence a synthesizer sometimes adds after the list ("Verified against
+/// the code.") never becomes a panelist.
+fn source_list(list: &str) -> Vec<Source> {
+    let mut out = Vec::new();
+    let mut rest = list.trim_start();
+    loop {
+        let rest_trim = rest.trim_start_matches(['`', '*', ' ']);
+        let name_len = rest_trim.chars().take_while(|c| is_name_char(*c)).map(char::len_utf8).sum::<usize>();
+        let name = rest_trim[..name_len].trim_end_matches('.');
+        if name.is_empty() || !name.chars().any(|c| c.is_ascii_alphabetic()) {
+            break;
+        }
+        let mut after = rest_trim[name.len()..].trim_start_matches(['`', '*']);
+        let mut model = None;
+        if let Some(inner) = after.trim_start().strip_prefix('(') {
+            let m_len = inner.chars().take_while(|c| is_model_char(*c)).map(char::len_utf8).sum::<usize>();
+            if let Some(tail) = inner[m_len..].strip_prefix(')') {
+                model = (m_len > 0).then(|| inner[..m_len].to_string());
+                after = tail;
+            } else {
+                // Parentheses holding a sentence, not a model: this is not a
+                // panelist and neither is anything after it.
+                break;
+            }
+        }
+        // A bare word ("using", from "using higher") is not a panelist; a
+        // bare panelist name looks like a model or carries its backend.
+        let plausible = model.is_some()
+            || name.chars().any(|c| c.is_ascii_digit())
+            || ["codex", "claude", "opencode"]
+                .iter()
+                .any(|b| name.eq_ignore_ascii_case(b) || name.to_ascii_lowercase().starts_with(&format!("{b}-")));
+        if !plausible {
+            break;
+        }
+        out.push(Source { name: name.to_string(), model });
+        // An inline severity records which panelist said what; the finding's
+        // own severity is the one the synthesis chose.
+        let mut after = after.trim_start();
+        if after.starts_with('[')
+            && let Some(close) = after.find(']')
+        {
+            after = after[close + 1..].trim_start();
+        }
+        rest = if let Some(next) = after.strip_prefix(',') {
+            next
+        } else if let Some(next) = after.strip_prefix("and ") {
+            next
+        } else {
+            break;
+        };
     }
-    let (name, model) = match item.split_once('(') {
-        Some((n, m)) => (n.trim(), Some(m.trim_end_matches(')').trim())),
-        None => (item, None),
-    };
-    let ok_name = !name.is_empty()
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/'));
-    if !ok_name {
-        return None;
-    }
-    Some(Source {
-        name: name.to_string(),
-        model: model.filter(|m| !m.is_empty()).map(str::to_string),
-    })
+    out
 }
 
 /// `[text](url)` becomes `text`, so a location wrapped in a link to the PR
@@ -326,9 +392,44 @@ mod tests {
     }
 
     #[test]
+    fn disagreements_written_as_prose_name_the_overruled_panelist() {
+        let text = "### Disagreements\n\
+- `apps/web/src/lib/evidence-narrative.ts:760-801` — codex (gpt-5.6-sol) claimed the identity clause ignores `policyGrants`. Verification falsified this. Dropped. glm-5.3 read the module and raised no finding.\n\
+- [packages/svm/src/deposits.ts:652-655](https://github.com/o/r/pull/1/files#diff-abcR652) — codex-gpt-5.6-sol (gpt-5.6-sol) rated the two-unrelated-transfers case HIGH. claude (claude-fable-5) and opencode (glm-5.3) both re-traced the path.\n\
+- `kyx_foundation.ts:302` — grok-4.6 rated the missing index MEDIUM. No ADR states that invariant, so I moved it to polish.\n\
+- `x.ts:1` — Verification falsified the whole premise here.\n\
+\n\
+Panel: codex (gpt-5.6-sol) NO_FINDINGS; claude-fable (claude-fable-5) 2 LOW.";
+        let f = parse(text);
+        assert_eq!(f.len(), 3, "{f:?}");
+        assert!(f.iter().all(|x| x.dropped && x.count == 1));
+        assert_eq!(f[0].flagged_by, vec![src("codex", Some("gpt-5.6-sol"))]);
+        assert_eq!(f[0].location.as_deref(), Some("apps/web/src/lib/evidence-narrative.ts:760-801"));
+        assert_eq!(f[1].flagged_by, vec![src("codex-gpt-5.6-sol", Some("gpt-5.6-sol"))]);
+        assert_eq!(f[1].location.as_deref(), Some("packages/svm/src/deposits.ts:652-655"));
+        assert_eq!(f[2].flagged_by, vec![src("grok-4.6", None)]);
+    }
+
+    #[test]
     fn a_requoted_finding_counts_once() {
         let line = "- [LOW] a.rs:1 — issue. Flagged by: codex (gpt-5)";
         assert_eq!(parse(&format!("{line}\n\nlater:\n{line}")).len(), 1);
+    }
+
+    #[test]
+    fn a_sentence_after_the_list_is_not_a_panelist() {
+        let f = parse("- [LOW] a.rs:1 — issue. Flagged by: claude (claude-fable-5). Verified against the code, twice.");
+        assert_eq!(f[0].flagged_by, vec![src("claude", Some("claude-fable-5"))]);
+        let f = parse("- [LOW] a.rs:1 — issue. Flagged by: catenabot (existing thread 3898214499); confirmed by claude-fable-5");
+        assert!(f.is_empty(), "a parenthesis holding a sentence is not a model: {f:?}");
+        let f = parse("- [LOW] a.rs:1 — issue. Flagged by: codex (gpt-5.6-sol) and opencode (glm-5.3) — glm also noted the cause");
+        assert_eq!(f[0].flagged_by, vec![src("codex", Some("gpt-5.6-sol")), src("opencode", Some("glm-5.3"))]);
+        let f = parse("- [LOW] a.rs:1 — issue. Flagged by: 403 fix in `950d1556c` does not change the message");
+        assert!(f.is_empty());
+        let f = parse("- [LOW] a.rs:1 — issue. Flagged by 2: claude (claude-opus-5) [LOW], codex (gpt-5.5) [MEDIUM], using higher.");
+        assert_eq!(f[0].flagged_by.len(), 2, "\"using\" is not a panelist: {f:?}");
+        let f = parse("- [LOW] a.rs:1 — issue. Flagged by: opencode-glm, grok-4.6, codex");
+        assert_eq!(f[0].flagged_by.len(), 3, "a backend-prefixed or model-like name is: {f:?}");
     }
 
     #[test]
