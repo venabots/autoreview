@@ -42,6 +42,7 @@ pub fn run(cfg: &Config) -> Result<i32> {
     repo::require_deps(&[dashp.as_str()])?;
 
     let mut cfg = cfg.clone();
+    let started_epoch = crate::ledger::now();
 
     let specs = if cfg.panelists.is_empty() {
         let found = panelist::autodetect();
@@ -233,5 +234,32 @@ pub fn run(cfg: &Config) -> Result<i32> {
         outcomes.len(),
         dir.display()
     );
+
+    // Into the ledger, where it outlives the output directory. Best effort:
+    // the report is already on the screen, and a history that could not be
+    // written is a note, not a failed review.
+    if let Some(path) = crate::ledger::path(&crate::cli::real_env) {
+        let panelled: Vec<crate::ledger::Panelled> = outcomes
+            .iter()
+            .map(|o| crate::ledger::Panelled {
+                name: &o.id,
+                model: &o.model,
+                answered: o.answered(),
+                report: &o.stdout,
+                exit_code: o.exit,
+                elapsed_secs: o.elapsed_secs,
+            })
+            .collect();
+        let run = crate::ledger::panel_run(
+            &repo_root,
+            started_epoch,
+            &panelled,
+            &report,
+            cfg.synth_model.as_deref(),
+        );
+        if let Err(e) = crate::ledger::append(&path, &run) {
+            eprintln!("panel: could not record this run in the ledger at {}: {e}", path.display());
+        }
+    }
     Ok(0)
 }

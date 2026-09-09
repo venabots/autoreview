@@ -213,6 +213,58 @@ pub fn decision_token(verdict: &str) -> String {
     verdict.trim().to_ascii_lowercase().replace(' ', "-")
 }
 
+/// One panelist as `panel` ran it: the run knows exactly what each one did,
+/// so nothing here is self-reported except the model.
+pub struct Panelled<'a> {
+    pub name: &'a str,
+    /// What the panelist said it was running; "unknown" is no model.
+    pub model: &'a str,
+    pub answered: bool,
+    pub report: &'a str,
+    pub exit_code: Option<i32>,
+    pub elapsed_secs: u64,
+}
+
+/// The record for one `panel` run. There is no PR and no GitHub verdict: the
+/// target is whatever diff was reviewed, named by the repo directory.
+pub fn panel_run(
+    repo_dir: &Path,
+    started_epoch: i64,
+    panel: &[Panelled],
+    synthesis: &str,
+    driver_model: Option<&str>,
+) -> Run {
+    let repo = repo_dir.file_name().map(|n| n.to_string_lossy().into_owned());
+    Run {
+        v: VERSION,
+        id: format!("panel:{started_epoch}:{}", std::process::id()),
+        at: now(),
+        source: "panel".into(),
+        repo,
+        pr: None,
+        session: None,
+        decision: None,
+        risk: findings::risk(synthesis),
+        counts: None,
+        cost_usd: None,
+        duration_secs: Some((now() - started_epoch).max(0) as u64),
+        driver_model: driver_model.map(str::to_string),
+        panel: panel
+            .iter()
+            .map(|p| PanelEntry {
+                name: p.name.to_string(),
+                model: (p.model != "unknown" && !p.model.is_empty()).then(|| p.model.to_string()),
+                ok: Some(p.answered),
+                findings: p.answered.then(|| findings::count_raw(p.report)).flatten(),
+                top: p.answered.then(|| findings::top_severity(p.report)).flatten(),
+                duration_secs: Some(p.elapsed_secs),
+                exit_code: p.exit_code,
+            })
+            .collect(),
+        findings: findings::parse(synthesis),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,6 +381,41 @@ mod tests {
         assert_eq!(r.findings.len(), 1);
         assert_eq!(r.findings[0].count, 2);
         assert_eq!(r.driver_model.as_deref(), Some("claude-fable-5"));
+    }
+
+    #[test]
+    fn a_panel_run_records_what_the_run_saw() {
+        let panel = [
+            Panelled {
+                name: "codex",
+                model: "gpt-5.5",
+                answered: true,
+                report: "Model: gpt-5.5\n- [LOW] a.rs:1 — nit\n- [HIGH] b.rs:2 — bug",
+                exit_code: Some(0),
+                elapsed_secs: 40,
+            },
+            Panelled {
+                name: "claude",
+                model: "unknown",
+                answered: false,
+                report: "",
+                exit_code: Some(1),
+                elapsed_secs: 3,
+            },
+        ];
+        let synthesis = "### Risk\nHIGH\n### must-fix\n- [HIGH] b.rs:2 — bug. Flagged by: codex (gpt-5.5)";
+        let r = panel_run(Path::new("/x/widgets"), 100, &panel, synthesis, Some("opus-5"));
+        assert_eq!(r.source, "panel");
+        assert_eq!(r.repo.as_deref(), Some("widgets"));
+        assert_eq!(r.risk.as_deref(), Some("HIGH"));
+        assert_eq!(r.driver_model.as_deref(), Some("opus-5"));
+        assert_eq!(r.panel[0].findings, Some(2));
+        assert_eq!(r.panel[0].top.as_deref(), Some("HIGH"));
+        assert_eq!(r.panel[0].duration_secs, Some(40));
+        assert_eq!(r.panel[1].model, None, "\"unknown\" is no model");
+        assert_eq!(r.panel[1].ok, Some(false));
+        assert_eq!(r.panel[1].findings, None);
+        assert_eq!(r.findings.len(), 1);
     }
 
     #[test]
