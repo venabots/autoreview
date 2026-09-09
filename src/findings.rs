@@ -71,8 +71,8 @@ pub fn parse(text: &str) -> Vec<Finding> {
     // a re-quote lives in the same review text, so the comparison is local.
     let mut out: Vec<(Finding, String)> = Vec::new();
     let mut section = Section::Other;
-    for raw in text.lines() {
-        let line = raw.trim();
+    for line in logical_lines(text) {
+        let line = line.trim();
         if line.starts_with('#') {
             section = section_of(line);
             continue;
@@ -129,6 +129,30 @@ fn parse_disagreement(line: &str) -> Option<(Finding, String)> {
 /// more panelists still reads as one finding.
 fn same_finding(a: &Finding, a_issue: &str, b: &Finding, b_issue: &str) -> bool {
     a.severity == b.severity && a.location == b.location && a_issue == b_issue
+}
+
+/// One bullet can wrap across lines, and a `Flagged by` clause or a location
+/// can land on the wrapped part. This rejoins each bullet with the lines that
+/// continue it, so the parser reads one logical bullet and keeps every
+/// panelist and the location. A heading stands alone; a blank line ends a
+/// bullet, so a later paragraph does not glue onto it.
+fn logical_lines(text: &str) -> Vec<String> {
+    let mut units: Vec<String> = Vec::new();
+    for raw in text.lines() {
+        let trimmed = raw.trim();
+        let is_bullet = trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed == "-" || trimmed == "*";
+        if trimmed.starts_with('#') || is_bullet {
+            units.push(trimmed.to_string());
+        } else if trimmed.is_empty() {
+            units.push(String::new());
+        } else if let Some(last) = units.last_mut().filter(|l| l.starts_with('-') || l.starts_with('*')) {
+            last.push(' ');
+            last.push_str(trimmed);
+        } else {
+            units.push(trimmed.to_string());
+        }
+    }
+    units
 }
 
 fn parse_line(line: &str, section: Section) -> Option<(Finding, String)> {
@@ -431,6 +455,25 @@ Panel: codex (gpt-5.6-sol) NO_FINDINGS; claude-fable (claude-fable-5) 2 LOW.";
     fn a_requoted_finding_counts_once() {
         let line = "- [LOW] a.rs:1 — issue. Flagged by: codex (gpt-5)";
         assert_eq!(parse(&format!("{line}\n\nlater:\n{line}")).len(), 1);
+    }
+
+    #[test]
+    fn a_bullet_that_wraps_across_lines_keeps_every_panelist() {
+        let text = "### must-fix\n- [HIGH] src/a.rs:42 — the issue runs long\n  and wraps onto the next line. Fix: do the thing.\n  Flagged by 2: claude\n  (claude-opus-4.7), opencode (qwen3.6-plus)";
+        let f = parse(text);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].location.as_deref(), Some("src/a.rs:42"));
+        assert_eq!(f[0].count, 2);
+        assert_eq!(
+            f[0].flagged_by,
+            vec![src("claude", Some("claude-opus-4.7")), src("opencode", Some("qwen3.6-plus"))]
+        );
+    }
+
+    #[test]
+    fn two_wrapped_findings_stay_separate() {
+        let text = "### should-fix\n- [MEDIUM] src/a.rs:1 — first bug.\n  Flagged by: codex (gpt-5)\n\n- [MEDIUM] src/a.rs:1 — second, different bug.\n  Flagged by: claude (claude-opus-5)";
+        assert_eq!(parse(text).len(), 2);
     }
 
     #[test]

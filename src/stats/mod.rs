@@ -73,14 +73,22 @@ fn normalize_model(raw: &str) -> String {
     if let Some((provider, name)) = m.rsplit_once('/') {
         m = if provider == "ollama" { format!("ollama/{name}") } else { name.to_string() };
     }
-    // "claude-fable-5-1" and "claude-fable-5.1" are one model.
-    let parts: Vec<&str> = m.split('-').collect();
-    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    if parts.len() >= 3 && digits(parts[parts.len() - 1]) && digits(parts[parts.len() - 2]) {
-        let head = parts[..parts.len() - 2].join("-");
-        m = format!("{head}-{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
+    let mut segs: Vec<String> = m.split('-').map(String::from).collect();
+    // A trailing eight digit part is a release date ("claude-haiku-4-5-20251001"):
+    // the dated snapshot is the same model as the short id, so fold it on.
+    let is_date = |s: &str| s.len() == 8 && s.bytes().all(|b| b.is_ascii_digit());
+    if segs.len() >= 3 && is_date(&segs[segs.len() - 1]) {
+        segs.pop();
     }
-    m
+    // "claude-fable-5-1" and "claude-fable-5.1" are one model. Only a one or
+    // two digit tail is a minor version, so a date never joins as one.
+    let minor = |s: &str| (1..=2).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit());
+    let n = segs.len();
+    if n >= 3 && minor(&segs[n - 1]) && minor(&segs[n - 2]) {
+        let head = segs[..n - 2].join("-");
+        segs = vec![format!("{head}-{}.{}", segs[n - 2], segs[n - 1])];
+    }
+    segs.join("-")
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -318,12 +326,16 @@ pub fn fold(runs: &[Run]) -> Folded {
         }
 
         // The keep rate needs both sides from the same run: kept findings
-        // are only a rate against the count they were kept from.
-        for (key, raw) in raw_here {
-            let kept = kept_here.get(&key).copied().unwrap_or(0) as u64;
-            let c = cohorts.get_mut(&key).expect("cohort was created above");
-            c.keep_num += kept.min(raw);
-            c.keep_den += raw;
+        // are only a rate against the count they were kept from. A run whose
+        // review text was not read has an empty findings list for a reason
+        // that is not "nothing was kept", so it must not drag the rate down.
+        if run.reviewed {
+            for (key, raw) in raw_here {
+                let kept = kept_here.get(&key).copied().unwrap_or(0) as u64;
+                let c = cohorts.get_mut(&key).expect("cohort was created above");
+                c.keep_num += kept.min(raw);
+                c.keep_den += raw;
+            }
         }
     }
     let mut out: Vec<Cohort> = cohorts.into_values().collect();
@@ -379,7 +391,7 @@ pub fn overview(runs: &[&Run]) -> Overview {
 pub fn attention(cohorts: &[Cohort]) -> Vec<String> {
     cohorts
         .iter()
-        .filter(|c| c.runs >= 5 && c.availability().value.is_some_and(|v| v < 0.5))
+        .filter(|c| c.answered + c.failed >= 5 && c.availability().value.is_some_and(|v| v < 0.5))
         .map(|c| {
             format!(
                 "{} on {} answered {} of {} launches",
@@ -495,6 +507,10 @@ mod tests {
         assert_eq!(canonical("opencode-ollama-grok-4.6", Some("ollama/grok-4.6")), key("opencode", "ollama/grok-4.6"));
         assert_eq!(canonical("claude-fable", Some("claude-fable-5-1")), key("claude", "claude-fable-5.1"));
         assert_eq!(canonical("claude-fable", Some("claude-fable-5.1")), key("claude", "claude-fable-5.1"));
+        // A dated snapshot folds onto the short id rather than splitting off.
+        assert_eq!(canonical("claude", Some("claude-haiku-4-5-20251001")), key("claude", "claude-haiku-4.5"));
+        assert_eq!(canonical("claude", Some("claude-haiku-4-5")), key("claude", "claude-haiku-4.5"));
+        assert_eq!(canonical("claude", Some("claude-haiku-4.5")), key("claude", "claude-haiku-4.5"));
         assert_eq!(canonical("claude", Some("Claude-Opus-5")), key("claude", "claude-opus-5"));
         assert_eq!(canonical("claude-fable", Some("fable")), key("claude", "fable"));
         assert_eq!(canonical("claude", Some("unknown")), key("claude", "unknown"));
@@ -532,6 +548,7 @@ mod tests {
             driver_model: None,
             panel,
             findings,
+            reviewed: true,
         }
     }
 
@@ -623,6 +640,24 @@ mod tests {
         assert_eq!(resolve(&src("opencode", None), &roster), None, "two opencodes, no model: ambiguous");
         assert_eq!(resolve(&src("coderabbitai", None), &roster), None, "not a panelist");
         assert_eq!(resolve(&src("coderabbitai", None), &[]), None, "...even with no roster to check");
+    }
+
+    #[test]
+    fn a_run_with_no_review_text_does_not_drag_the_keep_rate() {
+        // One reviewed run kept 1 of 2, then three runs whose review text was
+        // never read reported 3 each. The rate is 1 of 2, not 1 of 11.
+        let reviewed = run(
+            1,
+            vec![entry("codex", "gpt-5.5", Some(true), Some(2))],
+            vec![finding("LOW", &[("codex", Some("gpt-5.5"))], 1, false)],
+        );
+        let mut text_less = run(2, vec![entry("codex", "gpt-5.5", Some(true), Some(3))], vec![]);
+        text_less.reviewed = false;
+        text_less.id = "t".into();
+        let runs = vec![reviewed, text_less];
+        let c = &aggregate(&runs)[0];
+        assert_eq!((c.keep_num, c.keep_den), (1, 2));
+        assert_eq!(c.raw_findings, 5, "the reported counts still show under RAW/RUN");
     }
 
     #[test]

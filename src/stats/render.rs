@@ -88,7 +88,9 @@ fn headline(r: &Report) -> String {
 fn breakdown(map: &std::collections::BTreeMap<String, usize>) -> String {
     let mut pairs: Vec<(&String, &usize)> = map.iter().collect();
     pairs.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
-    pairs.iter().map(|(k, v)| format!("{v} {k}")).collect::<Vec<_>>().join(", ")
+    // The keys are agent-authored (a trailer's decision and risk), so they are
+    // sanitized before they reach the terminal, like every other dynamic cell.
+    pairs.iter().map(|(k, v)| format!("{v} {}", label(k))).collect::<Vec<_>>().join(", ")
 }
 
 fn footer(r: &Report) -> Vec<String> {
@@ -108,7 +110,9 @@ fn footer(r: &Report) -> Vec<String> {
         lines.push(format!("median time per review: {}", timed.join(", ")));
     }
     for note in &r.attention {
-        lines.push(format!("needs attention: {note}"));
+        // The note carries an agent-reported model name, so it is sanitized
+        // before display, like the table cells.
+        lines.push(format!("needs attention: {}", sanitize_for_display(note)));
     }
     if !r.unresolved.is_empty() {
         let total: u32 = r.unresolved.values().sum();
@@ -220,6 +224,7 @@ struct ReportJson<'a> {
     ledger: String,
     overview: &'a Overview,
     attention: &'a [String],
+    unresolved: &'a std::collections::BTreeMap<String, u32>,
     cohorts: Vec<CohortJson<'a>>,
 }
 
@@ -230,6 +235,7 @@ pub fn json(r: &Report) -> String {
         ledger: r.ledger.display().to_string(),
         overview: &r.overview,
         attention: &r.attention,
+        unresolved: &r.unresolved,
         cohorts: r
             .cohorts
             .iter()

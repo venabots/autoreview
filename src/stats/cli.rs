@@ -61,14 +61,28 @@ pub enum Parsed {
     Help,
 }
 
+/// Days in a month, Gregorian, leap year included.
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
 /// `7d`, `2w`, or `YYYY-MM-DD`, as the epoch second it names.
 pub fn parse_since(raw: &str, now: i64) -> Result<i64, String> {
     let bad = || format!("error: --since expects a span like 7d or 2w, or a date like 2026-08-01, got \"{raw}\"");
     if raw.len() == 10 && raw.is_ascii() {
-        // parse_iso checks the shape, not the calendar: month 13 would
-        // quietly become a date in the following year.
-        let in_range = |s: &str, max: u32| s.parse::<u32>().is_ok_and(|n| (1..=max).contains(&n));
-        let plausible = in_range(&raw[5..7], 12) && in_range(&raw[8..10], 31);
+        // parse_iso checks the shape, not the calendar, so an impossible date
+        // (month 13, or 2026-02-30) would quietly land on another day. Check
+        // the month and the day-of-month, leap year included, before trusting it.
+        let u = |s: &str| s.parse::<u32>().ok();
+        let (y, mo, d) = (u(&raw[0..4]), u(&raw[5..7]), u(&raw[8..10]));
+        let plausible = matches!((y, mo, d), (Some(y), Some(mo), Some(d))
+            if (1..=12).contains(&mo) && (1..=days_in_month(y, mo)).contains(&d));
         return crate::prlist::parse_iso(&format!("{raw}T00:00:00Z")).filter(|_| plausible).ok_or_else(bad);
     }
     // By character, not byte: a multibyte last character must be refused,
@@ -79,12 +93,14 @@ pub fn parse_since(raw: &str, now: i64) -> Result<i64, String> {
     if n <= 0 {
         return Err(bad());
     }
-    let secs = match unit {
-        'd' => n * 86_400,
-        'w' => n * 7 * 86_400,
+    let per = match unit {
+        'd' => 86_400,
+        'w' => 7 * 86_400,
         _ => return Err(bad()),
     };
-    Ok(now - secs)
+    // A huge span must give the error, not overflow the subtraction (a panic
+    // in a debug build, a wrong cutoff in release).
+    n.checked_mul(per).and_then(|secs| now.checked_sub(secs)).ok_or_else(bad)
 }
 
 pub fn parse(args: &[String], now: i64) -> Result<Parsed, String> {
@@ -146,6 +162,14 @@ mod tests {
         assert!(parse_since("日", 1).is_err());
         assert!(parse_since("7é", 1).is_err());
         assert!(parse_since("", 1).is_err());
+        // An impossible calendar date is refused, not rounded to another day.
+        assert!(parse_since("2026-02-30", 1).is_err());
+        assert!(parse_since("2026-04-31", 1).is_err());
+        assert!(parse_since("2025-02-29", 1).is_err());
+        assert!(parse_since("2024-02-29", 0).is_ok(), "2024 is a leap year");
+        // A huge span gives the error instead of overflowing the subtraction.
+        assert!(parse_since("9223372036854775807d", 0).is_err());
+        assert!(parse_since("9223372036854775807w", 0).is_err());
         assert!(parse_since("", 1).is_err());
         assert!(parse_since("日", 1).is_err(), "a multibyte value is refused, not split");
         assert!(parse_since("7日", 1).is_err());

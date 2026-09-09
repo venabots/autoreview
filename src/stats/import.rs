@@ -15,6 +15,12 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+/// How close a live record's time must be to a trailer's for them to be the
+/// same review. A live record is written within the review's run time of the
+/// trailer, and review passes of one PR are spaced much wider, so an hour
+/// separates "already recorded" from "a later, unrecorded review".
+const LIVE_MATCH_SECS: i64 = 3600;
+
 #[derive(Debug, Default, PartialEq)]
 pub struct Imported {
     pub files: usize,
@@ -182,7 +188,9 @@ pub fn runs_in_transcript(text: &str, repo_of: &mut dyn FnMut(&str) -> String) -
                         repo: cwd.as_deref().map(&mut *repo_of),
                         pr,
                         session: session.clone(),
-                        decision: trailer.decision.clone(),
+                        // Through the same spelling a live record uses, so one
+                        // verdict does not split across two forms in the footer.
+                        decision: trailer.decision.as_deref().map(ledger::decision_token),
                         risk: trailer.risk.clone(),
                         counts: trailer.findings.as_ref().map(Counts::from),
                         cost_usd: None,
@@ -190,6 +198,7 @@ pub fn runs_in_transcript(text: &str, repo_of: &mut dyn FnMut(&str) -> String) -
                         driver_model: model.clone(),
                         panel: trailer.panel.iter().map(PanelEntry::from).collect(),
                         findings: findings::parse(&review),
+                        reviewed: true,
                     });
                 }
                 // Whatever followed the last block starts the next review.
@@ -222,10 +231,15 @@ fn transcripts_under(dir: &Path, out: &mut Vec<PathBuf>) {
 /// the same trailers again would count each review twice.
 pub fn from_transcripts(dir: &Path, path: &Path, existing: &[Run]) -> std::io::Result<Imported> {
     let known: HashSet<&str> = existing.iter().map(|r| r.id.as_str()).collect();
-    let live: HashSet<&str> = existing
+    // A review autoreview recorded live holds the same trailer this import
+    // would read, under a different id, so it must not be counted twice. The
+    // match is per review, by session and time: the live record is written
+    // within an hour of the trailer it read, so a trailer far from every live
+    // record in its session is a separate review that was never recorded.
+    let live: Vec<(&str, i64)> = existing
         .iter()
         .filter(|r| r.source != "transcript")
-        .filter_map(|r| r.session.as_deref())
+        .filter_map(|r| r.session.as_deref().map(|s| (s, r.at)))
         .collect();
     let mut files = Vec::new();
     transcripts_under(dir, &mut files);
@@ -240,8 +254,10 @@ pub fn from_transcripts(dir: &Path, path: &Path, existing: &[Run]) -> std::io::R
         }
         result.files += 1;
         for run in runs_in_transcript(&text, &mut |cwd| repo_label(cwd, &mut repos)) {
-            let is_live = run.session.as_deref().is_some_and(|s| live.contains(s));
-            if is_live || known.contains(run.id.as_str()) {
+            let recorded_live = run.session.as_deref().is_some_and(|s| {
+                live.iter().any(|(ls, lat)| *ls == s && (run.at - lat).abs() <= LIVE_MATCH_SECS)
+            });
+            if recorded_live || known.contains(run.id.as_str()) {
                 result.skipped += 1;
                 continue;
             }

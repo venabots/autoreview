@@ -8,9 +8,11 @@
 //! different file; `off` records nothing.
 //!
 //! Append-only JSON lines rather than a database: one record is one review,
-//! an append is atomic for a line this size, and the statistics are cheap to
-//! recompute from a few thousand lines. A record is never rewritten, so a
-//! reader can never see one half-updated.
+//! the statistics are cheap to recompute from a few thousand lines, and a
+//! record is never rewritten, so a reader can never see one half-updated. An
+//! exclusive file lock guards the write, because two autoreview processes can
+//! share one ledger under cron and a finding-rich line is too long to count
+//! on a single atomic append.
 
 use crate::cli::EnvFn;
 use crate::findings::{self, Finding};
@@ -55,6 +57,16 @@ pub struct Run {
     pub panel: Vec<PanelEntry>,
     #[serde(default)]
     pub findings: Vec<Finding>,
+    /// True when the synthesized review text was available to read findings
+    /// from. False means the findings list is empty because nothing was read,
+    /// not because nothing was kept -- the keep rate must not count it. Old
+    /// records predate the field and default to read.
+    #[serde(default = "yes")]
+    pub reviewed: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -136,10 +148,34 @@ pub fn append(path: &Path, run: &Run) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut file = opts.open(path)?;
+    let file = opts.open(path)?;
+    // Two autoreview processes can share one ledger under cron, and a line
+    // with many findings is longer than a single atomic append. An exclusive
+    // lock serializes the writers so no two lines interleave. The lock
+    // releases when the file closes at the end of this function.
+    lock_exclusive(&file)?;
     let mut line = serde_json::to_string(run).map_err(std::io::Error::other)?;
     line.push('\n');
-    file.write_all(line.as_bytes())
+    (&file).write_all(line.as_bytes())
+}
+
+#[cfg(unix)]
+fn lock_exclusive(file: &std::fs::File) -> std::io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    // flock is advisory, which is all that is needed: every writer is this
+    // same code path, so they all take the lock. A filesystem that does not
+    // support it (rare) returns an error the caller reports, rather than
+    // writing unlocked.
+    let rc = unsafe { nix::libc::flock(file.as_raw_fd(), nix::libc::LOCK_EX) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn lock_exclusive(_file: &std::fs::File) -> std::io::Result<()> {
+    Ok(())
 }
 
 /// Every run recorded, in the order written, one per id. A line that will
@@ -155,6 +191,10 @@ pub fn read(path: &Path) -> std::io::Result<Vec<Run>> {
     Ok(raw
         .lines()
         .filter_map(|l| serde_json::from_str::<Run>(l).ok())
+        // A record from a newer ledger version may mean something this build
+        // does not, so skip it rather than fold it in. Older and current
+        // versions are read.
+        .filter(|r| r.v <= VERSION)
         .filter(|r| seen.insert(r.id.clone()))
         .collect())
 }
@@ -204,6 +244,7 @@ pub fn autoreview_run(r: Reviewed) -> Run {
         driver_model: r.driver_model.map(str::to_string),
         panel: r.trailer.panel.iter().map(PanelEntry::from).collect(),
         findings: r.review.map(findings::parse).unwrap_or_default(),
+        reviewed: r.review.is_some(),
     }
 }
 
@@ -262,6 +303,7 @@ pub fn panel_run(
             })
             .collect(),
         findings: findings::parse(synthesis),
+        reviewed: true,
     }
 }
 
@@ -297,6 +339,7 @@ mod tests {
             driver_model: None,
             panel: Vec::new(),
             findings: Vec::new(),
+            reviewed: true,
         }
     }
 
