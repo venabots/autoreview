@@ -116,10 +116,11 @@ $REVIEW_PRS_SESSION_ID and a 0/1 $REVIEW_PRS_SESSION_RESUME.
 
 Exit status is 0 only when every review in the final pass succeeded.
 
-Every finished review is appended to a ledger (~/.local/state/autoreview, or
-$AUTOREVIEW_LEDGER; "off" disables it). `autoreview stats` reads it back per
-model: how often each panelist answered, how much it reported, and how much
-of that the synthesis kept. `autoreview stats --help` explains the columns.
+A review that reports the fenced trailer is appended to a ledger
+(~/.local/state/autoreview, or $AUTOREVIEW_LEDGER; "off" disables it).
+`autoreview stats` reads it back per model: how often each panelist answered,
+how much it reported, and how much of that the synthesis kept. `autoreview
+stats --help` explains the columns.
 
 To fan the same PRs into terminal tabs you can watch and steer instead, use
 `review-prs`.

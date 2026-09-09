@@ -15,11 +15,34 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-/// How close a live record's time must be to a trailer's for them to be the
-/// same review. A live record is written within the review's run time of the
-/// trailer, and review passes of one PR are spaced much wider, so 15 minutes
-/// separates "already recorded" from "a later, unrecorded review".
-const LIVE_MATCH_SECS: i64 = 900;
+/// A content fingerprint of a review, the same for a live record and the
+/// transcript it was read from, and different for a distinct review. The
+/// import skips a transcript trailer already recorded live by matching on
+/// this, rather than on time proximity, which could never tell a re-recorded
+/// review from a separate one that finished nearby. The decision is left out:
+/// a live record reads it back from GitHub, so it can differ from the
+/// trailer's own claim that the import stores.
+fn review_signature(r: &Run) -> String {
+    let mut panel: Vec<String> = r
+        .panel
+        .iter()
+        .map(|p| {
+            format!(
+                "{}:{}:{}:{}:{}",
+                p.name,
+                p.model.as_deref().unwrap_or(""),
+                p.ok.map_or("", |ok| if ok { "y" } else { "n" }),
+                p.findings.map_or(-1, |n| n as i64),
+                p.top.as_deref().unwrap_or("")
+            )
+        })
+        .collect();
+    panel.sort();
+    let counts = r.counts.as_ref().map_or(String::new(), |c| {
+        format!("{:?}/{:?}/{:?}", c.must_fix, c.should_fix, c.polish)
+    });
+    format!("{}|{}|{}|{}", r.session.as_deref().unwrap_or(""), r.risk.as_deref().unwrap_or(""), counts, panel.join(";"))
+}
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Imported {
@@ -251,15 +274,12 @@ pub fn from_transcripts(dir: &Path, path: &Path, existing: &[Run]) -> std::io::R
     // files is added once, not once per file.
     let mut known: HashSet<String> = existing.iter().map(|r| r.id.clone()).collect();
     // A review autoreview recorded live holds the same trailer this import
-    // would read, under a different id, so it must not be counted twice. The
-    // match is per review, by session and time: the live record is written
-    // within 15 minutes of the trailer it read, so a trailer far from every live
-    // record in its session is a separate review that was never recorded.
-    let live: Vec<(&str, i64)> = existing
-        .iter()
-        .filter(|r| r.source != "transcript")
-        .filter_map(|r| r.session.as_deref().map(|s| (s, r.at)))
-        .collect();
+    // would read, under a different id, so it must not be counted twice. They
+    // are matched by content fingerprint, which is identical for the two
+    // records of one review and different for a separate review in the same
+    // session -- unlike time proximity, which cannot tell them apart.
+    let live: HashSet<String> =
+        existing.iter().filter(|r| r.source != "transcript").map(review_signature).collect();
     let mut files = Vec::new();
     transcripts_under(dir, &mut files);
     files.sort();
@@ -273,10 +293,7 @@ pub fn from_transcripts(dir: &Path, path: &Path, existing: &[Run]) -> std::io::R
         }
         result.files += 1;
         for run in runs_in_transcript(&text, &mut |cwd| repo_label(cwd, &mut repos)) {
-            let recorded_live = run.session.as_deref().is_some_and(|s| {
-                live.iter().any(|(ls, lat)| *ls == s && (run.at - lat).abs() <= LIVE_MATCH_SECS)
-            });
-            if recorded_live || known.contains(&run.id) {
+            if known.contains(&run.id) || live.contains(&review_signature(&run)) {
                 result.skipped += 1;
                 continue;
             }
@@ -431,11 +448,23 @@ mod tests {
         let again = from_transcripts(&dir.join("projects"), &path, &existing).unwrap();
         assert_eq!(again, Imported { files: 1, added: 0, skipped: 1 });
 
-        // A session autoreview recorded live is not imported on top.
+        // A session autoreview recorded live is not imported on top, matched
+        // by content rather than time. A live record with a different id but
+        // the same content skips the import.
         let mut live = existing[0].clone();
         live.id = "autoreview:s1:100".into();
         live.source = "autoreview".into();
+        live.at = existing[0].at + 99_999; // far in time, still the same review
         let live_only = from_transcripts(&dir.join("projects"), &dir.join("fresh.jsonl"), &[live]).unwrap();
-        assert_eq!(live_only, Imported { files: 1, added: 0, skipped: 1 });
+        assert_eq!(live_only, Imported { files: 1, added: 0, skipped: 1 }, "same content, skipped");
+
+        // A live record of a DIFFERENT review (different panel result) in the
+        // same session does not mask this transcript's review.
+        let mut other = existing[0].clone();
+        other.id = "autoreview:s1:200".into();
+        other.source = "autoreview".into();
+        other.panel[0].findings = Some(99);
+        let distinct = from_transcripts(&dir.join("projects"), &dir.join("fresh2.jsonl"), &[other]).unwrap();
+        assert_eq!(distinct, Imported { files: 1, added: 1, skipped: 0 }, "distinct content, imported");
     }
 }

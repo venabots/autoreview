@@ -379,8 +379,9 @@ most intervals — without reading each other's results:
 
 The log directory is per run, and the OS clears temp directories in days. What
 each model found, and whether it held up, is only worth anything as a series --
-so every finished review is also appended to a **ledger** that outlives the
-run: one JSON line per review under `~/.local/state/autoreview/ledger.jsonl`
+so every review that reports the fenced trailer is also appended to a
+**ledger** that outlives the run: one JSON line per review under
+`~/.local/state/autoreview/ledger.jsonl`
 (`$XDG_STATE_HOME` is honored; `$AUTOREVIEW_LEDGER` names a different file, and
 `off` records nothing). `panel` writes to the same ledger.
 

@@ -14,11 +14,11 @@ pub mod import;
 pub mod render;
 
 use crate::findings::Finding;
-use crate::ledger::{PanelEntry, Run};
+use crate::ledger::Run;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 
-pub const BACKENDS: [&str; 3] = ["codex", "claude", "opencode"];
+use crate::panel::panelist::BACKENDS;
 
 /// Runs enough to call a cohort's numbers settled, and enough to show them
 /// at all with a caveat.
@@ -197,20 +197,19 @@ pub fn wilson(k: u64, n: u64) -> Option<(f64, f64)> {
 /// the panel when there was one; anything else is taken at face value.
 fn resolve(source: &crate::findings::Source, roster: &[(String, Key)]) -> Option<Key> {
     let name = source.name.trim().to_ascii_lowercase();
-    // An explicit model is the strongest signal, so it is matched first: when
-    // two panelists share a backend, "claude (claude-opus-5)" must credit the
-    // opus panelist, not whichever one the run happened to name "claude". A
-    // model no panelist ran stays unscored.
+    // An explicit model is authoritative. Credit the panelist that ran that
+    // exact model, or no one -- never fall back to the name, which would
+    // credit a different model that shares the backend. "claude (claude-opus-5)"
+    // on a panel whose only claude ran claude-fable-5 is not that panelist.
     if source.model.is_some() {
         let with_model = canonical(&source.name, source.model.as_deref());
-        if roster.iter().any(|(_, k)| *k == with_model) {
-            return Some(with_model);
-        }
+        return roster.iter().find(|(_, k)| *k == with_model).map(|(_, k)| k.clone());
     }
     if let Some((_, key)) = roster.iter().find(|(n, _)| n.eq_ignore_ascii_case(&name)) {
         return Some(key.clone());
     }
-    // The synthesis sometimes names a panelist by its model alone ("glm-5.3"),
+    // With no model, the name is all there is. The synthesis sometimes names a
+    // panelist by its model alone ("glm-5.3"),
     // by backend and model ("opencode-glm-5.3") when the run called it plain
     // "opencode", or by the model's family ("glm") when only one was on the
     // panel.
@@ -259,10 +258,10 @@ pub struct Folded {
 
 /// Fold every run into its cohorts.
 pub fn aggregate(runs: &[Run]) -> Vec<Cohort> {
-    fold(runs).cohorts
+    fold(&runs.iter().collect::<Vec<_>>()).cohorts
 }
 
-pub fn fold(runs: &[Run]) -> Folded {
+pub fn fold(runs: &[&Run]) -> Folded {
     let mut cohorts: BTreeMap<Key, Cohort> = BTreeMap::new();
     let mut unresolved: BTreeMap<String, u32> = BTreeMap::new();
     for run in runs {
@@ -404,11 +403,6 @@ pub fn attention(cohorts: &[Cohort]) -> Vec<String> {
         .collect()
 }
 
-/// A panel entry's cohort, for callers outside this module.
-pub fn key_of(p: &PanelEntry) -> Key {
-    canonical(&p.name, p.model.as_deref())
-}
-
 /// The subcommand: parse, maybe import, read, fold, print. Returns the exit
 /// status; everything it has to say is already on stdout or stderr.
 pub fn main(args: &[String]) -> i32 {
@@ -471,8 +465,7 @@ pub fn main(args: &[String]) -> i32 {
         }
         return 0;
     }
-    let owned: Vec<Run> = selected.iter().map(|r| (*r).clone()).collect();
-    let folded = fold(&owned);
+    let folded = fold(&selected);
     let report = render::Report {
         overview: overview(&selected),
         attention: attention(&folded.cohorts),
@@ -495,7 +488,7 @@ pub fn main(args: &[String]) -> i32 {
 mod tests {
     use super::*;
     use crate::findings::Source;
-    use crate::ledger::VERSION;
+    use crate::ledger::{PanelEntry, VERSION};
 
     fn key(b: &str, m: &str) -> Key {
         Key { backend: b.into(), model: m.into() }

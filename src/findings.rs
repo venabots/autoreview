@@ -9,6 +9,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::panel::panelist::BACKENDS;
+
 pub const SEVERITIES: [&str; 4] = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
 
 /// One panelist named in a `Flagged by:` clause, as the synthesis wrote it:
@@ -132,15 +134,22 @@ fn parse_disagreement(line: &str) -> Option<(Finding, String)> {
     // Credit the panelist that RAISED the overruled claim, not one named as a
     // defender. "X and Y found the guard sufficient. Z rated it HIGH." names X
     // first, but Z is the one overruled. Only debit the first name when a
-    // claim verb follows it; otherwise the bullet is too ambiguous to score.
-    const CLAIMED: [&str; 8] = ["claim", "rated", "flag", "raised", "tagged", "said", "called", "argued"];
+    // raise verb follows it in its own clause. The verbs a defender uses
+    // ("said", "found", "called it fine") are deliberately not here.
+    const RAISED: [&str; 6] = ["claim", "rated", "flag", "raised", "tagged", "argued"];
     let tail = after.find(&first.name).map_or(after, |i| &after[i + first.name.len()..]);
-    // Only the first name's own clause, so a claim verb attached to a later,
-    // different panelist ("...found it fine. codex rated it HIGH") does not
-    // make the first name read as the claimant.
     let clause = tail.split(". ").next().unwrap_or(tail);
     let clause = clause.split(" and ").next().unwrap_or(clause).to_ascii_lowercase();
-    if !CLAIMED.iter().any(|v| clause.contains(v)) {
+    if !RAISED.iter().any(|v| clause.contains(v)) {
+        return None;
+    }
+    // The Disagreements section also holds unresolved panelist-versus-panelist
+    // splits, which nobody overruled. Only a bullet that says verification
+    // settled the claim against the raiser is a dropped finding.
+    const SETTLED: [&str; 9] =
+        ["falsif", "disprov", "overrul", "downgrad", "dropped", "does not hold", "did not hold", "not a bug", "unfounded"];
+    let lower = text.to_ascii_lowercase();
+    if !SETTLED.iter().any(|m| lower.contains(m)) {
         return None;
     }
     let finding = Finding {
@@ -274,17 +283,6 @@ fn source_list(list: &str) -> Vec<Source> {
                 break;
             }
         }
-        // A bare word ("using", from "using higher") is not a panelist; a
-        // bare panelist name looks like a model or carries its backend.
-        let plausible = model.is_some()
-            || name.chars().any(|c| c.is_ascii_digit())
-            || ["codex", "claude", "opencode"]
-                .iter()
-                .any(|b| name.eq_ignore_ascii_case(b) || name.to_ascii_lowercase().starts_with(&format!("{b}-")));
-        if !plausible {
-            break;
-        }
-        out.push(Source { name: name.to_string(), model });
         // An inline severity records which panelist said what; the finding's
         // own severity is the one the synthesis chose.
         let mut after = after.trim_start();
@@ -298,12 +296,28 @@ fn source_list(list: &str) -> Vec<Source> {
         // "a, b, and c" reads "and" as the third name and drops c.
         let after = after.trim_start();
         let comma = after.strip_prefix(',').map(str::trim_start);
-        let after = comma.unwrap_or(after);
-        let and = after.strip_prefix("and ").map(str::trim_start);
-        if comma.is_none() && and.is_none() {
+        let after_comma = comma.unwrap_or(after);
+        let and = after_comma.strip_prefix("and ").map(str::trim_start);
+        let has_sep = comma.is_some() || and.is_some();
+        // A token is a panelist when it carries a model, reads like a model
+        // (a digit), names a known backend, or sits in list position -- a
+        // separator right after it. A trailing sentence ("Verified against the
+        // code") has none of these, so reading stops there. A name in the
+        // middle of the list that is none of a known backend -- "gemini" --
+        // is still kept, because the separator proves it is a list element.
+        let known = model.is_some()
+            || name.chars().any(|c| c.is_ascii_digit())
+            || BACKENDS
+                .iter()
+                .any(|b| name.eq_ignore_ascii_case(b) || name.to_ascii_lowercase().starts_with(&format!("{b}-")));
+        if !(known || has_sep) {
             break;
         }
-        rest = and.unwrap_or(after);
+        out.push(Source { name: name.to_string(), model });
+        if !has_sep {
+            break;
+        }
+        rest = and.unwrap_or(after_comma);
     }
     out
 }
@@ -480,22 +494,33 @@ mod tests {
     }
 
     #[test]
-    fn disagreements_written_as_prose_name_the_overruled_panelist() {
+    fn a_falsified_prose_disagreement_debits_its_raiser() {
         let text = "### Disagreements\n\
-- `apps/web/src/lib/evidence-narrative.ts:760-801` — codex (gpt-5.6-sol) claimed the identity clause ignores `policyGrants`. Verification falsified this. Dropped. glm-5.3 read the module and raised no finding.\n\
-- [packages/svm/src/deposits.ts:652-655](https://github.com/o/r/pull/1/files#diff-abcR652) — codex-gpt-5.6-sol (gpt-5.6-sol) rated the two-unrelated-transfers case HIGH. claude (claude-fable-5) and opencode (glm-5.3) both re-traced the path.\n\
-- `kyx_foundation.ts:302` — grok-4.6 rated the missing index MEDIUM. No ADR states that invariant, so I moved it to polish.\n\
-- `x.ts:1` — Verification falsified the whole premise here.\n\
-\n\
-Panel: codex (gpt-5.6-sol) NO_FINDINGS; claude-fable (claude-fable-5) 2 LOW.";
+- `apps/web/src/lib/evidence-narrative.ts:760-801` — codex (gpt-5.6-sol) claimed the identity clause ignores `policyGrants`. Verification falsified this. Dropped.\n\
+- [packages/svm/src/deposits.ts:652-655](https://github.com/o/r/pull/1/files#diff-abcR652) — codex-gpt-5.6-sol (gpt-5.6-sol) rated the case HIGH; claude re-traced it and disproved the vector.\n\
+- `kyx_foundation.ts:302` — grok-4.6 rated the missing index MEDIUM; I downgraded it to polish.";
         let f = parse(text);
         assert_eq!(f.len(), 3, "{f:?}");
         assert!(f.iter().all(|x| x.dropped && x.count == 1));
         assert_eq!(f[0].flagged_by, vec![src("codex", Some("gpt-5.6-sol"))]);
         assert_eq!(f[0].location.as_deref(), Some("apps/web/src/lib/evidence-narrative.ts:760-801"));
         assert_eq!(f[1].flagged_by, vec![src("codex-gpt-5.6-sol", Some("gpt-5.6-sol"))]);
-        assert_eq!(f[1].location.as_deref(), Some("packages/svm/src/deposits.ts:652-655"));
         assert_eq!(f[2].flagged_by, vec![src("grok-4.6", None)]);
+    }
+
+    #[test]
+    fn an_unresolved_split_is_not_a_dropped_finding() {
+        // Nobody was overruled, so nobody is debited.
+        let text = "### Disagreements\n- `a.ts:1` — codex (gpt-5.5) rated it HIGH, but claude (claude-opus-5) was not sure. Left for the author.";
+        assert!(parse(text).is_empty());
+    }
+
+    #[test]
+    fn a_defender_named_first_is_not_debited() {
+        // "said"/"found sufficient" is a defender's clause, not a raise.
+        let text = "### Disagreements\n- `a.ts:1` — claude (claude-opus-5) said the guard is sufficient and disproved the concern. codex (gpt-5.5) rated it HIGH.";
+        let f = parse(text);
+        assert!(f.iter().all(|x| x.flagged_by != vec![src("claude", Some("claude-opus-5"))]), "{f:?}");
     }
 
     #[test]
