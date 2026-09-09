@@ -9,6 +9,7 @@
 //! one library -- not two implementations kept in step by hand.
 
 pub mod ci;
+pub mod findings;
 pub mod cli;
 pub mod interval;
 pub mod job;
