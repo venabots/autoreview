@@ -66,7 +66,10 @@ fn section_of(heading: &str) -> Section {
 /// resumed session quotes its earlier findings when it re-checks them, and
 /// the same finding must not count twice.
 pub fn parse(text: &str) -> Vec<Finding> {
-    let mut out: Vec<Finding> = Vec::new();
+    // The issue text rides alongside each finding for de-duplication only, so
+    // two different bugs at one location do not collapse. It is not stored:
+    // a re-quote lives in the same review text, so the comparison is local.
+    let mut out: Vec<(Finding, String)> = Vec::new();
     let mut section = Section::Other;
     for raw in text.lines() {
         let line = raw.trim();
@@ -79,12 +82,20 @@ pub fn parse(text: &str) -> Vec<Finding> {
             (false, Section::Disagreements) => parse_disagreement(line),
             _ => None,
         };
-        let Some(finding) = parsed else { continue };
-        if !out.iter().any(|f| same_finding(f, &finding)) {
-            out.push(finding);
+        let Some((finding, issue)) = parsed else { continue };
+        match out.iter_mut().find(|(f, i)| same_finding(f, i, &finding, &issue)) {
+            // A later Disagreements copy is the synthesis' final word: the
+            // finding it once kept did not hold, so the kept copy becomes
+            // dropped rather than staying counted.
+            Some((existing, _)) => {
+                if finding.dropped {
+                    existing.dropped = true;
+                }
+            }
+            None => out.push((finding, issue)),
         }
     }
-    out
+    out.into_iter().map(|(f, _)| f).collect()
 }
 
 /// A Disagreements bullet is prose, but prose to a shape: the location, a
@@ -92,7 +103,7 @@ pub fn parse(text: &str) -> Vec<Finding> {
 /// claimed...`, `grok-4.6 rated...` -- and what verification made of it.
 /// The first name is the one overruled; a second one usually agreed with
 /// the synthesizer and is not credited with anything here.
-fn parse_disagreement(line: &str) -> Option<Finding> {
+fn parse_disagreement(line: &str) -> Option<(Finding, String)> {
     if !(line.starts_with('-') || line.starts_with('*')) {
         return None;
     }
@@ -102,24 +113,25 @@ fn parse_disagreement(line: &str) -> Option<Finding> {
         .or_else(|| text.split_once(" -- "))
         .or_else(|| text.split_once(": "))?;
     let first = source_list(after).into_iter().next()?;
-    Some(Finding {
+    let finding = Finding {
         severity: SEVERITIES.iter().find(|s| head.contains(&format!("[{s}]"))).map(|s| s.to_string()),
         location: location_in(head),
         flagged_by: vec![first],
         count: 1,
         dropped: true,
-    })
+    };
+    Some((finding, head.trim().to_string()))
 }
 
-fn same_finding(a: &Finding, b: &Finding) -> bool {
-    a.severity == b.severity
-        && a.location == b.location
-        && a.count == b.count
-        && a.flagged_by.len() == b.flagged_by.len()
-        && a.flagged_by.iter().all(|s| b.flagged_by.contains(s))
+/// Two parses are the same finding when severity, location and issue text all
+/// match. The issue text is what keeps two different bugs at one location
+/// apart; the source list and the count are not compared, so a re-quote with
+/// more panelists still reads as one finding.
+fn same_finding(a: &Finding, a_issue: &str, b: &Finding, b_issue: &str) -> bool {
+    a.severity == b.severity && a.location == b.location && a_issue == b_issue
 }
 
-fn parse_line(line: &str, section: Section) -> Option<Finding> {
+fn parse_line(line: &str, section: Section) -> Option<(Finding, String)> {
     let (head, tail) = line.split_once("Flagged by")?;
     let head = unlink(head);
     let severity = SEVERITIES
@@ -134,13 +146,14 @@ fn parse_line(line: &str, section: Section) -> Option<Finding> {
     if count == 0 {
         return None;
     }
-    Some(Finding {
+    let finding = Finding {
         severity,
         location: location_in(&head),
         flagged_by,
         count,
         dropped: section == Section::Disagreements,
-    })
+    };
+    Some((finding, head.trim().to_string()))
 }
 
 /// The clause after "Flagged by": `: a (m), b (m2)`, `2: a (m) [LOW], b (m2)
@@ -224,13 +237,17 @@ fn source_list(list: &str) -> Vec<Source> {
         {
             after = after[close + 1..].trim_start();
         }
-        rest = if let Some(next) = after.strip_prefix(',') {
-            next
-        } else if let Some(next) = after.strip_prefix("and ") {
-            next
-        } else {
+        // A comma, "and", or the Oxford ", and" all separate two names. The
+        // comma and the "and" both have to be consumed, or the list
+        // "a, b, and c" reads "and" as the third name and drops c.
+        let after = after.trim_start();
+        let comma = after.strip_prefix(',').map(str::trim_start);
+        let after = comma.unwrap_or(after);
+        let and = after.strip_prefix("and ").map(str::trim_start);
+        if comma.is_none() && and.is_none() {
             break;
-        };
+        }
+        rest = and.unwrap_or(after);
     }
     out
 }

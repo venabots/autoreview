@@ -189,10 +189,20 @@ fn resolve(source: &crate::findings::Source, roster: &[(String, Key)]) -> Option
     if let Some((_, key)) = roster.iter().find(|(n, _)| n.eq_ignore_ascii_case(&name)) {
         return Some(key.clone());
     }
-    // The synthesis sometimes names a panelist by its model ("glm-5.3"), by
-    // backend and model ("opencode-glm-5.3") when the run called it plain
-    // "opencode", or by the model's family ("glm") when only one of those was
-    // on the panel.
+    // The common case: "opencode (glm-5.3)" names a backend and a model, and
+    // the run launched that model under a longer id. Match the source's own
+    // (backend, model) against the roster. A model no panelist ran stays
+    // unscored -- "claude (claude-opus-5)" on a codex-only run is not credited.
+    if source.model.is_some() {
+        let with_model = canonical(&source.name, source.model.as_deref());
+        if roster.iter().any(|(_, k)| *k == with_model) {
+            return Some(with_model);
+        }
+    }
+    // The synthesis sometimes names a panelist by its model alone ("glm-5.3"),
+    // by backend and model ("opencode-glm-5.3") when the run called it plain
+    // "opencode", or by the model's family ("glm") when only one was on the
+    // panel.
     let as_model = normalize_model(&name);
     let mut by_model: Vec<&Key> = roster.iter().map(|(_, k)| k).filter(|k| k.model == as_model).collect();
     by_model.dedup();
@@ -203,12 +213,7 @@ fn resolve(source: &crate::findings::Source, roster: &[(String, Key)]) -> Option
     if roster.iter().any(|(_, k)| *k == as_key) {
         return Some(as_key);
     }
-    // A model the roster does not list is still a model -- when the name
-    // is a backend that could have run it. "ci-sdk (v2)" is prose.
     let backend = backend_of(&name);
-    if source.model.is_some() && BACKENDS.contains(&backend.as_str()) {
-        return Some(canonical(&source.name, source.model.as_deref()));
-    }
     let mut on_backend: Vec<&Key> = roster.iter().map(|(_, k)| k).filter(|k| k.backend == backend).collect();
     on_backend.dedup();
     if let [key] = on_backend[..] {
@@ -611,9 +616,11 @@ mod tests {
         assert_eq!(resolve(&src("opencode-glm-5.3", None), &roster), Some(key("opencode", "glm-5.3")), "by backend-model");
         assert_eq!(resolve(&src("codex", None), &roster), Some(key("codex", "gpt-5.6-sol")), "the one codex");
         assert_eq!(resolve(&src("grok", None), &roster), Some(key("opencode", "grok-4.6")), "by family");
-        assert_eq!(resolve(&src("claude", Some("claude-opus-5")), &roster), Some(key("claude", "claude-opus-5")), "a model not on the roster is still a model");
-        assert_eq!(resolve(&src("ci-sdk", Some("v2")), &roster), None, "...when a backend could have run it");
-        assert_eq!(resolve(&src("opencode", None), &roster), None, "two opencodes: ambiguous");
+        assert_eq!(resolve(&src("opencode", Some("glm-5.3")), &roster), Some(key("opencode", "glm-5.3")), "backend + model the run launched under a longer id");
+        assert_eq!(resolve(&src("opencode", Some("zai-coding-plan/glm-5.3")), &roster), Some(key("opencode", "glm-5.3")), "...however the model was spelled");
+        assert_eq!(resolve(&src("claude", Some("claude-opus-5")), &roster), None, "a model no panelist ran is not scored");
+        assert_eq!(resolve(&src("ci-sdk", Some("v2")), &roster), None, "a credited non-panelist is not scored");
+        assert_eq!(resolve(&src("opencode", None), &roster), None, "two opencodes, no model: ambiguous");
         assert_eq!(resolve(&src("coderabbitai", None), &roster), None, "not a panelist");
         assert_eq!(resolve(&src("coderabbitai", None), &[]), None, "...even with no roster to check");
     }

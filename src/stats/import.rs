@@ -204,10 +204,13 @@ pub fn runs_in_transcript(text: &str, repo_of: &mut dyn FnMut(&str) -> String) -
 fn transcripts_under(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
+        // file_type does not follow the link, so a symbolic link to a parent
+        // directory cannot send the walk into an endless loop.
+        let Ok(kind) = entry.file_type() else { continue };
         let path = entry.path();
-        if path.is_dir() {
+        if kind.is_dir() {
             transcripts_under(&path, out);
-        } else if path.extension().is_some_and(|e| e == "jsonl") {
+        } else if kind.is_file() && path.extension().is_some_and(|e| e == "jsonl") {
             out.push(path);
         }
     }

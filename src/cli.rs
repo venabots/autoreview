@@ -12,6 +12,8 @@ Usage: autoreview [--pick] [--watch[=MINUTES]] [--babysit[=MINUTES]]
                   [--focus TEXT] [--no-post] [--continue] [--jobs N]
                   [--timeout SECONDS] [--budget USD] [--log-dir DIR]
                   [--all] [--dependabot] [--skip-wait-for-ci] [--help]
+       autoreview stats [--import] [--since WHEN] [--repo NAME] [--json]
+                  (how each model has done; `autoreview stats --help`)
 
 Every NEW or UPDATED PR is reviewed by default -- the actionable ones. SEEN
 PRs (nothing has changed since you last engaged) are left alone, and so is a

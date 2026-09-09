@@ -71,14 +71,17 @@ pub fn parse_since(raw: &str, now: i64) -> Result<i64, String> {
         let plausible = in_range(&raw[5..7], 12) && in_range(&raw[8..10], 31);
         return crate::prlist::parse_iso(&format!("{raw}T00:00:00Z")).filter(|_| plausible).ok_or_else(bad);
     }
-    let (num, unit) = raw.split_at(raw.len().saturating_sub(1));
+    // By character, not byte: a multibyte last character must be refused,
+    // not split in the middle.
+    let unit = raw.chars().next_back().ok_or_else(bad)?;
+    let num = &raw[..raw.len() - unit.len_utf8()];
     let n: i64 = num.parse().map_err(|_| bad())?;
     if n <= 0 {
         return Err(bad());
     }
     let secs = match unit {
-        "d" => n * 86_400,
-        "w" => n * 7 * 86_400,
+        'd' => n * 86_400,
+        'w' => n * 7 * 86_400,
         _ => return Err(bad()),
     };
     Ok(now - secs)
@@ -139,6 +142,14 @@ mod tests {
         assert!(parse_since("0d", 1).is_err());
         assert!(parse_since("soon", 1).unwrap_err().contains("--since expects"));
         assert!(parse_since("2026-13-01", 1).is_err());
+        // A non-ASCII value must be refused, not split mid-character.
+        assert!(parse_since("日", 1).is_err());
+        assert!(parse_since("7é", 1).is_err());
+        assert!(parse_since("", 1).is_err());
+        assert!(parse_since("", 1).is_err());
+        assert!(parse_since("日", 1).is_err(), "a multibyte value is refused, not split");
+        assert!(parse_since("7日", 1).is_err());
+        assert!(parse_since("2026-08-0é", 1).is_err());
     }
 
     #[test]
