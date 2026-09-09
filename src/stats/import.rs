@@ -265,10 +265,14 @@ fn transcripts_under(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Read every transcript under `dir` into the ledger at `path`, skipping
-/// what is already there. A session autoreview recorded live is skipped
-/// whole: its passes are in the ledger under their own ids, and importing
-/// the same trailers again would count each review twice.
+/// Read every transcript under `dir` into the ledger at `path`, skipping what
+/// is already there -- a record already in the ledger by id, and a review
+/// autoreview recorded live, matched by content fingerprint. The fingerprint
+/// is best effort: two reviews in one session with identical panel results,
+/// counts and risk share a fingerprint, so a re-import after live recording
+/// can drop one as a near-duplicate. This has no effect on the common path --
+/// a first import into an empty ledger matches nothing and imports everything,
+/// and live recording is the source of truth from then on.
 pub fn from_transcripts(dir: &Path, path: &Path, existing: &[Run]) -> std::io::Result<Imported> {
     // Owned and updated as runs are written, so the same id in two transcript
     // files is added once, not once per file.

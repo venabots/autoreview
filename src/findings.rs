@@ -175,9 +175,24 @@ fn same_finding(a: &Finding, a_issue: &str, b: &Finding, b_issue: &str) -> bool 
 /// continue it, so the parser reads one logical bullet and keeps every
 /// panelist and the location. A heading stands alone; a blank line ends a
 /// bullet, so a later paragraph does not glue onto it.
+/// True for a line that opens or closes a fenced code block.
+fn is_fence(line: &str) -> bool {
+    line.trim_start().starts_with("```")
+}
+
 fn logical_lines(text: &str) -> Vec<String> {
     let mut units: Vec<String> = Vec::new();
+    let mut in_fence = false;
     for raw in text.lines() {
+        // A finding quoted inside a fenced code block is an example, not a
+        // raised finding. Skip everything between the fences, and the fences.
+        if is_fence(raw) {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
         let trimmed = raw.trim();
         let is_bullet = trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed == "-" || trimmed == "*";
         if trimmed.starts_with('#') || is_bullet {
@@ -368,7 +383,18 @@ fn location_in(head: &str) -> Option<String> {
 pub fn is_synthesis(text: &str) -> bool {
     const HEADINGS: [&str; 7] =
         ["### Overview", "### Risk", "### must-fix", "### should-fix", "### polish", "### Disagreements", "### Approach"];
-    text.contains("Flagged by") || HEADINGS.iter().any(|h| text.contains(h))
+    // Outside fenced code, so a message that merely quotes a synthesis as an
+    // example does not read as one.
+    let mut in_fence = false;
+    text.lines()
+        .filter(|l| {
+            if is_fence(l) {
+                in_fence = !in_fence;
+                return false;
+            }
+            !in_fence
+        })
+        .any(|l| l.contains("Flagged by") || HEADINGS.iter().any(|h| l.contains(h)))
 }
 
 /// The synthesized risk, from the line under `### Risk`.
@@ -572,6 +598,19 @@ mod tests {
         assert!(is_synthesis("- [LOW] a.rs:1 — nit. Flagged by: codex (gpt-5)"));
         assert!(!is_synthesis("Posted the review with gh."));
         assert!(!is_synthesis("### Next steps\n- ran the panel and posted it"));
+        // A synthesis quoted as an example inside a fence is not a synthesis.
+        assert!(!is_synthesis("The shape is:\n```md\n- [HIGH] a.rs:1 — bug. Flagged by: codex (gpt-5)\n```"));
+    }
+
+    #[test]
+    fn a_finding_quoted_in_a_code_fence_is_not_counted() {
+        let text = "The shape is:\n```md\n- [HIGH] a.rs:1 — bug. Flagged by: codex (gpt-5.5)\n```\nThat is the format.";
+        assert!(parse(text).is_empty(), "a fenced example is not a raised finding");
+        // A real finding outside the fence is still read.
+        let text = "### must-fix\n- [HIGH] a.rs:1 — real. Flagged by: codex (gpt-5.5)\n\nExample:\n```md\n- [LOW] b.rs:2 — example. Flagged by: claude (claude-opus-5)\n```";
+        let f = parse(text);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].location.as_deref(), Some("a.rs:1"));
     }
 
     #[test]

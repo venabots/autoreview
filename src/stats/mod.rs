@@ -201,9 +201,21 @@ fn resolve(source: &crate::findings::Source, roster: &[(String, Key)]) -> Option
     // exact model, or no one -- never fall back to the name, which would
     // credit a different model that shares the backend. "claude (claude-opus-5)"
     // on a panel whose only claude ran claude-fable-5 is not that panelist.
-    if source.model.is_some() {
-        let with_model = canonical(&source.name, source.model.as_deref());
-        return roster.iter().find(|(_, k)| *k == with_model).map(|(_, k)| k.clone());
+    if let Some(model) = source.model.as_deref() {
+        let with_model = canonical(&source.name, Some(model));
+        if let Some((_, key)) = roster.iter().find(|(_, k)| *k == with_model) {
+            return Some(key.clone());
+        }
+        // The roster may not have recorded a model. A sole backend panelist
+        // whose model is unknown is the one meant; more than one, or a known
+        // and different model, is not -- leave it unscored.
+        let mut unknown: Vec<&Key> =
+            roster.iter().map(|(_, k)| k).filter(|k| k.backend == with_model.backend && k.model == "unknown").collect();
+        unknown.dedup();
+        return match unknown[..] {
+            [key] => Some(key.clone()),
+            _ => None,
+        };
     }
     if let Some((_, key)) = roster.iter().find(|(n, _)| n.eq_ignore_ascii_case(&name)) {
         return Some(key.clone());
@@ -223,10 +235,16 @@ fn resolve(source: &crate::findings::Source, roster: &[(String, Key)]) -> Option
     if roster.iter().any(|(_, k)| *k == as_key) {
         return Some(as_key);
     }
+    // A bare backend name ("claude") means the one panelist on that backend.
+    // A longer name that merely starts with the backend ("claude-code-bot",
+    // "claude-opus-5") is a different thing -- an outside bot, or a model not
+    // on the panel -- so it is not credited to that sole panelist.
     let backend = backend_of(&name);
     let mut on_backend: Vec<&Key> = roster.iter().map(|(_, k)| k).filter(|k| k.backend == backend).collect();
     on_backend.dedup();
-    if let [key] = on_backend[..] {
+    if name == backend
+        && let [key] = on_backend[..]
+    {
         return Some(key.clone());
     }
     let mut by_family: Vec<&Key> = roster
@@ -647,6 +665,17 @@ mod tests {
             "the model, not the name, decides"
         );
         assert_eq!(resolve(&src("opencode", None), &roster), None, "two opencodes, no model: ambiguous");
+        // A bare backend name credits the sole panelist; a longer name that
+        // merely starts with the backend does not.
+        let fable = vec![("claude".to_string(), key("claude", "claude-fable-5"))];
+        assert_eq!(resolve(&src("claude", None), &fable), Some(key("claude", "claude-fable-5")), "bare backend");
+        assert_eq!(resolve(&src("claude-code-bot", None), &fable), None, "an outside bot is not the panelist");
+        assert_eq!(resolve(&src("claude-opus-5", None), &fable), None, "a bare model name the panel did not run is not credited");
+        // A model-bearing source matches a panelist whose model was not
+        // recorded, but not one whose model is known and different.
+        let no_model = vec![("claude".to_string(), key("claude", "unknown"))];
+        assert_eq!(resolve(&src("claude", Some("claude-opus-5")), &no_model), Some(key("claude", "unknown")), "sole unknown-model panelist");
+        assert_eq!(resolve(&src("claude", Some("claude-opus-5")), &fable), None, "a known, different model is not credited");
         assert_eq!(resolve(&src("coderabbitai", None), &roster), None, "not a panelist");
         assert_eq!(resolve(&src("coderabbitai", None), &[]), None, "...even with no roster to check");
     }

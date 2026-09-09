@@ -250,6 +250,9 @@ pub fn run(cfg: &Config) -> Result<i32> {
                 eprintln!("panel: interrupted during synthesis");
                 return Ok(130);
             }
+            // The panelists ran and answered; a synthesis that failed does not
+            // erase that, so their launches still count toward availability.
+            record("");
             return Err(e);
         }
     };
