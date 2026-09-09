@@ -23,6 +23,10 @@ assert_equals "an empty ledger is not an error" "$(last_status)" "0"
 assert_contains "...and says where the history will go" "$out" "no reviews recorded yet in $AUTOREVIEW_LEDGER"
 assert_contains "...and how to read the past in" "$out" "autoreview stats --import"
 
+out="$(run_stats --json)"
+assert_equals "an empty ledger under --json is still JSON" \
+  "$(printf '%s' "$out" | jq -r '.overview.runs')" "0"
+
 # --- A review, then the numbers ---------------------------------------------
 # The fake reviewer reports a two-model panel for PR #8: codex found one LOW
 # finding, claude found nothing.

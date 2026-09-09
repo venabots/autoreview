@@ -77,6 +77,13 @@ pub fn parse(text: &str) -> Vec<Finding> {
             section = section_of(line);
             continue;
         }
+        // A section runs until the next heading or a prose paragraph. Without
+        // this, the Disagreements section leaks into whatever the reviewer
+        // wrote after the synthesis -- a "Posted these comments" summary, say
+        // -- and its bullets read as dropped findings.
+        if !(line.is_empty() || line.starts_with('-') || line.starts_with('*')) {
+            section = Section::Other;
+        }
         let parsed = match (line.contains("Flagged by"), section) {
             (true, _) => parse_line(line, section),
             (false, Section::Disagreements) => parse_disagreement(line),
@@ -197,11 +204,13 @@ fn parse_sources(tail: &str) -> (u32, Vec<Source>) {
         .trim_end_matches('.')
         .trim();
     let explicit: Option<u32> = if explicit.is_empty() { None } else { explicit.parse().ok() };
-    // Words where a count was expected ("Flagged by nobody") are not a clause.
-    if explicit.is_none() && !count_part.is_empty() {
+    let sources = list.map(|l| source_list(&unlink(l))).unwrap_or_default();
+    // A word where a count belongs, with no list, is prose ("Flagged by
+    // nobody") and not a finding. When a list is present the word is just
+    // "all", and the list is the truth, so the finding is kept.
+    if sources.is_empty() && explicit.is_none() && !count_part.is_empty() {
         return (0, Vec::new());
     }
-    let sources = list.map(|l| source_list(&unlink(l))).unwrap_or_default();
     let count = explicit.unwrap_or(sources.len() as u32).max(sources.len() as u32);
     (count, sources)
 }
@@ -352,9 +361,13 @@ pub fn count_raw(report: &str) -> Option<u64> {
 
 /// The most severe tag among a report's bullets.
 pub fn top_severity(report: &str) -> Option<String> {
+    let is_bullet = |l: &str| {
+        let t = l.trim_start();
+        t.starts_with('-') || t.starts_with('*')
+    };
     SEVERITIES
         .iter()
-        .find(|s| report.lines().any(|l| l.trim_start().starts_with('-') && l.contains(&format!("[{s}]"))))
+        .find(|s| report.lines().any(|l| is_bullet(l) && l.contains(&format!("[{s}]"))))
         .map(|s| s.to_string())
 }
 
@@ -490,6 +503,22 @@ Panel: codex (gpt-5.6-sol) NO_FINDINGS; claude-fable (claude-fable-5) 2 LOW.";
         assert_eq!(f[0].flagged_by.len(), 2, "\"using\" is not a panelist: {f:?}");
         let f = parse("- [LOW] a.rs:1 — issue. Flagged by: opencode-glm, grok-4.6, codex");
         assert_eq!(f[0].flagged_by.len(), 3, "a backend-prefixed or model-like name is: {f:?}");
+        // A word where a count belongs keeps the list, not discards it.
+        let f = parse("- [HIGH] a.rs:1 — issue. Flagged by all: codex (gpt-5.5), claude (claude-opus-5)");
+        assert_eq!(f.len(), 1, "\"all:\" with a list is a finding: {f:?}");
+        assert_eq!(f[0].count, 2);
+    }
+
+    #[test]
+    fn the_disagreements_section_ends_at_the_next_paragraph() {
+        // A "posted these comments" summary after the synthesis must not read
+        // as more dropped findings.
+        let text = "### must-fix\n- [HIGH] src/pay.ts:10 — double charge. Flagged by: codex (gpt-5.5)\n\n### Disagreements\n- [MEDIUM] src/x.ts:1 — not a bug on inspection. Flagged by: claude (claude-opus-5)\n\nPosted 1 inline comment:\n- src/pay.ts:10 — codex (gpt-5.5) found the double charge.";
+        let f = parse(text);
+        assert_eq!(f.len(), 2, "{f:?}");
+        assert!(!f[0].dropped);
+        assert!(f[1].dropped);
+        assert_eq!(f[1].location.as_deref(), Some("src/x.ts:1"));
     }
 
     #[test]

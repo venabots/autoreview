@@ -456,7 +456,9 @@ pub fn main(args: &[String]) -> i32 {
         }
     }
     let selected = select(&runs, opts.since, opts.repo.as_deref());
-    if selected.is_empty() {
+    // An empty result under --json is still JSON: a tool reading the output
+    // must not get a friendly sentence where it expected an object.
+    if selected.is_empty() && !opts.json {
         if runs.is_empty() {
             println!("no reviews recorded yet in {}", path.display());
             println!("every autoreview pass and panel run is recorded from now on;");

@@ -149,6 +149,14 @@ pub fn append(path: &Path, run: &Run) -> std::io::Result<()> {
         opts.mode(0o600);
     }
     let file = opts.open(path)?;
+    // The mode above applies only when the file is created; re-assert it so an
+    // existing ledger that somehow became readable is tightened. It holds
+    // repository names, file paths and line numbers.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+    }
     // Two autoreview processes can share one ledger under cron, and a line
     // with many findings is longer than a single atomic append. An exclusive
     // lock serializes the writers so no two lines interleave. The lock

@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// same review. A live record is written within the review's run time of the
 /// trailer, and review passes of one PR are spaced much wider, so an hour
 /// separates "already recorded" from "a later, unrecorded review".
-const LIVE_MATCH_SECS: i64 = 3600;
+const LIVE_MATCH_SECS: i64 = 900;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Imported {
@@ -92,7 +92,12 @@ fn trailers_in(text: &str) -> Vec<(Trailer, usize)> {
         let body_start = start + "```autoreview".len();
         let Some(end_rel) = text[body_start..].find("```") else { break };
         let body = text[body_start..body_start + end_rel].trim();
-        if let Ok(t) = serde_json::from_str::<Trailer>(body) {
+        // A fence with no decision and no panel is not a review trailer: it is
+        // an empty object, or a doc that explains the format. Every Trailer
+        // field is optional, so without this check `{}` imports as a review.
+        if let Ok(t) = serde_json::from_str::<Trailer>(body)
+            && (t.decision.is_some() || !t.panel.is_empty())
+        {
             out.push((t, body_start + end_rel + 3));
         }
         from = body_start + end_rel + 3;
@@ -179,6 +184,11 @@ pub fn runs_in_transcript(text: &str, repo_of: &mut dyn FnMut(&str) -> String) -
                     let review = format!("{pending}{}", &body[cursor..*end]);
                     cursor = *end;
                     pending.clear();
+                    // The review text was captured only when it holds a real
+                    // synthesis -- a bucket heading or a Flagged by clause. A
+                    // bare sign-off before the trailer is not a synthesis, so
+                    // its reported counts must not enter the keep rate.
+                    let reviewed = review.contains("Flagged by") || review.contains("### ");
                     let sid = session.clone().unwrap_or_default();
                     runs.push(Run {
                         v: VERSION,
@@ -198,7 +208,7 @@ pub fn runs_in_transcript(text: &str, repo_of: &mut dyn FnMut(&str) -> String) -
                         driver_model: model.clone(),
                         panel: trailer.panel.iter().map(PanelEntry::from).collect(),
                         findings: findings::parse(&review),
-                        reviewed: true,
+                        reviewed,
                     });
                 }
                 // Whatever followed the last block starts the next review.
@@ -230,7 +240,9 @@ fn transcripts_under(dir: &Path, out: &mut Vec<PathBuf>) {
 /// whole: its passes are in the ledger under their own ids, and importing
 /// the same trailers again would count each review twice.
 pub fn from_transcripts(dir: &Path, path: &Path, existing: &[Run]) -> std::io::Result<Imported> {
-    let known: HashSet<&str> = existing.iter().map(|r| r.id.as_str()).collect();
+    // Owned and updated as runs are written, so the same id in two transcript
+    // files is added once, not once per file.
+    let mut known: HashSet<String> = existing.iter().map(|r| r.id.clone()).collect();
     // A review autoreview recorded live holds the same trailer this import
     // would read, under a different id, so it must not be counted twice. The
     // match is per review, by session and time: the live record is written
@@ -257,11 +269,12 @@ pub fn from_transcripts(dir: &Path, path: &Path, existing: &[Run]) -> std::io::R
             let recorded_live = run.session.as_deref().is_some_and(|s| {
                 live.iter().any(|(ls, lat)| *ls == s && (run.at - lat).abs() <= LIVE_MATCH_SECS)
             });
-            if recorded_live || known.contains(run.id.as_str()) {
+            if recorded_live || known.contains(&run.id) {
                 result.skipped += 1;
                 continue;
             }
             ledger::append(path, &run)?;
+            known.insert(run.id.clone());
             result.added += 1;
         }
     }
@@ -358,6 +371,34 @@ mod tests {
     fn a_transcript_with_no_trailer_is_no_run() {
         let text = [user("hello"), assistant("u1", "2026-08-26T20:30:00.000Z", "hi")].join("\n");
         assert!(runs_in_transcript(&text, &mut |_| "x".into()).is_empty());
+    }
+
+    #[test]
+    fn an_empty_fence_is_not_a_review() {
+        // A transcript that only explains the trailer format holds fences with
+        // no decision and no panel; none of them is a recorded review.
+        let text = [
+            user("/auto-review 9"),
+            assistant("u1", "2026-08-26T20:30:00.000Z", "The trailer looks like:\n```autoreview\n{}\n```"),
+            assistant("u2", "2026-08-26T20:31:00.000Z", "Or:\n```autoreview\n{\"hello\":\"world\"}\n```"),
+        ]
+        .join("\n");
+        assert!(runs_in_transcript(&text, &mut |_| "x".into()).is_empty());
+    }
+
+    #[test]
+    fn a_trailer_with_no_synthesis_text_is_not_counted_in_the_keep_rate() {
+        // A sign-off before the trailer, with no synthesis, must not add its
+        // reported findings to the keep-rate denominator.
+        let bare = "```autoreview\n{\"decision\":\"commented\",\"risk\":\"LOW\",\"findings\":{\"must_fix\":1,\"should_fix\":2,\"polish\":0},\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":3,\"top\":\"HIGH\"}]}\n```";
+        let text = [
+            user("/auto-review 9"),
+            assistant("u1", "2026-08-26T20:30:00.000Z", &format!("I ran the panel and posted the review.\n\n{bare}")),
+        ]
+        .join("\n");
+        let runs = runs_in_transcript(&text, &mut |_| "acme/widgets".into());
+        assert_eq!(runs.len(), 1);
+        assert!(!runs[0].reviewed, "no synthesis text was captured");
     }
 
     #[test]
