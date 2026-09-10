@@ -550,7 +550,7 @@ default_prs() {
 EOF
 
   cat >"$SANDBOX/fixtures/prs.json" <<'EOF'
-{"data":{"repository":{"pullRequests":{"nodes":[
+{"data":{"repository":{"defaultBranchRef":{"name":"main"},"pullRequests":{"nodes":[
   {"number":9,"title":"Add retry logic","isDraft":false,
    "updatedAt":"2026-08-10T10:00:00Z","reviewDecision":null,
    "headRefOid":"sha9",
