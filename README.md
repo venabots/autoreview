@@ -694,6 +694,14 @@ below it, and reviewing it means reading that PR's work for the integration
 anyway. Found by the branch names, which is the one case the base branch does
 answer.
 
+Branch names alone would mistake a long-lived branch for a stack, so two guards
+keep integration branches out. The repository's default branch is never a stack
+tip — a PR that merges `main` back into a release branch would otherwise hold
+every PR that merges into `main`. And a stack parent creates the branch its
+children merge into, so no open PR was already merging into that branch before
+the parent was opened: on a git-flow repo the PRs merging into `develop` predate
+the PR that merges `develop` onward, and none of them is stacked on it.
+
 **An undeclared stack** — the branch was cut from another open PR's branch
 while it was in flight, and still says `base: main`. GitHub then serves the
 diff from where the two branches parted, so that PR's commits sit inside this
@@ -710,24 +718,30 @@ The sweep names each held PR and how it was found:
 holding 2 PRs stacked on another PR: #16 (based on #15) #18 (8 commits also in #15); --stacked reviews them anyway
 ```
 
-A held PR is released by the PR underneath it landing. Each group keeps exactly
-one reviewable member — the PR the others are built on, or, when two branches
-were cut from the same unmerged commit, the one opened first — so a group can
-never hold all of its members.
+A held PR is released by the PR underneath it landing. Every hold names one PR
+directly underneath and rests on evidence about those two PRs alone: a declared
+base, a carried tip commit, or commits the two diffs share. Relatedness is never
+passed along a chain — two PRs that share nothing are not related because a
+third one carries both, and a PR held on work it does not share would wait for a
+merge that changes nothing about it. A relation that pointed in a circle would
+leave every PR in it waiting, so the oldest member of a circle is freed.
 
 Every open PR counts for this, including drafts, approved ones, bots and your
 own: a colleague's branch cut from your unmerged work carries your commits
 whether or not this tool would ever review yours. So the relation is worked out
 before any filter runs.
 
-Unlike a CI hold, this is **not** a reason for a loop to keep waiting. Checks
+Unlike a CI hold, this is **not** a reason for a run to keep waiting. Checks
 settle by themselves in minutes; a stack moves when a person merges something.
-So a `--watch` or `--babysit` run names a stacked PR once and does not sit
-waiting on it.
+So a `--watch` or `--babysit` run names a stacked PR once and drops it from its
+watch list, and a one-shot run never spends its
+[CI wait](#waiting-for-ci) on a PR the stack gate will hold anyway. A dropped PR
+rejoins as new work once the stack clears.
 
 `--stacked` / `-s` turns the hold off and reviews every PR in the stack. The
 picker never holds a pick — it marks those rows `(stacked on #15)` so you
-choose knowing.
+choose knowing — and a loop after a pick (`--pick --babysit`, `--pick --watch`)
+keeps a picked PR even when it starts to sit on another open PR.
 
 ## Columns
 
