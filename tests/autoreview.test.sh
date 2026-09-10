@@ -626,7 +626,11 @@ bg=$!
 # alive at that point. It stops at the second. A watch run keeps going.
 waited=0
 while [[ "$waited" -lt 1800 ]]; do
-  [[ "$(grep -c "next check in" "$SANDBOX/out/bg" 2>/dev/null || echo 0)" -ge 2 ]] && break
+  # grep -c prints its own 0 and still exits 1, so a `|| echo 0` fallback
+  # appends a second line and the arithmetic test below dies on "0\n0". Only a
+  # missing file leaves this empty, which the default covers.
+  checks="$(grep -c "next check in" "$SANDBOX/out/bg" 2>/dev/null || true)"
+  [[ "${checks:-0}" -ge 2 ]] && break
   kill -0 "$bg" 2>/dev/null || break
   sleep 0.1
   waited=$((waited + 1))
@@ -941,16 +945,61 @@ assert_contains "a PR cut from your own branch is held on it" \
   "$out" "holding 1 PR stacked on another PR: #8 (2 commits also in #4)"
 assert_not_contains "...and is not reviewed" "$(claude_calls)" "/auto-review 8"
 assert_not_contains "...nor is yours, which is still hidden" "$(claude_calls)" "/auto-review 4"
-# The declared shape: #8's base is #9's branch. GitHub keeps their diffs apart,
-# so nothing is duplicated -- but #8 is still the top of a stack whose bottom
-# has not settled, and reviewing it means reading #9's work anyway.
+# The declared shape: #9's base is #8's branch. GitHub keeps their diffs apart,
+# so nothing is duplicated -- but #9 is still the top of a stack whose bottom
+# has not settled, and reviewing it means reading #8's work anyway.
 default_prs
-base_pr_on 8 9
+base_pr_on 9 8
 out="$(run_autoreview --auto)"
 assert_contains "a PR based on another PR's branch is held on it" \
-  "$out" "holding 1 PR stacked on another PR: #8 (based on #9)"
-assert_not_contains "...and is not reviewed" "$(claude_calls)" "/auto-review 8"
-assert_contains "...while the one underneath is" "$(claude_calls)" "/auto-review 9"
+  "$out" "holding 1 PR stacked on another PR: #9 (based on #8)"
+assert_not_contains "...and is not reviewed" "$(claude_calls)" "/auto-review 9"
+assert_contains "...while the one underneath is" "$(claude_calls)" "/auto-review 8"
+default_prs
+
+# --- A picked PR is never dropped for sitting on another PR ---------------
+# The picker holds nothing: it marks the row and reviews what you chose. A loop
+# after a pick that dropped that PR would stop with it unreviewed, which is the
+# opposite of what --pick --babysit was asked to do.
+default_prs
+stack_pr_on 8 9
+out="$(FAKE_GUM_PICK="#8" run_autoreview_until "next check in" 25 --pick --babysit=1)"
+# A picked run that babysits is unattended, so it takes the auto prompt.
+assert_contains "a picked PR is reviewed even when it sits on another PR" \
+  "$(claude_calls)" "/auto-review 8"
+assert_not_contains "...and the loop does not drop it" "$out" "now sits on another open PR"
+assert_not_contains "...nor calls it finished" "$out" "every picked PR is finished"
+
+# --- A PR that becomes stacked mid-run leaves the loop, and says so -------
+# A run only sees the stack when it refreshes. A PR reviewed in pass 1 can have
+# another PR opened underneath it a minute later, and a run that kept watching
+# it would sit waiting for a merge that no check brings.
+default_prs
+reset_spawn_log
+: >"$SANDBOX/out/bg"
+( cd "$SANDBOX/repo" && FAKE_CLAUDE_SLEEP=2 "$AUTOREVIEW" \
+    --log-dir "$SANDBOX/out/logs" --auto --babysit=1 --jobs 2 \
+    >"$SANDBOX/out/bg" 2>&1 ) &
+bg=$!
+# Swapped while the reviews run, so the refresh after the pass is the first
+# look that sees #8 sitting on #9.
+sleep 0.5
+stack_pr_on 8 9
+waited=0
+while [[ "$waited" -lt 300 ]]; do
+  grep -q "now sits on another open PR" "$SANDBOX/out/bg" 2>/dev/null && break
+  kill -0 "$bg" 2>/dev/null || break
+  sleep 0.1
+  waited=$((waited + 1))
+done
+pkill -P "$bg" >/dev/null 2>&1 || true
+kill "$bg" >/dev/null 2>&1 || true
+wait "$bg" 2>/dev/null || true
+out="$(cat "$SANDBOX/out/bg")"
+# The whole line, not its tail: the sweep's own held line ends the same way,
+# so a partial match would pass without the drop line existing at all.
+assert_contains "a PR that becomes stacked leaves the loop, and says why" \
+  "$out" "PR #8 now sits on another open PR (2 commits also in #9); dropping it from the loop, and --stacked reviews it anyway"
 default_prs
 
 # --- The flag is documented ----------------------------------------------
