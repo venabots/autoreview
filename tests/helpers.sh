@@ -81,6 +81,9 @@ setup_sandbox() {
 
   export PATH="$SANDBOX/bin:$PATH"
   export CLAUDE_CONFIG_DIR="$SANDBOX/claude"
+  # Every finished review is appended to the ledger; the suite's go here, not
+  # into the developer's own history.
+  export AUTOREVIEW_LEDGER="$SANDBOX/out/ledger.jsonl"
   export FAKE_GH_LOGIN="me"
   export SPAWN_LOG="$SANDBOX/out/spawned"
   export CLAUDE_LOG="$SANDBOX/out/claude-calls"

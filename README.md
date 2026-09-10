@@ -443,6 +443,73 @@ ran under.
 
 `--log-dir` pins the location; the default is a fresh temp directory per run.
 
+### Stats
+
+The log directory is per run, and the OS clears temp directories in days. What
+each model found, and whether it held up, is only worth anything as a series --
+so every review that reports the fenced trailer is also appended to a
+**ledger** that outlives the run: one JSON line per review under
+`~/.local/state/autoreview/ledger.jsonl`
+(`$XDG_STATE_HOME` is honored; `$AUTOREVIEW_LEDGER` names a different file, and
+`off` records nothing). `panel` writes to the same ledger.
+
+`autoreview stats` reads it back per model:
+
+```sh
+autoreview stats                 # every recorded review
+autoreview stats --since 2w      # or a date: --since 2026-08-01
+autoreview stats --repo widgets  # one repo, by substring
+autoreview stats --json          # the same numbers for another tool
+autoreview stats --import        # read past reviews out of Claude Code's transcripts first
+```
+
+```
+320 reviews from 2026-08-21 to 2026-09-09 across 4 repos
+
+MODEL             BACKEND   RUNS  AVAIL          RAW/RUN  KEPT  UNIQUE  HIGH+  DROPPED  KEEP RATE    SAMPLE
+claude-opus-5     claude    89    100% (96-100)  4.6      234   180     21     5        56% (51-61)  proven
+claude-fable-5    claude    136   100% (97-100)  1.8      226   172     19     11       88% (83-91)  proven
+glm-5.3           opencode  273   97% (94-98)    1.1      206   118     28     12       68% (62-73)  proven
+gpt-5.6-sol       codex     220   97% (94-99)    0.9      136   78      32     18       72% (65-78)  proven
+fable             claude    26    0% (0-13)      -        0     0       0      0        -            thin
+
+decisions: 181 commented, 81 approved, 55 none, 3 changes-requested
+needs attention: fable on claude answered 0 of 26 launches
+```
+
+A row is one model on one backend, however the trailer spelled it:
+`xai/grok-4.6` and `grok-4.6` are one row, and so are `codex` and
+`codex-gpt-5.6-sol`. The columns:
+
+- **RUNS** is how often the model was launched on a panel, and **AVAIL** how
+  often it came back with a review. A model that never answers is a
+  misconfigured alias, and the `needs attention` line says so.
+- **RAW/RUN** is what the model itself reported, per answered run. More is not
+  better: a panelist that reports five findings a run and has one kept is
+  costing the synthesizer time.
+- **KEPT** is the number that matters: findings the synthesis kept after
+  verifying them against the code, that name this model in their `Flagged by`
+  line. **UNIQUE** is the subset no other panelist raised -- what the panel
+  would have missed without it. **HIGH+** is the kept findings at HIGH or
+  CRITICAL.
+- **DROPPED** is the other side: findings the synthesis listed under
+  Disagreements because verification overruled or downgraded them.
+- **KEEP RATE** is kept over reported, run by run -- the closest thing the
+  pipeline has to precision, since the synthesis is its only verification
+  step. It is an estimate: the synthesis merges duplicate findings, and a
+  panelist's own count is self-reported.
+- **SAMPLE** says how much to trust the row: `proven` after 30 answered runs,
+  `emerging` after 10, `thin` below that.
+
+Every rate carries its 95% Wilson interval, because ten runs and three hundred
+do not deserve the same confidence and a bare percentage hides which is which.
+
+`--import` is for the history from before the ledger existed. Every review
+autoreview ran left a Claude Code session transcript behind, with the synthesis
+and the trailer in it, and the import reads those into the ledger once. It is
+safe to repeat: a review already recorded is skipped, and so is any session
+autoreview recorded live. It takes a few seconds per gigabyte of transcripts.
+
 ### Overrides
 
 `$AUTOREVIEW_AUTO_CMD` for unattended runs (the default sweep and `--babysit`),
@@ -954,6 +1021,9 @@ src/report.rs      autoreview: verdict readback and the agent's trailer
 src/rundir.rs      autoreview: what one run writes under --log-dir
 src/ui.rs          autoreview: what every board row and summary says
 src/board.rs       autoreview: the live area, an inline viewport in raw mode
+src/findings.rs    the findings a synthesized review attributes to each panelist
+src/ledger.rs      the append-only record of finished reviews, across runs
+src/stats/         autoreview stats: cli, per-model folding, rendering, import
 ```
 
 The two tools have to agree on what counts as an actionable PR and which

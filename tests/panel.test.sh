@@ -105,6 +105,9 @@ done
 
 export PATH="$SANDBOX/bin:$PATH"
 export SANDBOX
+# Every finished run is appended to the ledger; the suite's go here, not into
+# the developer's own history.
+export AUTOREVIEW_LEDGER="$SANDBOX/out/ledger.jsonl"
 
 run_panel() {
   : >"$SANDBOX/out/calls"
@@ -128,6 +131,17 @@ assert_contains "the findings come through" "$out" "[LOW] a.rs:1 — nit"
 assert_contains "the synthesis runs" "$out" "# Synthesis"
 assert_contains "...and its output is printed" "$out" "**Reviewing:** synthesized"
 assert_contains "the roster is reported" "$out" "3 of 3 answered"
+
+# The run is appended to the ledger, which is where `autoreview stats` reads
+# the history from: each panelist with the model it reported, whether it
+# answered, its own finding count, and how long it took.
+ledger="$(cat "$AUTOREVIEW_LEDGER" 2>/dev/null || true)"
+assert_contains "a finished panel run is recorded in the ledger" "$ledger" '"source":"panel"'
+assert_contains "...naming the repo directory" "$ledger" '"repo":"repo"'
+assert_contains "...with each panelist's model and finding count" \
+  "$ledger" '"name":"codex","model":"codex-model","ok":true,"findings":1,"top":"LOW"'
+assert_contains "...and how long it took" "$ledger" '"duration_secs":'
+assert_equals "...one line per run" "$(grep -c '"source"' "$AUTOREVIEW_LEDGER")" "1"
 
 # What it is doing before the first report lands. Materializing a checkout per
 # panelist is the longest thing a panel run does before a model is asked

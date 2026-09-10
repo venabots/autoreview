@@ -345,6 +345,16 @@ assert_contains "each panelist's model and result are shown" \
   "$out" "codex (gpt-5.5) 1 finding, top LOW"
 assert_contains "a clean panelist is shown too" "$out" "claude (claude-opus-4.7) clean"
 
+# The same review is appended to the ledger, which is where `autoreview
+# stats` reads the history from. PR #9 reported no trailer, so it has nothing
+# to say about the models and is not recorded.
+ledger="$(cat "$AUTOREVIEW_LEDGER" 2>/dev/null || true)"
+assert_contains "a finished review is recorded in the ledger" "$ledger" '"source":"autoreview"'
+assert_contains "...against its repo and PR" "$ledger" '"repo":"acme/widgets","pr":8'
+assert_contains "...with the panel the trailer reported" "$ledger" '"name":"codex","model":"gpt-5.5","ok":true,"findings":1,"top":"LOW"'
+assert_contains "...and the decision" "$ledger" '"decision":"commented"'
+assert_equals "...one line per reviewed PR" "$(grep -c '"source"' "$AUTOREVIEW_LEDGER")" "1"
+
 # A reviewer that never writes the block costs a "-" in the summary, nothing
 # more -- and GitHub reading back nothing is not a failure either.
 out="$(run_autoreview --auto)"

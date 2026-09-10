@@ -262,8 +262,9 @@ const MAX_PANELISTS: usize = 16;
 
 /// Agent-authored strings end up on the terminal, and control bytes in them
 /// are the classic escape-injection vector -- dropped at the door, so no
-/// display path has to remember to.
-fn sanitize(trailer: &mut Trailer) {
+/// display path has to remember to. The panelist list is capped too, so a
+/// trailer cannot carry an unbounded roster into the ledger.
+pub fn sanitize(trailer: &mut Trailer) {
     strip_risky(&mut trailer.decision);
     strip_risky(&mut trailer.risk);
     trailer.panel.truncate(MAX_PANELISTS);

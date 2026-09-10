@@ -620,7 +620,13 @@ fn interruptible_sleep(
 }
 
 fn main() {
-    let cfg = match cli::parse(cli::args_or_exit(), &cli::real_env) {
+    let args = cli::args_or_exit();
+    // The one subcommand. It reads the ledger and touches no PR, so it has
+    // its own flags and none of the sweep's.
+    if args.first().map(String::as_str) == Some("stats") {
+        std::process::exit(autoreview::stats::main(&args[1..]));
+    }
+    let cfg = match cli::parse(args, &cli::real_env) {
         Ok(cli::Parsed::Help) => {
             print!("{}", cli::HELP);
             std::process::exit(0);

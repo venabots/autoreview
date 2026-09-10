@@ -6,6 +6,7 @@
 
 use crate::cli::Config;
 use crate::job::{self, GUARD_GRACE_SECS, Job, JobState};
+use crate::ledger;
 use crate::report;
 use crate::repo::RepoContext;
 use crate::rundir::RunDir;
@@ -365,11 +366,12 @@ pub fn run_pass(
                     // The review in a form a person can open. Best effort: a
                     // review that ran is not spoiled by a file that could not
                     // be written, and pr-N.json still holds the original.
-                    if let Some(review) = report::read_review(
+                    let review = report::read_review(
                         &rundir.stdout_path(job.pr),
                         transcript.as_deref(),
                         job.started_epoch,
-                    ) {
+                    );
+                    if let Some(review) = &review {
                         let _ = std::fs::write(rundir.review_path(job.pr), review);
                     }
                     // A --no-post reviewer ran the skill with no posting
@@ -385,6 +387,32 @@ pub fn run_pass(
                             "note: PR #{}'s reviewer reported \"{claim}\" but GitHub shows no such review landed",
                             job.pr
                         ));
+                    }
+                    // Into the ledger, where it outlives the log directory.
+                    // Only a review that reported a panel has anything to
+                    // say about the models; the verdict alone is GitHub's.
+                    if let Some(trailer) = &job.trailer
+                        && let Some(path) = ledger::path(&crate::cli::real_env)
+                    {
+                        let run = ledger::autoreview_run(ledger::Reviewed {
+                            repo: &format!("{}/{}", ctx.owner, ctx.name),
+                            pr: job.pr,
+                            session: job.sid.as_deref(),
+                            started_epoch: job.started_epoch,
+                            verdict: job.verdict.as_deref(),
+                            trailer,
+                            review: review.as_deref(),
+                            cost_usd: job.cost,
+                            elapsed_secs: job.elapsed_secs,
+                            driver_model: job.model.as_deref(),
+                        });
+                        if let Err(e) = ledger::append(&path, &run) {
+                            ui.note(format!(
+                                "note: could not record PR #{} in the ledger at {}: {e}",
+                                job.pr,
+                                path.display()
+                            ));
+                        }
                     }
                     if gh == report::Readback::Failed {
                         // Say what actually fills the column: the agent's own

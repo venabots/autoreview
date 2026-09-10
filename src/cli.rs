@@ -14,6 +14,8 @@ Usage: autoreview [--pick] [--watch[=MINUTES]] [--babysit[=MINUTES]]
                   [--timeout SECONDS] [--budget USD] [--log-dir DIR]
                   [--skills DIR|installed] [--all] [--dependabot]
                   [--stacked] [--skip-wait-for-ci] [--help]
+       autoreview stats [--import] [--since WHEN] [--repo NAME] [--json]
+                  (how each model has done; `autoreview stats --help`)
 
 Every NEW or UPDATED PR is reviewed by default -- the actionable ones. SEEN
 PRs (nothing has changed since you last engaged) are left alone, and so is a
@@ -138,6 +140,12 @@ An overridden command owns its own session handling; it receives the id as
 $REVIEW_PRS_SESSION_ID and a 0/1 $REVIEW_PRS_SESSION_RESUME.
 
 Exit status is 0 only when every review in the final pass succeeded.
+
+A review that reports the fenced trailer is appended to a ledger
+(~/.local/state/autoreview, or $AUTOREVIEW_LEDGER; "off" disables it).
+`autoreview stats` reads it back per model: how often each panelist answered,
+how much it reported, and how much of that the synthesis kept. `autoreview
+stats --help` explains the columns.
 
 To fan the same PRs into terminal tabs you can watch and steer instead, use
 `review-prs`.

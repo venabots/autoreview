@@ -42,6 +42,7 @@ pub fn run(cfg: &Config) -> Result<i32> {
     repo::require_deps(&[dashp.as_str()])?;
 
     let mut cfg = cfg.clone();
+    let started_epoch = crate::ledger::now();
 
     let specs = if cfg.panelists.is_empty() {
         let found = panelist::autodetect();
@@ -183,8 +184,38 @@ pub fn run(cfg: &Config) -> Result<i32> {
     }
 
     let answered = outcomes.iter().filter(|o| o.answered()).count();
+
+    // Record the run whatever happens next, so every panelist launch counts
+    // toward availability -- a panel that all failed, or one run with
+    // --no-synthesis, is still evidence about the models. The synthesis, when
+    // there is one, only adds the findings. Best effort: a history that could
+    // not be written is a note, not a failed review.
+    let record = |synthesis: &str| {
+        let Some(path) = crate::ledger::path(&crate::cli::real_env) else { return };
+        let panelled: Vec<crate::ledger::Panelled> = outcomes
+            .iter()
+            .map(|o| crate::ledger::Panelled {
+                name: &o.id,
+                model: &o.model,
+                answered: o.answered(),
+                report: &o.stdout,
+                exit_code: o.exit,
+                elapsed_secs: o.elapsed_secs,
+            })
+            .collect();
+        // owner/name from the remote, so a panel run and an autoreview run of
+        // the same repo count as one, and a run in a worktree does not record
+        // the worktree's own directory name as a new repo.
+        let repo = crate::stats::import::repo_slug(&repo_root);
+        let run = crate::ledger::panel_run(Some(repo), started_epoch, &panelled, synthesis, cfg.synth_model.as_deref());
+        if let Err(e) = crate::ledger::append(&path, &run) {
+            eprintln!("panel: could not record this run in the ledger at {}: {e}", path.display());
+        }
+    };
+
     if answered == 0 {
         status.clear();
+        record("");
         eprintln!("error: no panelist returned a review; there is nothing to synthesize");
         eprintln!("  what each one did is in {}", dir.display());
         bail!(AlreadyReported);
@@ -192,6 +223,7 @@ pub fn run(cfg: &Config) -> Result<i32> {
 
     if !cfg.synthesize {
         status.clear();
+        record("");
         eprintln!("panel: --no-synthesis, stopping after {}", crate::ui::count(answered, "report"));
         return Ok(0);
     }
@@ -218,6 +250,9 @@ pub fn run(cfg: &Config) -> Result<i32> {
                 eprintln!("panel: interrupted during synthesis");
                 return Ok(130);
             }
+            // The panelists ran and answered; a synthesis that failed does not
+            // erase that, so their launches still count toward availability.
+            record("");
             return Err(e);
         }
     };
@@ -233,5 +268,7 @@ pub fn run(cfg: &Config) -> Result<i32> {
         outcomes.len(),
         dir.display()
     );
+
+    record(&report);
     Ok(0)
 }
