@@ -270,6 +270,12 @@ Two columns worth reading carefully:
   leaving a review behind. `nothing posted` is not a rejection; it means the
   reviewer had nothing to submit, or that GitHub has no record of a submission.
 
+A failed review is followed by one `error` line that says why, in the
+harness's own words -- `error #9 #8: You've hit your session limit · resets
+12pm (America/New_York)`. The reason comes from dash-p's envelope: claude
+reports a usage limit or an API error as its answer, and the exit code alone
+is only a number. Reviews that failed for the same reason share one line.
+
 The panel table's **STATUS** answers only "did this panelist come back with a
 review", not "did it like the PR" — `answered`, `failed`, or `-` when the
 reviewer did not say. The panelist's CLI name is dropped: the model identifies
@@ -279,7 +285,9 @@ the row, and a panelist that never reported one falls back to its name
 Without a TTY -- cron, CI, piped output -- the board becomes one plain line
 per state change and the summary a plain aligned table with the same columns,
 plus one `panel #N:` line per PR with panel data, which keeps both the CLI
-name and the model: `panel #9: codex (gpt-5.5) 1 finding, top LOW`.
+name and the model: `panel #9: codex (gpt-5.5) 1 finding, top LOW`. A failed
+review names its reason on its line: `FAILED  #9 (exit 10, 3s): You've hit
+your session limit · resets 12pm (America/New_York)`.
 
 ### Verdicts and models
 
