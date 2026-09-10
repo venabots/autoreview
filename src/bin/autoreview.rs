@@ -52,6 +52,11 @@ struct Looked {
     /// Waiting on the PR underneath them, not on a check. Kept apart from
     /// `held` because only one of the two is a reason to keep the loop alive.
     stacked: Vec<(u64, StackedOn)>,
+    /// Every PR the stack gate is holding, whether or not it is actionable,
+    /// and the PR each one waits on. The loop drops these from its watch list:
+    /// a stack moves when a person merges something, and a run must not stay
+    /// alive waiting for that.
+    stacked_now: HashMap<u64, StackedOn>,
 }
 
 /// What the sweep would pick up right now, said quietly -- a babysit loop
@@ -71,14 +76,22 @@ fn actionable_now(cfg: &Config, ctx: &repo::RepoContext, status: &Status) -> any
         info: rows.iter().map(|r| (r.number, r.info())).collect(),
         held: rows.iter().filter(|r| r.held(gates)).map(|r| (r.number, r.ci)).collect(),
         stacked: rows.iter().filter_map(|r| r.stacked(gates).map(|on| (r.number, on))).collect(),
+        stacked_now: rows
+            .iter()
+            .filter_map(|r| if gates.stack { r.stacked_on.map(|on| (r.number, on)) } else { None })
+            .collect(),
     })
 }
 
 /// What a refresh consults before it calls a PR reviewable. The same two
 /// answers the selection used, so a loop cannot drift from the pass that
 /// started it.
+///
+/// A --pick run never gates on the stack. The picker holds nothing -- it marks
+/// the row and reviews what the person chose -- and a loop after a pick that
+/// dropped that PR would stop with it unreviewed.
 fn gates(cfg: &Config) -> prlist::Gates {
-    prlist::Gates { ci: cfg.wait_for_ci, stack: !cfg.include_stacked }
+    prlist::Gates { ci: cfg.wait_for_ci, stack: !cfg.include_stacked && !cfg.pick }
 }
 
 /// The PRs a refresh is leaving alone that this run would otherwise review.
@@ -227,12 +240,10 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         info.iter().filter(|(_, i)| i.held(gates(cfg))).map(|(&pr, i)| (pr, i.ci)).collect()
     };
     // What the selection already named as waiting on the PR underneath it, so
-    // the first refresh does not say it a second time.
-    let stacked_at_start: Vec<(u64, StackedOn)> = if cfg.pick {
-        Vec::new()
-    } else {
-        info.iter().filter_map(|(&pr, i)| i.stacked(gates(cfg)).map(|on| (pr, on))).collect()
-    };
+    // the first refresh does not say it a second time. A --pick run names
+    // nothing: `gates` turns the stack gate off for it.
+    let stacked_at_start: Vec<(u64, StackedOn)> =
+        info.iter().filter_map(|(&pr, i)| i.stacked(gates(cfg)).map(|on| (pr, on))).collect();
     // A --babysit run that found only held PRs is not finished: it looks
     // again on its interval, like it would for a PR that went quiet, and
     // reviews them as their checks pass. Exiting here would leave every PR
@@ -386,13 +397,30 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     info.extend(seen.info);
                     held = held_for_this_run(&seen.held, &tracker);
                     report_held(&held, &mut held_announced);
-                    // Named, then dropped: a PR waiting on the one underneath
-                    // it is not a reason for the loop to stay alive, and the
-                    // next refresh picks it up by itself once that PR lands.
-                    report_stacked(
-                        &held_for_this_run(&seen.stacked, &tracker),
-                        &mut stacked_announced,
-                    );
+                    // The PRs leaving the watch list. A PR reviewed earlier in
+                    // this run can become stacked later -- somebody opens the
+                    // PR underneath it -- and leaving it here would keep the
+                    // run alive waiting for a merge no check will bring. It
+                    // rejoins as new work when the stack clears.
+                    let dropped: Vec<(u64, StackedOn)> = watching
+                        .iter()
+                        .filter_map(|pr| seen.stacked_now.get(pr).map(|on| (*pr, *on)))
+                        .collect();
+                    // One refresh says one thing about one PR: a PR that is
+                    // leaving gets the line below instead of the held line.
+                    let naming: Vec<(u64, StackedOn)> = seen
+                        .stacked
+                        .iter()
+                        .filter(|(pr, _)| !dropped.iter().any(|(gone, _)| gone == pr))
+                        .copied()
+                        .collect();
+                    report_stacked(&held_for_this_run(&naming, &tracker), &mut stacked_announced);
+                    // Said out loud, like any other way a PR leaves the loop:
+                    // a watch list that shrank in silence reads as a lost PR.
+                    for (pr, on) in &dropped {
+                        println!("\n{}", stack::dropped_line(*pr, *on));
+                    }
+                    watching.retain(|pr| !seen.stacked_now.contains_key(pr));
                     seen.ready
                 }
                 Err(e) => {

@@ -84,7 +84,10 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
                       still says "base: main" -- GitHub then serves that PR's
                       commits as part of this one's diff, and reviewing both
                       reads the same code twice. The second is invisible in
-                      the base branch, so it is found in the commits.
+                      the base branch, so it is found in the commits. A
+                      long-lived branch is not a stack: the default branch is
+                      never one, and neither is a branch that open PRs were
+                      already merging into before its own PR was opened.
   --skip-wait-for-ci  Review a PR whatever its checks say. By default the
                       sweep holds a PR until the checks on its head commit
                       pass: a PR opened a minute ago has its linter still
