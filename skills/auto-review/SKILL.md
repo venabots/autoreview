@@ -167,7 +167,7 @@ their comments posted so the author can act.
 **Every finding-based blocker must leave a PR comment.** If a
 finding-based gate failure — a must-fix/should-fix (#3), a substantiated
 `Approach (questionable)` flag, or a verified `Purpose (stated, not served)`
-/ `Purpose (unknown)` flag (#4) — would withhold approval but isn't
+flag (#4) — would withhold approval but isn't
 already in the PR-bound posting set, add it before posting: at its
 root-cause `file:line` when it has one, otherwise as a top-level PR
 comment. (This is only about findings; the structural blockers — draft
@@ -233,16 +233,21 @@ locked`) is a **missing** reviewer, not a returned one. If you can't
    (CRITICAL/HIGH)** and **zero should-fix (MEDIUM)** findings. Only
    **polish (LOW)** findings, or none at all.
 4. **Sound approach, served purpose.** No substantiated
-   `Approach (questionable)` flag, no verified `Purpose (stated, not served)`
-   flag, and no verified `Purpose (unknown)` flag — independent invariants:
-   a wrong-layer change, a change that does not do what its description
-   says, or a change with no stated reason to exist must not be stamped
-   even if every line-level finding is LOW, regardless of how those flags'
-   severities happen to be bucketed. (They usually also land in must-fix /
-   should-fix, so #3 often catches them too — but don't rely on that
-   mapping; check the approach and purpose verdicts directly.) A verified
-   `Proof (missing)` is bucketed as MEDIUM or HIGH by `panel-review`, so #3
-   already withholds approval on it.
+   `Approach (questionable)` flag and no verified
+   `Purpose (stated, not served)` flag — independent invariants: a
+   wrong-layer change, or a change that does not do what its description
+   says, must not be stamped even if every line-level finding is LOW,
+   regardless of how those flags' severities happen to be bucketed. (They
+   usually also land in must-fix, so #3 often catches them too — but don't
+   rely on that mapping; check the approach and purpose verdicts directly.)
+
+   A verified `Purpose (unknown)` does **not** withhold approval. A thin
+   description is worth a comment, not a block; `panel-review` buckets it
+   as LOW and it rides along in the polish comments. Likewise a verified
+   `Proof (missing)`: `panel-review` buckets it as LOW except on auth,
+   session handling, payments, schema migrations, crypto, or production
+   infra, where it lands in must-fix and #3 withholds approval on it.
+
 5. **Not a draft.** The PR is **not** a draft. `gh pr review --approve`
    succeeds on draft PRs, but a draft is the author explicitly saying
    "not ready" — check `gh pr view <ref> --json isDraft --jq '.isDraft'`

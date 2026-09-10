@@ -384,14 +384,13 @@ When _not_ to use:
    Rubric:
    - **LOW** — docs / tests / formatting / non-load-bearing refactor. No
      multi-panelist findings. No HIGH/CRITICAL findings. All panelists agreed on
-     the goal. All panelists tagged `Approach (sound):`. All panelists tagged
-     `Purpose (stated, served):` or `(inferred)`. All panelists tagged
-     `Proof (shown):` or `(not needed)`. No auth / payments / migrations /
-     cryptography touched.
+     the goal. All panelists tagged `Approach (sound):`. No auth / payments /
+     migrations / cryptography touched. A `Purpose (unknown):` or a
+     `Proof (missing):` does **not** by itself lift a change out of this bucket:
+     a thin description and an untested change are reported, not blocked.
    - **MEDIUM** — touches business logic or non-trivial code paths. Findings
      exist but are fixable. No CRITICAL findings. Goal was clear or only mildly
-     divergent across panelists. No verified `Approach (questionable):`. A
-     verified `Purpose (unknown):` or `Proof (missing):` lands here at minimum.
+     divergent across panelists. No verified `Approach (questionable):`.
    - **HIGH** — any of:
      - a verified HIGH finding raised by 2+ panelists;
      - a verified `Approach (questionable):` flag (the change is fixing the
@@ -535,11 +534,12 @@ When _not_ to use:
    - **A verified `Purpose (unknown):` on a non-trivial change.** Read the
      description yourself. If it states no problem and you cannot infer one
      from the diff either, quote what the panelist said a reader would need.
-     Promote this into `### should-fix` as a MEDIUM-severity entry (see the
-     description-anchored shape under **Findings buckets**). If you can infer
-     the purpose with confidence, drop the flag and state the purpose in the
-     Overview lead instead; note under `### Disagreements` that the panelist
-     could not.
+     Promote this into `### polish` as a LOW-severity entry (see the
+     description-anchored shape under **Findings buckets**). A description a
+     reader cannot judge the change against is worth saying out loud; it is not
+     a reason to hold the merge. If you can infer the purpose with confidence,
+     drop the flag and state the purpose in the Overview lead instead; note
+     under `### Disagreements` that the panelist could not.
 
    - **Panelists name different purposes.** Quote each verbatim. Either the
      description is unclear or the change does more than one thing; the user
@@ -568,11 +568,13 @@ When _not_ to use:
      exercises it and the PR body has no testing section.
    ```
 
-   Promote this into `### should-fix` as a MEDIUM-severity entry at the
-   `file:line` of the unproven behavior, or into `### must-fix` as HIGH when
-   that behavior is in auth, session handling, payments, schema migrations,
-   crypto, or production infra. The `Fix:` line names the test to write or the
-   evidence to add, not "add tests".
+   Promote this into `### polish` as a LOW-severity entry at the `file:line` of
+   the unproven behavior — **unless** that behavior is in auth, session
+   handling, payments, schema migrations, crypto, or production infra, which
+   goes into `### must-fix` as HIGH. Everywhere else an untested change is
+   reported and left to the author's judgment; only the sensitive surfaces hold
+   the merge. The `Fix:` line names the test to write or the evidence to add,
+   not "add tests".
 
    When every panelist tagged `(shown)` or `(not needed)`, or the `(missing)`
    claims did not hold, omit this section. `Proof: <evidence>.` appears inline
@@ -646,25 +648,26 @@ When _not_ to use:
    `file:line`, for the same reason.
 
    **Per-finding shape (promoted `Purpose (unknown):`).** Lives under
-   `### should-fix` as a MEDIUM-severity entry. The location is the PR
-   description (or the commit message for non-PR targets), written as
-   `PR description` in place of `file:line`; downstream skills post it as a
-   top-level PR comment rather than an inline one:
+   `### polish` as a LOW-severity entry. The location is the PR description (or
+   the commit message for non-PR targets), written as `PR description` in place
+   of `file:line`; downstream skills post it as a top-level PR comment rather
+   than an inline one:
 
    ```md
-   - [MEDIUM] PR description — states no problem this change solves; the diff
+   - [LOW] PR description — states no problem this change solves; the diff
      rewrites `packages/evm/src/nonce.ts` and a reader cannot tell what was
      wrong before. Fix: add one or two sentences on the problem and how a
      reviewer can see it is fixed. Flagged by: codex (gpt-5.5)
    ```
 
-   **Per-finding shape (promoted `Proof (missing):`).** Lives under
-   `### should-fix` (MEDIUM) or `### must-fix` (HIGH in sensitive areas), at
-   the `file:line` of the unproven behavior. The `Fix:` line names the specific
-   test or evidence:
+   **Per-finding shape (promoted `Proof (missing):`).** Lives under `### polish`
+   (LOW), or `### must-fix` (HIGH) when the unproven behavior is in auth,
+   session handling, payments, schema migrations, crypto, or production infra,
+   at the `file:line` of that behavior. The `Fix:` line names the specific test
+   or evidence:
 
    ```md
-   - [MEDIUM] packages/evm/src/broadcast.ts:140-172 — the new retry path has no
+   - [LOW] packages/evm/src/broadcast.ts:140-172 — the new retry path has no
      test and the PR body has no testing note. Fix: add a test that fails the
      first send with a retryable code and asserts one retry, then note the run
      in the PR body. Flagged by 2: codex (gpt-5.5), claude (claude-opus-4.7)
