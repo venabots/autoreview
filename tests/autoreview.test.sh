@@ -911,8 +911,51 @@ assert_not_contains "...but not the held one" "$(claude_calls)" "/auto-review 9"
 holds="$(printf '%s\n' "$out" | grep -c "holding 1 PR" || true)"
 assert_equals "...naming the hold once, not once per poll" "$holds" "1"
 
+# --- A PR carrying another open PR's commits is held ----------------------
+# GitHub diffs a PR from where its branch left the base, so a branch cut from
+# another open PR's branch shows that PR's work as its own. Reviewing both
+# reads the same code twice, which is what this holds back -- and neither PR's
+# base branch says anything about it.
+default_prs
+stack_pr_on 8 9
+out="$(run_autoreview --auto)"
+assert_equals "a run holding a stacked PR still exits 0" "$(last_status)" "0"
+assert_contains "the PR on top is held, and named with what it carries" \
+  "$out" "holding 1 PR stacked on another PR: #8 (2 commits also in #9); --stacked reviews it anyway"
+assert_not_contains "...and it is not reviewed" "$(claude_calls)" "/auto-review 8"
+assert_contains "...while the one underneath is" "$(claude_calls)" "/auto-review 9"
+assert_not_contains "...and nothing is held for CI" "$out" "until CI passes"
+
+out="$(run_autoreview --auto --stacked)"
+assert_contains "--stacked reviews the PR on top" "$(claude_calls)" "/auto-review 8"
+assert_contains "...alongside the one underneath" "$(claude_calls)" "/auto-review 9"
+assert_not_contains "...and holds nothing" "$out" "stacked on another PR"
+
+# A branch cut from a PR this tool never reviews -- your own -- carries those
+# commits just the same. The overlap is worked out before the filters run, so
+# the hold survives the PR underneath being hidden from the list.
+default_prs
+stack_pr_on 8 4
+out="$(run_autoreview --auto)"
+assert_contains "a PR cut from your own branch is held on it" \
+  "$out" "holding 1 PR stacked on another PR: #8 (2 commits also in #4)"
+assert_not_contains "...and is not reviewed" "$(claude_calls)" "/auto-review 8"
+assert_not_contains "...nor is yours, which is still hidden" "$(claude_calls)" "/auto-review 4"
+# The declared shape: #8's base is #9's branch. GitHub keeps their diffs apart,
+# so nothing is duplicated -- but #8 is still the top of a stack whose bottom
+# has not settled, and reviewing it means reading #9's work anyway.
+default_prs
+base_pr_on 8 9
+out="$(run_autoreview --auto)"
+assert_contains "a PR based on another PR's branch is held on it" \
+  "$out" "holding 1 PR stacked on another PR: #8 (based on #9)"
+assert_not_contains "...and is not reviewed" "$(claude_calls)" "/auto-review 8"
+assert_contains "...while the one underneath is" "$(claude_calls)" "/auto-review 9"
+default_prs
+
 # --- The flag is documented ----------------------------------------------
 out="$(run_autoreview --help)"
+assert_contains "--help names --stacked" "$out" "--stacked, -s"
 assert_contains "--help names --skip-wait-for-ci" "$out" "--skip-wait-for-ci"
 assert_contains "...and the wait it turns off" "$out" "AUTOREVIEW_CI_WAIT"
 out="$(AUTOREVIEW_CI_WAIT=soon run_autoreview --auto)"

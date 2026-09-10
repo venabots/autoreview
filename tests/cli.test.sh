@@ -38,6 +38,23 @@ out="$(run_review_prs --auto --skip-wait-for-ci)"
 assert_contains "--skip-wait-for-ci sweeps it anyway" "$out" "2 PRs to review: #9 (new) #8 (new)"
 assert_not_contains "...without holding anything" "$out" "holding"
 
+# --- A PR carrying another open PR's commits is held back -----------------
+# The same shared selection as autoreview, reached through the other binary:
+# the tab fan-out must not open a tab for a PR whose diff is mostly #9's work.
+default_prs
+stack_pr_on 8 9
+out="$(run_review_prs --auto)"
+assert_contains "a PR stacked on another open PR is held" \
+  "$out" "holding 1 PR stacked on another PR: #8 (2 commits also in #9)"
+assert_contains "...and the way round it is named" "$out" "--stacked reviews it anyway"
+assert_contains "...while the one underneath is swept" "$out" "1 PR to review: #9 (new)"
+assert_equals "...and the held PR gets no tab" "$(spawned_cmd 'pr-review-tab 8')" ""
+
+out="$(run_review_prs --auto --stacked)"
+assert_contains "--stacked sweeps it anyway" "$out" "2 PRs to review: #9 (new) #8 (new)"
+assert_not_contains "...without holding anything" "$out" "holding"
+default_prs
+
 # The picker does not hold: a pick is a pick. The column is how you know.
 FAKE_GUM_PICK="#8" run_review_prs >/dev/null
 assert_contains "a picked PR opens whatever its checks say" \
