@@ -6,11 +6,13 @@
 
 use crate::cli::{CliError, EnvFn};
 use crate::interval::{self, Interval};
+use crate::skills::Source;
 
 pub const HELP: &str = r#"review-prs: pick open non-draft, unapproved PRs and fan out a review per PR.
 
-Usage: review-prs [--auto] [--babysit[=MINUTES]] [--continue] [--all]
-                  [--dependabot] [--skip-wait-for-ci] [--help]
+Usage: review-prs [--auto] [--babysit[=MINUTES]] [--continue]
+                  [--skills DIR|installed] [--all] [--dependabot]
+                  [--stacked] [--skip-wait-for-ci] [--help]
 
   --auto, -A          Skip the picker; fan out every NEW/UPDATED PR, running
                       $REVIEW_PRS_AUTO_CMD (default: the pr-review-tab skill,
@@ -25,8 +27,20 @@ Usage: review-prs [--auto] [--babysit[=MINUTES]] [--continue] [--all]
   --continue, -C      Resume this machine's earlier review session for a PR
                       instead of reviewing it from scratch. PRs with a session
                       are marked RESUMABLE in the picker.
+  --skills DIR        Which review skills the tabs run (or $REVIEW_PRS_SKILLS).
+                      Unset: the ones this binary was built with, staged for
+                      the run. A directory of <name>/SKILL.md: those instead.
+                      The word "installed": stage nothing and let each tab
+                      find what is installed. A skill installed under
+                      ~/.claude/skills or the repo's .claude/skills still wins
+                      over a staged one; the run says so.
   --all, -a           Include PRs already marked APPROVED (default: exclude).
   --dependabot, -d    Include Dependabot PRs (default: hidden; shown dimmed).
+  --stacked, -s       Fan out a PR even when it sits on top of another open
+                      PR. By default --auto fans out the PR underneath and
+                      holds the ones above it until it lands, so a stack is
+                      reviewed once, from the bottom, as it merges. The picker
+                      opens whatever you pick, and marks these rows.
   --skip-wait-for-ci  Fan out a PR whatever its checks say. By default --auto
                       holds a PR until the checks on its head commit pass:
                       a PR opened a minute ago has its linter still running,
@@ -70,6 +84,10 @@ pub struct Config {
     pub continue_sessions: bool,
     pub include_approved: bool,
     pub include_dependabot: bool,
+    /// Fan out a PR whose diff already carries an open PR's commits; off by
+    /// default, which fans out the PR underneath and holds this one until
+    /// that PR lands.
+    pub include_stacked: bool,
     /// Hold a PR whose checks have not passed; off with --skip-wait-for-ci.
     pub wait_for_ci: bool,
     /// How long an --auto sweep waits for pending checks before holding the
@@ -80,6 +98,8 @@ pub struct Config {
     /// invocation, which needs the PR number and the session state to pick its
     /// flags and prompt and so cannot be flattened into a template here.
     pub review_cmd: Option<String>,
+    /// Where the built-in command's skills come from.
+    pub skills: Source,
     /// What to rename the enclosing workspace to, or None to leave it alone.
     pub workspace: Option<String>,
     /// Printed to stderr before the run starts.
@@ -107,6 +127,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     let mut continue_sessions = false;
     let mut include_approved = false;
     let mut include_dependabot = false;
+    let mut include_stacked = false;
     let mut skip_wait_for_ci = false;
 
     // Kept raw until after arg parsing: validating here would make a bad
@@ -119,30 +140,38 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "30".into());
 
-    for arg in args {
+    let mut skills_raw = env("REVIEW_PRS_SKILLS").filter(|v| !v.is_empty());
+
+    let mut it = args.into_iter();
+
+    while let Some(arg) = it.next() {
         match arg.as_str() {
             "--auto" | "-A" => auto = true,
             "--babysit" | "-b" => babysit = true,
             "--continue" | "-C" => continue_sessions = true,
             "--all" | "-a" => include_approved = true,
             "--dependabot" | "-d" => include_dependabot = true,
+            "--stacked" | "-s" => include_stacked = true,
             "--skip-wait-for-ci" => skip_wait_for_ci = true,
             "--help" | "-h" => return Ok(Parsed::Help),
             "--version" | "-V" => return Ok(Parsed::Version),
-            other => match other.strip_prefix("--babysit=") {
-                Some(v) => {
+            "--skills" => skills_raw = Some(crate::cli::require_value("--skills", it.next())?),
+            other => {
+                if let Some(v) = other.strip_prefix("--babysit=") {
                     babysit = true;
                     babysit_interval_raw = v.to_string();
-                }
-                None => {
+                } else if let Some(v) = other.strip_prefix("--skills=") {
+                    skills_raw = Some(crate::cli::require_value("--skills", Some(v.to_string()))?);
+                } else {
                     return Err(CliError {
                         msg: format!("unknown arg: {other}"),
                         show_help: true,
                     });
                 }
-            },
+            }
         }
     }
+
 
     // Validated only once babysitting is actually on, so an unrelated bad env
     // var never blocks a plain review run.
@@ -182,6 +211,23 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     let unattended = auto || babysit;
     let review_cmd = if unattended { auto_cmd } else { cmd };
 
+    // An override never stages, so a value cannot reach it: say so, and do
+    // not check it, so a stale $REVIEW_PRS_SKILLS in a profile does not fail
+    // a run that would not have read it.
+    let skills = match (&skills_raw, &review_cmd) {
+        (Some(_), Some(_)) => {
+            let which = if unattended { "REVIEW_PRS_AUTO_CMD" } else { "REVIEW_PRS_CMD" };
+            startup_notes.push(format!(
+                "note: --skills is not passed to ${which}; that command finds its own skills"
+            ));
+            Source::Bundled
+        }
+        (Some(raw), None) => {
+            Source::parse(raw).map_err(|msg| CliError { msg, show_help: false })?
+        }
+        (None, _) => Source::Bundled,
+    };
+
     // Unset and empty mean different things here: an explicitly empty
     // REVIEW_PRS_WORKSPACE= opts out entirely, leaving the workspace you
     // launched from with the title you gave it.
@@ -197,9 +243,11 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         continue_sessions,
         include_approved,
         include_dependabot,
+        include_stacked,
         wait_for_ci,
         ci_wait,
         review_cmd,
+        skills,
         workspace,
         startup_notes,
     })))
@@ -228,6 +276,52 @@ mod tests {
     }
 
     #[test]
+    fn skills_default_to_the_bundle_and_take_a_directory_or_installed() {
+        assert_eq!(cfg(&[]).skills, Source::Bundled);
+        assert_eq!(cfg(&["--skills", "installed"]).skills, Source::Installed);
+        assert_eq!(cfg(&["--skills=installed"]).skills, Source::Installed);
+        let dir = crate::rundir::make_unique_dir(&std::env::temp_dir(), "rp-cli-skills.").unwrap();
+        std::fs::create_dir_all(dir.join("my-review")).unwrap();
+        std::fs::write(dir.join("my-review/SKILL.md"), "").unwrap();
+        let path = dir.display().to_string();
+        assert_eq!(cfg(&["--skills", &path]).skills, Source::Dir(dir.clone()));
+        assert_eq!(cfg_env(&[], &[("REVIEW_PRS_SKILLS", &path)]).skills, Source::Dir(dir.clone()));
+        assert_eq!(
+            cfg_env(&["--skills", "installed"], &[("REVIEW_PRS_SKILLS", &path)]).skills,
+            Source::Installed,
+            "the flag wins over the env var"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_skills_value_that_names_no_skills_is_refused_up_front() {
+        let e = run_env(&["--skills", "/nowhere/at/all"], &[]).err().unwrap();
+        assert!(e.msg.starts_with("error: --skills expects a directory of skills"), "{}", e.msg);
+        let e = run_env(&["--skills"], &[]).err().unwrap();
+        assert_eq!(e.msg, "error: --skills expects a value");
+        let e = run_env(&["--skills", "--auto"], &[]).err().unwrap();
+        assert!(e.msg.contains("found the flag --auto"), "{}", e.msg);
+    }
+
+    #[test]
+    fn skills_do_not_reach_an_override_and_the_run_says_so() {
+        let c = cfg_env(&["--auto", "--skills", "installed"], &[("REVIEW_PRS_AUTO_CMD", "my-review")]);
+        assert_eq!(
+            c.startup_notes,
+            vec!["note: --skills is not passed to $REVIEW_PRS_AUTO_CMD; that command finds its own skills"]
+        );
+        let c = cfg_env(&["--skills", "installed"], &[("REVIEW_PRS_CMD", "my-review")]);
+        assert_eq!(
+            c.startup_notes,
+            vec!["note: --skills is not passed to $REVIEW_PRS_CMD; that command finds its own skills"]
+        );
+        // A value the run would never read is not checked either.
+        let c = cfg_env(&[], &[("REVIEW_PRS_SKILLS", "/nowhere"), ("REVIEW_PRS_CMD", "my-review")]);
+        assert_eq!(c.skills, Source::Bundled);
+    }
+
+    #[test]
     fn picking_is_the_default_and_sweeping_is_the_flag() {
         let c = cfg(&[]);
         assert!(!c.auto && !c.unattended());
@@ -245,6 +339,7 @@ mod tests {
         assert!(cfg(&["-C"]).continue_sessions && cfg(&["--continue"]).continue_sessions);
         assert!(cfg(&["-a"]).include_approved && cfg(&["--all"]).include_approved);
         assert!(cfg(&["-d"]).include_dependabot && cfg(&["--dependabot"]).include_dependabot);
+        assert!(cfg(&["-s"]).include_stacked && cfg(&["--stacked"]).include_stacked);
         assert!(cfg(&["-b"]).babysit.is_some() && cfg(&["--babysit"]).babysit.is_some());
     }
 

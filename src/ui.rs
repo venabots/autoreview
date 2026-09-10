@@ -172,6 +172,30 @@ pub fn panelist_label(p: &Panelist) -> String {
     s
 }
 
+/// Failed reviews and why the harness said they failed, one line per
+/// distinct reason. Identical reasons group -- a usage limit hits every PR
+/// in the pass, and reading the same notice five times is noise.
+pub fn error_lines(jobs: &[Job]) -> Vec<String> {
+    let mut groups: Vec<(&str, Vec<u64>)> = Vec::new();
+    for job in jobs {
+        if job.state != JobState::Failed {
+            continue;
+        }
+        let Some(why) = job.error.as_deref() else { continue };
+        match groups.iter_mut().find(|(reason, _)| *reason == why) {
+            Some((_, prs)) => prs.push(job.pr),
+            None => groups.push((why, vec![job.pr])),
+        }
+    }
+    groups
+        .into_iter()
+        .map(|(why, prs)| {
+            let names: Vec<String> = prs.iter().map(|n| format!("#{n}")).collect();
+            format!("error {}: {}", names.join(" "), why)
+        })
+        .collect()
+}
+
 fn opt_label(v: Option<&str>) -> String {
     v.filter(|s| !s.is_empty()).unwrap_or("-").to_string()
 }
@@ -254,9 +278,14 @@ impl Ui {
                 println!("start   #{n}{who} ({verb})");
             }
             JobState::Done => println!("done    #{n} ({})", fmt_dur(job.elapsed_secs)),
-            JobState::Failed => {
-                println!("FAILED  #{n} ({}, {})", job.outcome(), fmt_dur(job.elapsed_secs))
-            }
+            JobState::Failed => match &job.error {
+                // The reason rides the same line, not a note below it: a
+                // failure the reader has to decode is the gap this closes.
+                Some(why) => {
+                    println!("FAILED  #{n} ({}, {}): {why}", job.outcome(), fmt_dur(job.elapsed_secs))
+                }
+                None => println!("FAILED  #{n} ({}, {})", job.outcome(), fmt_dur(job.elapsed_secs)),
+            },
             JobState::Timeout => println!("TIMEOUT #{n} ({})", fmt_dur(job.elapsed_secs)),
             JobState::Queued => {}
         }
@@ -465,6 +494,9 @@ impl Ui {
                 println!("panel #{}: {}", job.pr, panelists.join("; "));
             }
         }
+        for line in error_lines(jobs) {
+            println!("{line}");
+        }
         println!("\nlogs: {}", pass_dir.display());
         println!("reopen any review with: claude --resume <SESSION>");
     }
@@ -525,6 +557,9 @@ impl Ui {
         println!("{}", self.results_table(jobs));
         if let Some(panel) = self.panel_table(jobs) {
             println!("{panel}");
+        }
+        for line in error_lines(jobs) {
+            println!("{}", style(line).red());
         }
 
         let resumable: Vec<&Job> = jobs.iter().filter(|j| j.sid.is_some()).collect();
@@ -811,10 +846,16 @@ fn finished_line(label: String, job: &Job, width: usize) -> Line<'static> {
             (Span::raw("✓").green().bold(), word)
         }
         JobState::Timeout => (Span::raw("✗").yellow().bold(), Span::raw("timed out").yellow()),
-        _ => (
-            Span::raw("✗").red().bold(),
-            Span::from(format!("failed ({})", job.outcome())).red(),
-        ),
+        _ => {
+            // The harness's own words on the line: "failed (exit 10): You've
+            // hit your session limit" explains itself; "failed (exit 10)"
+            // sends the reader to a log directory.
+            let mut words = format!("failed ({})", job.outcome());
+            if let Some(why) = &job.error {
+                words.push_str(&format!(": {why}"));
+            }
+            (Span::raw("✗").red().bold(), Span::from(words).red())
+        }
     };
     let mut extras = Vec::new();
     if let Some(risk) = job.trailer.as_ref().and_then(|t| t.risk.as_deref()) {
@@ -981,6 +1022,49 @@ mod tests {
         assert_eq!(job.outcome(), "no result");
         job.exit_code = Some(10);
         assert_eq!(format!("FAILED  #{} ({}, {})", job.pr, job.outcome(), fmt_dur(3)), "FAILED  #9 (exit 10, 3s)");
+    }
+
+    #[test]
+    fn failure_reasons_ride_the_failed_lines() {
+        let mut job = Job::new(9);
+        job.state = JobState::Failed;
+        job.exit_code = Some(10);
+        job.error = Some("You've hit your session limit · resets 12pm (America/New_York)".into());
+        // The board line says why.
+        let board = text(&finished_line(board_label(9), &job, ASSUMED_WIDTH));
+        assert!(board.contains("failed (exit 10): You've hit your session limit"), "got {board:?}");
+    }
+
+    #[test]
+    fn identical_failure_reasons_group_into_one_line() {
+        let failed = |pr: u64, why: Option<&str>| {
+            let mut job = Job::new(pr);
+            job.state = JobState::Failed;
+            job.exit_code = Some(10);
+            job.error = why.map(String::from);
+            job
+        };
+        let limit = "You've hit your session limit · resets 12pm (America/New_York)";
+        let mut jobs = vec![
+            failed(1759, Some(limit)),
+            failed(1756, Some(limit)),
+            failed(8, Some("API Error: 500")),
+            failed(7, None),
+        ];
+        jobs.push({
+            let mut done = Job::new(6);
+            done.state = JobState::Done;
+            done
+        });
+        let lines = error_lines(&jobs);
+        assert_eq!(
+            lines,
+            vec![
+                "error #1759 #1756: You've hit your session limit · resets 12pm (America/New_York)"
+                    .to_string(),
+                "error #8: API Error: 500".to_string(),
+            ]
+        );
     }
 
     #[test]

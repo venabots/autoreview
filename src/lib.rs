@@ -27,6 +27,8 @@ pub mod rundir;
 pub mod select;
 pub mod session;
 pub mod signals;
+pub mod skills;
+pub mod stack;
 pub mod stats;
 pub mod status;
 pub mod tabs;

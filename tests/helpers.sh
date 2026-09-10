@@ -100,14 +100,16 @@ setup_sandbox() {
   # Force the cmux spawner: it is the only one that is fully scriptable. Herdr
   # detection and the Ghostty AppleScript path are out of scope here.
   export CMUX_SURFACE_ID="test-surface"
-  unset HERDR_ENV TERM_PROGRAM REVIEW_PRS_CMD REVIEW_PRS_AUTO_CMD || true
+  unset HERDR_ENV TERM_PROGRAM REVIEW_PRS_CMD REVIEW_PRS_AUTO_CMD \
+        REVIEW_PRS_SKILLS || true
   unset AUTOREVIEW_CMD AUTOREVIEW_AUTO_CMD AUTOREVIEW_JOBS AUTOREVIEW_TIMEOUT \
         AUTOREVIEW_MAX_BUDGET_USD AUTOREVIEW_LOG_DIR \
         AUTOREVIEW_BABYSIT_INTERVAL AUTOREVIEW_MAX_PASSES \
-        AUTOREVIEW_MAX_IDLE AUTOREVIEW_CI_WAIT REVIEW_PRS_CI_WAIT || true
+        AUTOREVIEW_MAX_IDLE AUTOREVIEW_CI_WAIT REVIEW_PRS_CI_WAIT \
+        AUTOREVIEW_SKILLS || true
   unset FAKE_CLAUDE_FAIL FAKE_CLAUDE_IS_ERROR FAKE_CLAUDE_SLEEP \
         FAKE_CLAUDE_GARBAGE FAKE_CLAUDE_KILL_JOB FAKE_CLAUDE_TRAILER \
-        FAKE_CLAUDE_TRANSCRIPT \
+        FAKE_CLAUDE_TRANSCRIPT FAKE_CLAUDE_ERROR_MSG \
         FAKE_GH_APPROVED FAKE_GH_CLOSED FAKE_GH_MY_REVIEW \
         FAKE_GH_VIEW_FAIL FAKE_GH_GRAPHQL_FAIL_AFTER || true
   # The host may have a real dash-p and an inherited override for it; the
@@ -440,6 +442,7 @@ esac
 
 status=0
 label="ok"
+garbage=""
 case " ${FAKE_CLAUDE_FAIL:-} " in
   *" $n "*) status=10; label="agent-error" ;;
 esac
@@ -450,7 +453,7 @@ case " ${FAKE_CLAUDE_IS_ERROR:-} " in
 esac
 # Garbage claude output: dash-p exits 10 with an empty session id.
 case " ${FAKE_CLAUDE_GARBAGE:-} " in
-  *" $n "*) status=10; label="agent-error"; sid="" ;;
+  *" $n "*) status=10; label="agent-error"; sid=""; garbage=1 ;;
 esac
 
 log_line "$CLAUDE_LOG.events" "end $n"
@@ -472,6 +475,16 @@ esac
 if [[ "$status" -eq 0 ]]; then
   printf '{"answer":"reviewed %s%s","metadata":{"session_id":"%s","total_cost_usd":0.42}}\n' \
     "$n" "$trailer" "$sid"
+elif [[ -n "$garbage" ]]; then
+  # Garbage claude output is prose where the envelope should be; the caller
+  # must not find a parseable answer in it.
+  printf 'claude appears to have crashed\n'
+else
+  # The real dash-p exits 10 with the harness's own error text as the
+  # envelope's answer; a usage limit reads exactly like this. The message is
+  # the knob so a test can stage the real one.
+  printf '{"answer":"%s","metadata":{"exit_status":"agent-error","session_id":"%s"}}\n' \
+    "${FAKE_CLAUDE_ERROR_MSG:-agent error}" "$sid"
 fi
 exit "$status"
 EOF
@@ -523,6 +536,44 @@ set_ci() {
   mv "$SANDBOX/fixtures/prs.next" "$SANDBOX/fixtures/prs.json"
 }
 
+# Point PR $1's base at PR $2's branch: a declared stack, the shape GitHub's
+# own stacked PRs and every stacking tool produce. Their commits stay disjoint,
+# exactly as GitHub serves them.
+base_pr_on() {
+  jq --argjson top "$1" --argjson base "$2" '
+    .data.repository.pullRequests.nodes |= map(
+      if .number == $base then .headRefName = "branch-\($base)"
+      elif .number == $top then .baseRefName = "branch-\($base)"
+      else . end)' \
+    "$SANDBOX/fixtures/prs.json" >"$SANDBOX/fixtures/prs.next"
+  mv "$SANDBOX/fixtures/prs.next" "$SANDBOX/fixtures/prs.json"
+}
+
+# Put PR $1's branch on top of PR $2's without saying so: the lower PR owns two
+# commits, and the higher one carries those two plus its own, which is what
+# GitHub serves when a branch was cut from another open PR's branch. Both keep
+# whatever base branch they had, because that is the case the base cannot show.
+stack_pr_on() {
+  jq --argjson top "$1" --argjson base "$2" '
+    def commit($oid; $date; $who):
+      {"commit":{"oid":$oid,"committedDate":$date,"author":{"user":{"login":$who}}}};
+    .data.repository.pullRequests.nodes |= map(
+      if .number == $base then
+        .headRefOid = "base2"
+        | .commits = {"nodes":[
+            commit("base1"; "2026-08-10T09:00:00Z"; .author.login),
+            commit("base2"; "2026-08-10T10:00:00Z"; .author.login)]}
+      elif .number == $top then
+        .headRefOid = "top1"
+        | .commits = {"nodes":[
+            commit("base1"; "2026-08-10T09:00:00Z"; "someone-else"),
+            commit("base2"; "2026-08-10T10:00:00Z"; "someone-else"),
+            commit("top1"; "2026-08-10T11:00:00Z"; .author.login)]}
+      else . end)' \
+    "$SANDBOX/fixtures/prs.json" >"$SANDBOX/fixtures/prs.next"
+  mv "$SANDBOX/fixtures/prs.next" "$SANDBOX/fixtures/prs.json"
+}
+
 # Three open PRs by other people, one draft, one of yours, one Dependabot.
 # PR 9 and 8 are NEW (no engagement by "me"); 6 is SEEN (you commented last).
 # 9 and 8 have passing checks; the rest have no checks at all, which the
@@ -533,7 +584,7 @@ default_prs() {
 EOF
 
   cat >"$SANDBOX/fixtures/prs.json" <<'EOF'
-{"data":{"repository":{"pullRequests":{"nodes":[
+{"data":{"repository":{"defaultBranchRef":{"name":"main"},"pullRequests":{"nodes":[
   {"number":9,"title":"Add retry logic","isDraft":false,
    "updatedAt":"2026-08-10T10:00:00Z","reviewDecision":null,
    "headRefOid":"sha9",

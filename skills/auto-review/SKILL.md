@@ -50,8 +50,9 @@ finding-based blocker (see step 2):
   metaphors, and figures of speech.
 - Do not make a noun out of a verb.
 
-The two canonical approval bodies under "Approval body" are fixed
-strings. Use them exactly as written; do not restyle them.
+The two canonical approval bodies under "Approval body" and the
+`DECISION:` line that ends the report are fixed strings. Use them exactly
+as written; do not restyle them.
 
 ## Prerequisite
 
@@ -80,8 +81,9 @@ needed (this is gate condition #7 below).
 
 If the review ends up running against a non-PR target (`--uncommitted`,
 `--base`, a bare `--commit` with no PR), there's nothing to post to or
-approve: run the review, report its synthesis, and stop — note that
-posting/approval were skipped because the target isn't a PR.
+approve: run the review, report its synthesis, note that posting and
+approval were skipped because the target isn't a PR, write
+`DECISION: No action`, and stop.
 
 Pass the user's `panel-review` options through (panelist selection,
 `--focus`, deep mode if they asked for a "deep auto-review"). Default to
@@ -167,7 +169,7 @@ their comments posted so the author can act.
 **Every finding-based blocker must leave a PR comment.** If a
 finding-based gate failure — a must-fix/should-fix (#3), a substantiated
 `Approach (questionable)` flag, or a verified `Purpose (stated, not served)`
-/ `Purpose (unknown)` flag (#4) — would withhold approval but isn't
+flag (#4) — would withhold approval but isn't
 already in the PR-bound posting set, add it before posting: at its
 root-cause `file:line` when it has one, otherwise as a top-level PR
 comment. (This is only about findings; the structural blockers — draft
@@ -195,6 +197,32 @@ auto-post did (posted / `+1`'d / filed to Linear / dropped / needs
 attention), and the **approval decision** — approved (with the body used
 and the PR URL) or not approved (with the specific gate condition that
 failed).
+
+Then end with one line, on its own. Nothing follows it except a machine
+trailer the caller's system prompt asks for:
+
+```
+DECISION: Approve
+```
+
+The verdict is what you did to the PR, one of four fixed strings. Apply the
+rules in order. The first rule that matches wins:
+1. `DECISION: Approve` — you submitted an approving review.
+2. `DECISION: Request changes` — you submitted a blocking review (only when
+   the user asked for one; see Gotchas).
+3. `DECISION: Comment` — you posted something and did not approve: a
+   comment, a `+1`, or a reply. A failed coverage gate or a moved head ends
+   here when step 2 posted something. When step 2 posted nothing, rule 4
+   applies.
+4. `DECISION: No action` — you posted nothing: a dry run, a target that is
+   not a PR, a clean panel that failed the coverage gate, or a pass in which
+   every post failed.
+
+Put no reason on the line; the report above is the reason. A reader who
+scrolls to the end gets the answer. A caller that reads only the last line
+gets the same one. The line is fixed text, like the approval bodies. When
+`pr-review-tab` drives this skill, the tab's one-line outcome goes above
+the line, and the line stays last.
 
 ## The approval gate
 
@@ -233,16 +261,21 @@ locked`) is a **missing** reviewer, not a returned one. If you can't
    (CRITICAL/HIGH)** and **zero should-fix (MEDIUM)** findings. Only
    **polish (LOW)** findings, or none at all.
 4. **Sound approach, served purpose.** No substantiated
-   `Approach (questionable)` flag, no verified `Purpose (stated, not served)`
-   flag, and no verified `Purpose (unknown)` flag — independent invariants:
-   a wrong-layer change, a change that does not do what its description
-   says, or a change with no stated reason to exist must not be stamped
-   even if every line-level finding is LOW, regardless of how those flags'
-   severities happen to be bucketed. (They usually also land in must-fix /
-   should-fix, so #3 often catches them too — but don't rely on that
-   mapping; check the approach and purpose verdicts directly.) A verified
-   `Proof (missing)` is bucketed as MEDIUM or HIGH by `panel-review`, so #3
-   already withholds approval on it.
+   `Approach (questionable)` flag and no verified
+   `Purpose (stated, not served)` flag — independent invariants: a
+   wrong-layer change, or a change that does not do what its description
+   says, must not be stamped even if every line-level finding is LOW,
+   regardless of how those flags' severities happen to be bucketed. (They
+   usually also land in must-fix, so #3 often catches them too — but don't
+   rely on that mapping; check the approach and purpose verdicts directly.)
+
+   A verified `Purpose (unknown)` does **not** withhold approval. A thin
+   description is worth a comment, not a block; `panel-review` buckets it
+   as LOW and it rides along in the polish comments. Likewise a verified
+   `Proof (missing)`: `panel-review` buckets it as LOW except on auth,
+   session handling, payments, schema migrations, crypto, or production
+   infra, where it lands in must-fix and #3 withholds approval on it.
+
 5. **Not a draft.** The PR is **not** a draft. `gh pr review --approve`
    succeeds on draft PRs, but a draft is the author explicitly saying
    "not ready" — check `gh pr view <ref> --json isDraft --jq '.isDraft'`

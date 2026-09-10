@@ -18,6 +18,18 @@ assert_not_contains "approved PRs are hidden by default" "$out" "#5"
 assert_not_contains "your own PRs are always hidden" "$out" "#4"
 assert_not_contains "dependabot PRs are hidden by default" "$out" "#3"
 assert_not_contains "draft PRs are hidden" "$out" "#2"
+# A tab is a fresh claude with no install step behind it, so the skills the
+# binary was built with ride in the command.
+assert_contains "tabs are handed the bundled skills" \
+  "$(spawned_cmd 'pr-review-tab 9')" "--add-dir="
+assert_contains "...and the run says which skills it staged" "$out" "skills: bundled ("
+out="$(run_review_prs --auto --skills installed)"
+assert_contains "--skills installed says so" "$out" "skills: installed"
+assert_not_contains "...and hands the tab no directory" \
+  "$(spawned_cmd 'pr-review-tab 9')" "--add-dir"
+out="$(run_review_prs --auto --skills "$SANDBOX/nowhere")"
+assert_equals "a --skills value that names no skills exits nonzero" "$(last_status)" "1"
+assert_contains "...and says what was expected" "$out" "error: --skills expects a directory of skills"
 
 out="$(run_review_prs --auto --dependabot)"
 assert_contains "--dependabot includes bot PRs" "$out" "#3"
@@ -37,6 +49,23 @@ assert_equals "...and the held PR gets no tab" "$(spawned_cmd 'pr-review-tab 8')
 out="$(run_review_prs --auto --skip-wait-for-ci)"
 assert_contains "--skip-wait-for-ci sweeps it anyway" "$out" "2 PRs to review: #9 (new) #8 (new)"
 assert_not_contains "...without holding anything" "$out" "holding"
+
+# --- A PR carrying another open PR's commits is held back -----------------
+# The same shared selection as autoreview, reached through the other binary:
+# the tab fan-out must not open a tab for a PR whose diff is mostly #9's work.
+default_prs
+stack_pr_on 8 9
+out="$(run_review_prs --auto)"
+assert_contains "a PR stacked on another open PR is held" \
+  "$out" "holding 1 PR stacked on another PR: #8 (2 commits also in #9)"
+assert_contains "...and the way round it is named" "$out" "--stacked reviews it anyway"
+assert_contains "...while the one underneath is swept" "$out" "1 PR to review: #9 (new)"
+assert_equals "...and the held PR gets no tab" "$(spawned_cmd 'pr-review-tab 8')" ""
+
+out="$(run_review_prs --auto --stacked)"
+assert_contains "--stacked sweeps it anyway" "$out" "2 PRs to review: #9 (new) #8 (new)"
+assert_not_contains "...without holding anything" "$out" "holding"
+default_prs
 
 # The picker does not hold: a pick is a pick. The column is how you know.
 FAKE_GUM_PICK="#8" run_review_prs >/dev/null

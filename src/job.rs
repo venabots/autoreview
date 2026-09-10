@@ -62,6 +62,10 @@ pub struct Job {
     pub elapsed_secs: u64,
     /// The exit code, or None for signal-death ("no result").
     pub exit_code: Option<i32>,
+    /// Why a failed review failed, in the harness's own words: claude's
+    /// usage-limit notice, an API error. None when the harness said nothing
+    /// or the reviewer was an override, which promises no envelope.
+    pub error: Option<String>,
     pub guard_tripped: bool,
     pub cost: Option<f64>,
     /// The model dash-p reports the review ran on.
@@ -92,6 +96,7 @@ impl Job {
             started_epoch: 0,
             elapsed_secs: 0,
             exit_code: None,
+            error: None,
             guard_tripped: false,
             cost: None,
             model: None,
@@ -167,6 +172,12 @@ pub fn dashp_args(job: &Job, cfg: &Config, rundir: &RunDir) -> Vec<String> {
         // forwards unrecognized flags only that way.
         format!("--append-system-prompt={}", crate::report::TRAILER_INSTRUCTION),
     ];
+    // The skills staged for this run, when it staged any. An installed
+    // skill of the same name still wins inside claude; the startup note
+    // says so.
+    if let Some(dir) = rundir.skills_dir() {
+        argv.push(crate::skills::add_dir_flag(dir));
+    }
     match &job.flag {
         SessionFlag::Pin(id) => {
             argv.push("--session-id".into());
@@ -306,9 +317,11 @@ mod tests {
             log_dir: None,
             include_approved: false,
             include_dependabot: false,
+            include_stacked: false,
             wait_for_ci: true,
             ci_wait: None,
             review_cmd: None,
+            skills: crate::skills::Source::Bundled,
             startup_notes: vec![],
         }
     }
@@ -385,6 +398,14 @@ mod tests {
         let job = Job::new(9);
         let argv = dashp_args(&job, &cfg_with(0, None, true), &rd);
         assert!(argv.join(" ").contains(&format!("--timeout {DASHP_TIMEOUT_DISABLED}")));
+        // A run that staged nothing hands the reviewer nothing.
+        assert!(!argv.iter().any(|a| a.starts_with("--add-dir")), "{argv:?}");
+        // One that did hands it the directory, as one token.
+        let mut rd = rd;
+        let staged = rd.stage_skills(&crate::skills::Source::Bundled).unwrap().unwrap().to_path_buf();
+        let argv = dashp_args(&job, &cfg_with(0, None, false), &rd);
+        let add_dir = format!("--add-dir={}", staged.display());
+        assert!(argv.contains(&add_dir), "{argv:?}");
     }
 
     #[test]

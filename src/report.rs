@@ -111,6 +111,28 @@ fn read_answer(stdout_path: &std::path::Path) -> Option<String> {
     answer.or_else(|| (!raw.trim().is_empty()).then(|| raw.trim().to_string()))
 }
 
+/// Why a failed review failed, in the harness's own words: the `answer` of
+/// dash-p's envelope, which on agent-error holds claude's error text ("You've
+/// hit your session limit · resets 12pm") rather than a review. Exit 10
+/// without this is a number the reader has to go and decode.
+///
+/// Envelope-only, by contrast with `read_answer`: an override's stdout is its
+/// review, not a failure reason, so anything that is not the envelope reads
+/// as no reason at all. One sanitized line, bounded like every other
+/// agent-authored string that reaches the terminal.
+pub fn read_agent_error(stdout_path: &std::path::Path) -> Option<String> {
+    let raw = std::fs::read_to_string(stdout_path).ok()?;
+    let answer = serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|v| v.get("answer").and_then(|a| a.as_str()).map(str::to_string))?;
+    // Whitespace first -- sanitize_for_display drops the newline that says
+    // "line break" before split_whitespace could read it, gluing words.
+    let one_line = answer.split_whitespace().collect::<Vec<_>>().join(" ");
+    let bounded: String =
+        sanitize_for_display(&one_line).chars().take(MAX_FIELD_CHARS).collect();
+    (!bounded.is_empty()).then_some(bounded)
+}
+
 /// A transcript timestamp as an epoch second.
 ///
 /// Claude Code writes milliseconds ("...T06:54:13.139Z") and parse_iso wants
@@ -514,6 +536,64 @@ mod tests {
         let body = r#"{"result":"my reviewer speaks json"}"#;
         std::fs::write(&path, body).unwrap();
         assert_eq!(read_review(&path, None, 0).unwrap(), body);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failure_reason_comes_out_of_the_envelope() {
+        let dir = std::env::temp_dir().join(format!("ar-err-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pr-9.json");
+
+        // The real shape a usage limit leaves: dash-p exits 10 and the
+        // envelope's answer holds claude's own notice.
+        let limit = "You've hit your session limit · resets 12pm (America/New_York)";
+        std::fs::write(
+            &path,
+            serde_json::json!({ "answer": limit, "metadata": { "exit_status": "agent-error" } })
+                .to_string(),
+        )
+        .unwrap();
+        assert_eq!(read_agent_error(&path).as_deref(), Some(limit));
+
+        // Empty stdout (a killed job, a timeout) is no reason at all.
+        std::fs::write(&path, "").unwrap();
+        assert_eq!(read_agent_error(&path), None);
+
+        // An empty answer says nothing.
+        std::fs::write(&path, serde_json::json!({ "answer": "" }).to_string()).unwrap();
+        assert_eq!(read_agent_error(&path), None);
+
+        // An override's stdout is not an envelope and must not read as one:
+        // there is no reason to show until it says so in a parseable envelope.
+        std::fs::write(&path, "my reviewer's prose").unwrap();
+        assert_eq!(read_agent_error(&path), None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failure_reason_is_one_sanitized_bounded_line() {
+        let dir = std::env::temp_dir().join(format!("ar-err2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pr-9.json");
+
+        // Multi-line crash text collapses to the words on one line.
+        std::fs::write(
+            &path,
+            serde_json::json!({ "answer": "API Error: 500\n   something broke\nbadly" })
+                .to_string(),
+        )
+        .unwrap();
+        assert_eq!(read_agent_error(&path).as_deref(), Some("API Error: 500 something broke badly"));
+
+        // Control bytes go and the length is bounded, like every other
+        // agent-authored string that reaches the terminal.
+        let long = format!("{}\u{1b}[31m", "x".repeat(200));
+        std::fs::write(&path, serde_json::json!({ "answer": long }).to_string()).unwrap();
+        assert_eq!(read_agent_error(&path).unwrap().chars().count(), MAX_FIELD_CHARS);
+        assert!(!read_agent_error(&path).unwrap().contains('\u{1b}'));
+
         std::fs::remove_dir_all(&dir).ok();
     }
 

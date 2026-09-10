@@ -4,6 +4,7 @@
 //! match gives for free. review-prs has its own parser in tabs::cli.
 
 use crate::interval::{self, Interval};
+use crate::skills::Source;
 use std::path::PathBuf;
 
 pub const HELP: &str = r#"autoreview: review open PRs headlessly, with progress and a real exit status.
@@ -11,7 +12,8 @@ pub const HELP: &str = r#"autoreview: review open PRs headlessly, with progress 
 Usage: autoreview [--pick] [--watch[=MINUTES]] [--babysit[=MINUTES]]
                   [--focus TEXT] [--no-post] [--continue] [--jobs N]
                   [--timeout SECONDS] [--budget USD] [--log-dir DIR]
-                  [--all] [--dependabot] [--skip-wait-for-ci] [--help]
+                  [--skills DIR|installed] [--all] [--dependabot]
+                  [--stacked] [--skip-wait-for-ci] [--help]
        autoreview stats [--import] [--since WHEN] [--repo NAME] [--json]
                   (how each model has done; `autoreview stats --help`)
 
@@ -75,8 +77,31 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
   --budget USD        Cap each review's API spend (claude --max-budget-usd).
   --log-dir DIR       Where to write per-PR output (default: a temp directory,
                       printed on every run).
+  --skills DIR        Which review skills to run (or $AUTOREVIEW_SKILLS).
+                      Unset: the ones this binary was built with, staged for
+                      the run. A directory of <name>/SKILL.md: those, staged
+                      in their place -- a fork, or a repo's own tuned
+                      reviewer. The word "installed": stage nothing and let
+                      the reviewer find what is installed. One source per run,
+                      printed as "skills: ..." when the run starts. A skill
+                      installed under ~/.claude/skills or the repo's
+                      .claude/skills still wins over a staged one; the run
+                      says so.
   --all, -a           Include PRs already marked APPROVED (default: exclude).
   --dependabot, -d    Include Dependabot PRs (default: hidden; shown dimmed).
+  --stacked, -s       Review a PR even when it sits on top of another open
+                      PR. By default the sweep reviews the PR underneath and
+                      holds the ones above it until it lands, so a stack is
+                      reviewed once, from the bottom, as it merges. Two shapes
+                      are held: a PR whose base is another open PR's branch,
+                      and a branch cut from another open PR's branch that
+                      still says "base: main" -- GitHub then serves that PR's
+                      commits as part of this one's diff, and reviewing both
+                      reads the same code twice. The second is invisible in
+                      the base branch, so it is found in the commits. A
+                      long-lived branch is not a stack: the default branch is
+                      never one, and neither is a branch that open PRs were
+                      already merging into before its own PR was opened.
   --skip-wait-for-ci  Review a PR whatever its checks say. By default the
                       sweep holds a PR until the checks on its head commit
                       pass: a PR opened a minute ago has its linter still
@@ -158,6 +183,10 @@ pub struct Config {
     pub log_dir: Option<PathBuf>,
     pub include_approved: bool,
     pub include_dependabot: bool,
+    /// Review a PR whose diff already carries an open PR's commits; off by
+    /// default, which reviews the PR underneath and holds this one until that
+    /// PR lands rather than reading the same work twice.
+    pub include_stacked: bool,
     /// Hold a PR whose checks have not passed; off with --skip-wait-for-ci,
     /// which reviews whatever the checks say.
     pub wait_for_ci: bool,
@@ -169,6 +198,8 @@ pub struct Config {
     /// The override to run instead of dash-p; None means the built-in
     /// reviewer. Resolved from $AUTOREVIEW_CMD / $AUTOREVIEW_AUTO_CMD by mode.
     pub review_cmd: Option<String>,
+    /// Where the built-in reviewer's skills come from.
+    pub skills: Source,
     /// Printed to stderr before the run starts, e.g. the silent-fallback
     /// warning when an unattended run ignores $AUTOREVIEW_CMD.
     pub startup_notes: Vec<String>,
@@ -341,6 +372,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     let mut continue_sessions = false;
     let mut include_approved = false;
     let mut include_dependabot = false;
+    let mut include_stacked = false;
     let mut skip_wait_for_ci = false;
 
     let mut jobs_raw = env_nonempty(env, "AUTOREVIEW_JOBS").unwrap_or_else(|| "2".into());
@@ -351,6 +383,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     let mut timeout_raw = env_nonempty(env, "AUTOREVIEW_TIMEOUT").unwrap_or_else(|| "3600".into());
     let mut budget_raw = env_nonempty(env, "AUTOREVIEW_MAX_BUDGET_USD");
     let mut log_dir_raw = env_nonempty(env, "AUTOREVIEW_LOG_DIR");
+    let mut skills_raw = env_nonempty(env, "AUTOREVIEW_SKILLS");
     // Kept raw until after arg parsing: validating here would make a bad
     // $AUTOREVIEW_BABYSIT_INTERVAL in a shell profile hard-fail every run,
     // including --help and picker runs that never babysit.
@@ -373,6 +406,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             "--no-post" | "-n" => no_post = true,
             "--all" | "-a" => include_approved = true,
             "--dependabot" | "-d" => include_dependabot = true,
+            "--stacked" | "-s" => include_stacked = true,
             "--skip-wait-for-ci" => skip_wait_for_ci = true,
             "--help" | "-h" => return Ok(Parsed::Help),
             "--version" | "-V" => return Ok(Parsed::Version),
@@ -386,6 +420,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             "--timeout" => timeout_raw = require_value("--timeout", it.next())?,
             "--budget" => budget_raw = Some(require_value("--budget", it.next())?),
             "--log-dir" => log_dir_raw = Some(require_value("--log-dir", it.next())?),
+            "--skills" => skills_raw = Some(require_value("--skills", it.next())?),
             other => {
                 if let Some(v) = other.strip_prefix("--watch=") {
                     watch = true;
@@ -409,6 +444,8 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
                     budget_raw = Some(require_value("--budget", Some(v.to_string()))?);
                 } else if let Some(v) = other.strip_prefix("--log-dir=") {
                     log_dir_raw = Some(require_value("--log-dir", Some(v.to_string()))?);
+                } else if let Some(v) = other.strip_prefix("--skills=") {
+                    skills_raw = Some(require_value("--skills", Some(v.to_string()))?);
                 } else {
                     return Err(CliError {
                         msg: format!("unknown arg: {other}"),
@@ -489,6 +526,23 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         cmd
     };
 
+    // An override never stages, so a value cannot reach it: say so, and do
+    // not check it, so a stale $AUTOREVIEW_SKILLS in a profile does not fail
+    // a run that would not have read it. For the built-in reviewer the
+    // value is checked here, flag or env, rather than surfacing as a review
+    // that found no skill.
+    let skills = match (&skills_raw, &review_cmd) {
+        (Some(_), Some(_)) => {
+            let which = if unattended { "AUTOREVIEW_AUTO_CMD" } else { "AUTOREVIEW_CMD" };
+            startup_notes.push(format!(
+                "note: --skills is not passed to ${which}; that command finds its own skills"
+            ));
+            Source::Bundled
+        }
+        (Some(raw), None) => Source::parse(raw).map_err(err)?,
+        (None, _) => Source::Bundled,
+    };
+
     // --no-post works by choosing the reviewer, and an override is not ours
     // to choose. Every other flag that cannot reach an override settles for a
     // note; this one refuses, because a safety flag that silently does not
@@ -516,9 +570,11 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         log_dir: log_dir_raw.map(PathBuf::from),
         include_approved,
         include_dependabot,
+        include_stacked,
         wait_for_ci,
         ci_wait,
         review_cmd,
+        skills,
         startup_notes,
     })))
 }
@@ -526,6 +582,75 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A directory holding one skill, for --skills to point at.
+    fn skills_dir() -> PathBuf {
+        let dir = crate::rundir::make_unique_dir(&std::env::temp_dir(), "ar-cli-skills.").unwrap();
+        std::fs::create_dir_all(dir.join("my-review")).unwrap();
+        std::fs::write(dir.join("my-review/SKILL.md"), "").unwrap();
+        dir
+    }
+
+    #[test]
+    fn skills_default_to_the_bundle_and_take_a_directory_or_installed() {
+        assert_eq!(cfg(&[]).skills, Source::Bundled);
+        assert_eq!(cfg(&["--skills", "installed"]).skills, Source::Installed);
+        assert_eq!(cfg(&["--skills=installed"]).skills, Source::Installed);
+        let dir = skills_dir();
+        let path = dir.display().to_string();
+        assert_eq!(cfg(&["--skills", &path]).skills, Source::Dir(dir.clone()));
+        let Ok(Parsed::Run(c)) = run_env(&[], &[("AUTOREVIEW_SKILLS", &path)]) else {
+            panic!("expected a run")
+        };
+        assert_eq!(c.skills, Source::Dir(dir.clone()), "the env var is the default");
+        let Ok(Parsed::Run(c)) = run_env(&["--skills", "installed"], &[("AUTOREVIEW_SKILLS", &path)])
+        else {
+            panic!("expected a run")
+        };
+        assert_eq!(c.skills, Source::Installed, "the flag wins over the env var");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_skills_value_that_names_no_skills_is_refused_up_front() {
+        let e = run(&["--skills", "/nowhere/at/all"]).err().unwrap();
+        assert!(e.msg.starts_with("error: --skills expects a directory of skills"), "{}", e.msg);
+        assert!(e.msg.contains("or 'installed'"), "{}", e.msg);
+        let e = run(&["--skills"]).err().unwrap();
+        assert_eq!(e.msg, "error: --skills expects a value");
+        // The env var is checked the same way: a bad value in a profile
+        // fails loudly rather than as a review that found no skill.
+        let e = run_env(&[], &[("AUTOREVIEW_SKILLS", "/nowhere/at/all")]).err().unwrap();
+        assert!(e.msg.starts_with("error: --skills expects"), "{}", e.msg);
+        // ...unless the run would never have read it.
+        let Ok(Parsed::Run(c)) = run_env(
+            &[],
+            &[("AUTOREVIEW_SKILLS", "/nowhere/at/all"), ("AUTOREVIEW_AUTO_CMD", "my-review")],
+        ) else {
+            panic!("an override run must not fail on a value it cannot use")
+        };
+        assert_eq!(c.skills, Source::Bundled);
+    }
+
+    #[test]
+    fn skills_do_not_reach_an_override_and_the_run_says_so() {
+        let Ok(Parsed::Run(c)) = run_env(
+            &["--skills", "installed"],
+            &[("AUTOREVIEW_AUTO_CMD", "my-review")],
+        ) else {
+            panic!("expected a run")
+        };
+        assert!(
+            c.startup_notes.iter().any(|n| n
+                == "note: --skills is not passed to $AUTOREVIEW_AUTO_CMD; that command finds its own skills"),
+            "{:?}",
+            c.startup_notes
+        );
+        let Ok(Parsed::Run(c)) = run_env(&[], &[("AUTOREVIEW_AUTO_CMD", "my-review")]) else {
+            panic!("expected a run")
+        };
+        assert!(c.startup_notes.is_empty(), "nothing to say when --skills is not set");
+    }
 
     fn no_env(_: &str) -> Option<String> {
         None
@@ -781,6 +906,14 @@ mod tests {
         }
         // A babysit loop outlives whoever started it, picker or not.
         assert!(cfg(&["--pick", "--babysit"]).unattended());
+    }
+
+    #[test]
+    fn a_pr_stacked_on_another_is_held_unless_the_flag_says_otherwise() {
+        // The default is the whole point: a PR whose diff already carries an
+        // open PR's commits is reviewed once, from underneath.
+        assert!(!cfg(&[]).include_stacked);
+        assert!(cfg(&["-s"]).include_stacked && cfg(&["--stacked"]).include_stacked);
     }
 
     #[test]

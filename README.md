@@ -83,9 +83,36 @@ works.
 ### Skills
 
 The reviewer each agent runs is a set of skills, and they live in this repo
-under [`skills/`](skills). The binaries invoke them by name, so the agent has
-to be able to find them. Install them once, for every agent that supports
-the [Agent Skills](https://agentskills.io) layout:
+under [`skills/`](skills). **The binaries carry them**: each build compiles
+the tree in, writes it out for a run, and hands every reviewer the directory
+with `--add-dir`. Nothing is installed, and the skill a review ran is the one
+the binary was built with.
+
+Skills you install yourself still win. Claude Code resolves a name from your
+own skills directory, and from the reviewed repo's `.claude/skills`, before
+any directory a run adds. So a copy in either place is the override. Both
+binaries say when that is happening:
+
+```
+note: auto-review, panel-review under /Users/you/.claude/skills shadow the staged copies; the installed skills run
+```
+
+`--skills` chooses the source for a run, and both binaries take it (or
+`$AUTOREVIEW_SKILLS` / `$REVIEW_PRS_SKILLS`). Exactly one source per run,
+printed as `skills: ...` when the run starts:
+
+| Value       | What runs                                                                                             |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| unset       | the skills this binary was built with, staged for the run                                             |
+| a directory | the `<name>/SKILL.md` under it, staged in place of the bundle: a fork, or a repo's own tuned reviewer |
+| `installed` | nothing staged; the reviewer finds what is installed, which is what every run did before              |
+
+A skill you installed still wins over a staged one, as above, and the note
+says so. `--skills` does not reach a command override, which finds its own
+skills; the run notes that too.
+
+To use the skills interactively, outside a run, install them for every agent
+that supports the [Agent Skills](https://agentskills.io) layout:
 
 ```sh
 npx skills add venabots/autoreview --skill '*' --global
@@ -125,6 +152,7 @@ autoreview --pick           # picker, then review each selection headlessly
 autoreview --continue       # resume earlier sessions for a second look
 autoreview --babysit=15     # re-run every 15 min, picking up new PRs as they open
 autoreview --skip-wait-for-ci # review a PR whatever its checks say
+autoreview --stacked        # review PRs stacked on another open PR too
 autoreview --help           # usage
 ```
 
@@ -136,7 +164,7 @@ the point.) `--auto` / `-A` still parse —
 an old alias or cron line keeps working — they just name the default now.
 
 It takes the same selection flags as `review-prs` (`--continue`, `--all`,
-`--dependabot`, `--skip-wait-for-ci`, `--babysit`) plus ten of its own: `--pick`, `--watch`,
+`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus ten of its own: `--pick`, `--watch`,
 `--focus`, `--no-post`, `--jobs`, `--timeout`, `--budget`, `--log-dir`,
 `--max-passes` and `--max-idle`.
 
@@ -242,6 +270,12 @@ Two columns worth reading carefully:
   leaving a review behind. `nothing posted` is not a rejection; it means the
   reviewer had nothing to submit, or that GitHub has no record of a submission.
 
+A failed review is followed by one `error` line that says why, in the
+harness's own words -- `error #9 #8: You've hit your session limit · resets
+12pm (America/New_York)`. The reason comes from dash-p's envelope: claude
+reports a usage limit or an API error as its answer, and the exit code alone
+is only a number. Reviews that failed for the same reason share one line.
+
 The panel table's **STATUS** answers only "did this panelist come back with a
 review", not "did it like the PR" — `answered`, `failed`, or `-` when the
 reviewer did not say. The panelist's CLI name is dropped: the model identifies
@@ -251,7 +285,9 @@ the row, and a panelist that never reported one falls back to its name
 Without a TTY -- cron, CI, piped output -- the board becomes one plain line
 per state change and the summary a plain aligned table with the same columns,
 plus one `panel #N:` line per PR with panel data, which keeps both the CLI
-name and the model: `panel #9: codex (gpt-5.5) 1 finding, top LOW`.
+name and the model: `panel #9: codex (gpt-5.5) 1 finding, top LOW`. A failed
+review names its reason on its line: `FAILED  #9 (exit 10, 3s): You've hit
+your session limit · resets 12pm (America/New_York)`.
 
 ### Verdicts and models
 
@@ -390,11 +426,20 @@ run and again in the summary. The per-run directory is what lets two runs share
 a `--log-dir` — ordinary under cron, where the default hour-long timeout outlasts
 most intervals — without reading each other's results:
 
-- `pr-N.review.md` — the review as text, which is the one to open
+- `pr-N.review.md` — the review as text, which is the one to open. The
+  built-in reviewer ends it with one of `DECISION: Approve`,
+  `DECISION: Comment`, `DECISION: Request changes`, or `DECISION: No action`:
+  what the reviewer did to the PR, or what the panel recommends when the
+  reviewer was `panel-review` (`--no-post`, or a first review under `--pick`).
+  An override is not bound to these strings.
 - `pr-N.json` — dash-p's answer (`{"answer": ..., "metadata": ...}`)
 - `pr-N.meta.json` — the metadata envelope (session id, cost, exit status);
   written even when a timeout or interrupt leaves stdout empty
 - `pr-N.log` — stderr, which is where a failure explains itself
+
+Beside the passes, `run-<random>/agent/` holds the bundled skills as the
+reviewers saw them, so a review can be read against the exact instructions it
+ran under.
 
 `--log-dir` pins the location; the default is a fresh temp directory per run.
 
@@ -565,6 +610,7 @@ review-prs --babysit=15 # ...every 15 minutes (default 30)
 review-prs --continue   # resume an earlier review session instead of starting over
 review-prs --all        # also include PRs already marked APPROVED
 review-prs --dependabot # also include Dependabot PRs (shown dimmed)
+review-prs --stacked    # also fan out PRs stacked on another open PR
 review-prs --auto --skip-wait-for-ci # fan out a PR whatever its checks say
 review-prs --help       # usage
 ```
@@ -579,7 +625,7 @@ By default that is a non-interactive [Claude Code](https://claude.com/claude-cod
 panel review:
 
 ```sh
-claude --dangerously-skip-permissions --session-id <uuid> "panel review <number>"
+claude --dangerously-skip-permissions --add-dir=<staged skills> --session-id <uuid> "panel review <number>"
 ```
 
 (The `--session-id` is what makes [`--continue`](#continue-mode) possible later.)
@@ -620,7 +666,7 @@ The per-tab command is `REVIEW_PRS_AUTO_CMD` (same `{}`/append substitution as
 skill:
 
 ```sh
-claude --dangerously-skip-permissions --session-id <uuid> "pr-review-tab <number>"
+claude --dangerously-skip-permissions --add-dir=<staged skills> --session-id <uuid> "pr-review-tab <number>"
 ```
 
 That skill runs an auto-review and, **when the PR is approved, closes its tab**
@@ -725,8 +771,9 @@ spawn time would be overwritten by the review command within seconds.
 1. List the current repo's open, non-draft PRs (via the GitHub GraphQL API).
 2. Annotate each with an engagement badge, a review-state flag, and a relative
    "last activity" time, then sort the most actionable to the top.
-3. Take every `NEW` and `UPDATED` PR whose checks have passed, or let you
-   multi-select with [gum](https://github.com/charmbracelet/gum).
+3. Take every `NEW` and `UPDATED` PR whose checks have passed and which is not
+   [sitting on another open PR](#stacked-prs), or let you multi-select with
+   [gum](https://github.com/charmbracelet/gum).
 
 Then they diverge: `review-prs` opens a terminal tab per PR and runs the
 [review command](#the-review-command) in it; `autoreview` runs a headless
@@ -767,6 +814,68 @@ say. The picker never holds a pick — it shows the checks in a
 after a pick (`--pick --babysit`, `--pick --watch`) holds like any loop on its
 later polls: a picked PR that is pushed to is reviewed again once its checks
 pass.
+
+### Stacked PRs
+
+A PR sitting on top of another open PR is held until that PR lands, so a stack
+is reviewed once, from the bottom, as it merges. Two shapes are held, and each
+is found a different way.
+
+**A declared stack** — the PR's base is another open PR's branch, which is what
+GitHub's stacked PRs and every stacking tool produce. GitHub diffs it from that
+branch, so its diff is clean; but its code only makes sense on top of the PR
+below it, and reviewing it means reading that PR's work for the integration
+anyway. Found by the branch names, which is the one case the base branch does
+answer.
+
+Branch names alone would mistake a long-lived branch for a stack, so two guards
+keep integration branches out. The repository's default branch is never a stack
+tip — a PR that merges `main` back into a release branch would otherwise hold
+every PR that merges into `main`. And a stack parent creates the branch its
+children merge into, so no open PR was already merging into that branch before
+the parent was opened: on a git-flow repo the PRs merging into `develop` predate
+the PR that merges `develop` onward, and none of them is stacked on it.
+
+**An undeclared stack** — the branch was cut from another open PR's branch
+while it was in flight, and still says `base: main`. GitHub then serves the
+diff from where the two branches parted, so that PR's commits sit inside this
+one's diff and reviewing both reads the same code twice. Measured on this
+repo's own PRs: #18's diff was 314KB across 23 files, of which 12KB across 5
+files was its own work. The other 96% was #15, open at the same time and
+already reviewed — and both PRs said `base: main`, so nothing in the base
+branch showed it. Found in the commits, whose `oid`s ride along on a list the
+same GraphQL call already fetches.
+
+The sweep names each held PR and how it was found:
+
+```
+holding 2 PRs stacked on another PR: #16 (based on #15) #18 (8 commits also in #15); --stacked reviews them anyway
+```
+
+A held PR is released by the PR underneath it landing. Every hold names one PR
+directly underneath and rests on evidence about those two PRs alone: a declared
+base, a carried tip commit, or commits the two diffs share. Relatedness is never
+passed along a chain — two PRs that share nothing are not related because a
+third one carries both, and a PR held on work it does not share would wait for a
+merge that changes nothing about it. A relation that pointed in a circle would
+leave every PR in it waiting, so the oldest member of a circle is freed.
+
+Every open PR counts for this, including drafts, approved ones, bots and your
+own: a colleague's branch cut from your unmerged work carries your commits
+whether or not this tool would ever review yours. So the relation is worked out
+before any filter runs.
+
+Unlike a CI hold, this is **not** a reason for a run to keep waiting. Checks
+settle by themselves in minutes; a stack moves when a person merges something.
+So a `--watch` or `--babysit` run names a stacked PR once and drops it from its
+watch list, and a one-shot run never spends its
+[CI wait](#waiting-for-ci) on a PR the stack gate will hold anyway. A dropped PR
+rejoins as new work once the stack clears.
+
+`--stacked` / `-s` turns the hold off and reviews every PR in the stack. The
+picker never holds a pick — it marks those rows `(stacked on #15)` so you
+choose knowing — and a loop after a pick (`--pick --babysit`, `--pick --watch`)
+keeps a picked PR even when it starts to sit on another open PR.
 
 ## Columns
 
@@ -893,9 +1002,11 @@ src/bin/           the three entry points: review-prs, autoreview, panel
 
 src/prlist.rs      the GraphQL query, engagement ranking, the sweep
 src/ci.rs          the head commit's checks, and the wait for them
+src/stack.rs       which PRs sit on top of another open PR
 src/picker.rs      the gum picker
 src/select.rs      fetch, rank, then sweep or pick
 src/session.rs     derived session ids, and how a PR attaches to one
+src/skills.rs      the review skills, compiled in and staged for each run
 src/repo.rs        dependency checks, repo and user context
 src/interval.rs    babysit-interval parsing
 src/cli.rs         autoreview's flags

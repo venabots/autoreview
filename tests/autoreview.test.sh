@@ -53,6 +53,43 @@ assert_contains "reviews carry the timeout" \
 assert_contains "a first review pins --session-id" \
   "$(claude_call_for '/auto-review 9')" "--session-id"
 
+# The skills the binary was built with travel with every review, written
+# under the run directory and handed over as one token dash-p forwards.
+assert_contains "reviews are handed the bundled skills" \
+  "$(claude_call_for '/auto-review 9')" "--add-dir="
+staged="$(find "$SANDBOX/out/logs" -path '*/agent/.claude/skills/auto-review/SKILL.md' | head -1)"
+assert_contains "...written under the run directory in the layout an agent reads" \
+  "$staged" "/agent/.claude/skills/auto-review/SKILL.md"
+
+# An installed skill of the same name wins inside claude, so the run says so
+# rather than reviewing with the wrong instructions in silence.
+mkdir -p "$CLAUDE_CONFIG_DIR/skills/auto-review"
+printf -- '---\nname: auto-review\n---\n' >"$CLAUDE_CONFIG_DIR/skills/auto-review/SKILL.md"
+out="$(run_autoreview)"
+assert_contains "an installed skill is reported as shadowing the bundled one" \
+  "$out" "note: auto-review under $CLAUDE_CONFIG_DIR/skills shadow the staged copies"
+rm "$CLAUDE_CONFIG_DIR/skills/auto-review/SKILL.md"
+# The reviewed repo's own skills win the same way.
+mkdir -p "$SANDBOX/repo/.claude/skills/recheck-pr"
+printf -- '---\nname: recheck-pr\n---\n' >"$SANDBOX/repo/.claude/skills/recheck-pr/SKILL.md"
+out="$(run_autoreview)"
+# The repo path is git's, resolved, so it can differ from $SANDBOX by a
+# /private prefix on macOS; the assertion holds the parts that cannot.
+assert_contains "a repo's own skill is reported as shadowing too" \
+  "$out" "note: recheck-pr under "
+assert_contains "...naming the repo's skills directory" \
+  "$out" "/repo/.claude/skills shadow the staged copies"
+rm "$SANDBOX/repo/.claude/skills/recheck-pr/SKILL.md"
+out="$(run_autoreview)"
+assert_not_contains "...and nothing is said when nothing shadows" "$out" "shadow the staged"
+# The staged scripts run as the skills run them: directly.
+staged_script="$(find "$SANDBOX/out/logs" -path '*/agent/.claude/skills/recheck-pr/scripts/fetch_pr_threads.sh' | head -1)"
+if [[ -x "$staged_script" ]]; then
+  ok "staged helper scripts are executable"
+else
+  not_ok "staged helper scripts are executable" "not executable: $staged_script"
+fi
+
 FAKE_GUM_PICK="#9" run_autoreview --pick >/dev/null
 assert_contains "--pick runs the picker, and a panel review on what it chose" \
   "$(claude_calls)" "/panel-review 9"
@@ -98,6 +135,17 @@ assert_contains "the other PR still ran" "$(claude_calls)" "/auto-review 8"
 out="$(FAKE_CLAUDE_IS_ERROR="9" run_autoreview --auto)"
 assert_equals "is_error in the envelope fails the run" "$(last_status)" "1"
 assert_contains "is_error is reported as a failure" "$out" "FAILED  #9"
+
+# The reason a review failed is in dash-p's envelope even though the exit
+# code is only a number: claude's own usage-limit notice is the answer. The
+# FAILED line and the summary say it, so nobody has to open the logs to learn
+# the account ran out.
+limit="You've hit your session limit · resets 12pm (America/New_York)"
+out="$(FAKE_CLAUDE_FAIL="9" FAKE_CLAUDE_ERROR_MSG="$limit" run_autoreview --auto)"
+assert_contains "the FAILED line names the reason" \
+  "$out" "FAILED  #9 (exit 10, 0s): $limit"
+assert_contains "the summary groups the reason" \
+  "$out" "error #9: $limit"
 
 # Garbage claude output (a crash, prose instead of JSON) is also exit 10 from
 # dash-p, with an empty session id in the envelope.
@@ -189,6 +237,38 @@ run_autoreview --auto --budget 2.50 >/dev/null
 assert_contains "--budget reaches the reviewer" \
   "$(claude_call_for '/auto-review 9')" "--max-budget-usd=2.50"
 
+# --- Which skills a run stages --------------------------------------------
+# One source per run, said up front. The default is the bundle; a directory
+# replaces it; "installed" stages nothing and hands the reviewer no
+# directory, which is what every run did before the binaries carried them.
+out="$(run_autoreview)"
+assert_contains "a run says it staged the bundled skills" "$out" "skills: bundled ("
+mkdir -p "$SANDBOX/myskills/my-review"
+printf -- '---\nname: my-review\n---\n' >"$SANDBOX/myskills/my-review/SKILL.md"
+out="$(run_autoreview --skills "$SANDBOX/myskills")"
+assert_contains "--skills DIR names the directory" "$out" "skills: $SANDBOX/myskills"
+staged="$(find "$SANDBOX/out/logs" -path '*/agent/.claude/skills/my-review/SKILL.md' | head -1)"
+assert_contains "...and stages that directory in place of the bundle" \
+  "$staged" "/agent/.claude/skills/my-review/SKILL.md"
+assert_equals "...with nothing bundled beside it" \
+  "$(find "$SANDBOX/out/logs" -path '*/agent/.claude/skills/auto-review' | wc -l | tr -d ' ')" "0"
+out="$(AUTOREVIEW_SKILLS="$SANDBOX/myskills" run_autoreview)"
+assert_contains "\$AUTOREVIEW_SKILLS is the default for --skills" "$out" "skills: $SANDBOX/myskills"
+out="$(run_autoreview --skills installed)"
+assert_contains "--skills installed says so" "$out" "skills: installed"
+assert_not_contains "...hands the reviewer no directory" \
+  "$(claude_call_for '/auto-review 9')" "--add-dir"
+assert_equals "...and stages nothing" \
+  "$(find "$SANDBOX/out/logs" -type d -name agent | wc -l | tr -d ' ')" "0"
+out="$(run_autoreview --skills "$SANDBOX/nowhere")"
+assert_equals "a --skills value that names no skills exits nonzero" "$(last_status)" "1"
+assert_contains "...and says what was expected" \
+  "$out" "error: --skills expects a directory of skills (<name>/SKILL.md) or 'installed'"
+mkdir -p "$SANDBOX/empty"
+out="$(run_autoreview --skills "$SANDBOX/empty")"
+assert_equals "an empty --skills directory exits nonzero" "$(last_status)" "1"
+assert_contains "...and says the directory holds none" "$out" "holds none"
+
 # --- Overrides ------------------------------------------------------------
 AUTOREVIEW_AUTO_CMD='my-review' run_autoreview --auto >/dev/null
 assert_contains "an override without {} gets the number appended" \
@@ -196,6 +276,13 @@ assert_contains "an override without {} gets the number appended" \
 assert_contains "an override is handed the session id" "$(override_calls)" "session=$sid9"
 assert_contains "an override is told whether it is resuming" "$(override_calls)" "resume=0"
 assert_equals "an override replaces claude entirely" "$(claude_calls)" ""
+# ...so the bundled skills are not staged for it, and no note claims they
+# are in play.
+assert_equals "an override run stages no skills" \
+  "$(find "$SANDBOX/out/logs" -type d -name agent | wc -l | tr -d ' ')" "0"
+out="$(AUTOREVIEW_AUTO_CMD='my-review' run_autoreview --auto --skills installed)"
+assert_contains "--skills with an override is noted, not silently dropped" \
+  "$out" "note: --skills is not passed to \$AUTOREVIEW_AUTO_CMD"
 
 AUTOREVIEW_AUTO_CMD='my-review {} --extra {}' run_autoreview --auto >/dev/null
 assert_contains "{} is substituted everywhere" "$(override_calls)" "args=9 --extra 9"
@@ -636,7 +723,11 @@ bg=$!
 # alive at that point. It stops at the second. A watch run keeps going.
 waited=0
 while [[ "$waited" -lt 1800 ]]; do
-  [[ "$(grep -c "next check in" "$SANDBOX/out/bg" 2>/dev/null || echo 0)" -ge 2 ]] && break
+  # grep -c prints its own 0 and still exits 1, so a `|| echo 0` fallback
+  # appends a second line and the arithmetic test below dies on "0\n0". Only a
+  # missing file leaves this empty, which the default covers.
+  checks="$(grep -c "next check in" "$SANDBOX/out/bg" 2>/dev/null || true)"
+  [[ "${checks:-0}" -ge 2 ]] && break
   kill -0 "$bg" 2>/dev/null || break
   sleep 0.1
   waited=$((waited + 1))
@@ -921,8 +1012,96 @@ assert_not_contains "...but not the held one" "$(claude_calls)" "/auto-review 9"
 holds="$(printf '%s\n' "$out" | grep -c "holding 1 PR" || true)"
 assert_equals "...naming the hold once, not once per poll" "$holds" "1"
 
+# --- A PR carrying another open PR's commits is held ----------------------
+# GitHub diffs a PR from where its branch left the base, so a branch cut from
+# another open PR's branch shows that PR's work as its own. Reviewing both
+# reads the same code twice, which is what this holds back -- and neither PR's
+# base branch says anything about it.
+default_prs
+stack_pr_on 8 9
+out="$(run_autoreview --auto)"
+assert_equals "a run holding a stacked PR still exits 0" "$(last_status)" "0"
+assert_contains "the PR on top is held, and named with what it carries" \
+  "$out" "holding 1 PR stacked on another PR: #8 (2 commits also in #9); --stacked reviews it anyway"
+assert_not_contains "...and it is not reviewed" "$(claude_calls)" "/auto-review 8"
+assert_contains "...while the one underneath is" "$(claude_calls)" "/auto-review 9"
+assert_not_contains "...and nothing is held for CI" "$out" "until CI passes"
+
+out="$(run_autoreview --auto --stacked)"
+assert_contains "--stacked reviews the PR on top" "$(claude_calls)" "/auto-review 8"
+assert_contains "...alongside the one underneath" "$(claude_calls)" "/auto-review 9"
+assert_not_contains "...and holds nothing" "$out" "stacked on another PR"
+
+# A branch cut from a PR this tool never reviews -- your own -- carries those
+# commits just the same. The overlap is worked out before the filters run, so
+# the hold survives the PR underneath being hidden from the list.
+default_prs
+stack_pr_on 8 4
+out="$(run_autoreview --auto)"
+assert_contains "a PR cut from your own branch is held on it" \
+  "$out" "holding 1 PR stacked on another PR: #8 (2 commits also in #4)"
+assert_not_contains "...and is not reviewed" "$(claude_calls)" "/auto-review 8"
+assert_not_contains "...nor is yours, which is still hidden" "$(claude_calls)" "/auto-review 4"
+# The declared shape: #9's base is #8's branch. GitHub keeps their diffs apart,
+# so nothing is duplicated -- but #9 is still the top of a stack whose bottom
+# has not settled, and reviewing it means reading #8's work anyway.
+default_prs
+base_pr_on 9 8
+out="$(run_autoreview --auto)"
+assert_contains "a PR based on another PR's branch is held on it" \
+  "$out" "holding 1 PR stacked on another PR: #9 (based on #8)"
+assert_not_contains "...and is not reviewed" "$(claude_calls)" "/auto-review 9"
+assert_contains "...while the one underneath is" "$(claude_calls)" "/auto-review 8"
+default_prs
+
+# --- A picked PR is never dropped for sitting on another PR ---------------
+# The picker holds nothing: it marks the row and reviews what you chose. A loop
+# after a pick that dropped that PR would stop with it unreviewed, which is the
+# opposite of what --pick --babysit was asked to do.
+default_prs
+stack_pr_on 8 9
+out="$(FAKE_GUM_PICK="#8" run_autoreview_until "next check in" 25 --pick --babysit=1)"
+# A picked run that babysits is unattended, so it takes the auto prompt.
+assert_contains "a picked PR is reviewed even when it sits on another PR" \
+  "$(claude_calls)" "/auto-review 8"
+assert_not_contains "...and the loop does not drop it" "$out" "now sits on another open PR"
+assert_not_contains "...nor calls it finished" "$out" "every picked PR is finished"
+
+# --- A PR that becomes stacked mid-run leaves the loop, and says so -------
+# A run only sees the stack when it refreshes. A PR reviewed in pass 1 can have
+# another PR opened underneath it a minute later, and a run that kept watching
+# it would sit waiting for a merge that no check brings.
+default_prs
+reset_spawn_log
+: >"$SANDBOX/out/bg"
+( cd "$SANDBOX/repo" && FAKE_CLAUDE_SLEEP=2 "$AUTOREVIEW" \
+    --log-dir "$SANDBOX/out/logs" --auto --babysit=1 --jobs 2 \
+    >"$SANDBOX/out/bg" 2>&1 ) &
+bg=$!
+# Swapped while the reviews run, so the refresh after the pass is the first
+# look that sees #8 sitting on #9.
+sleep 0.5
+stack_pr_on 8 9
+waited=0
+while [[ "$waited" -lt 300 ]]; do
+  grep -q "now sits on another open PR" "$SANDBOX/out/bg" 2>/dev/null && break
+  kill -0 "$bg" 2>/dev/null || break
+  sleep 0.1
+  waited=$((waited + 1))
+done
+pkill -P "$bg" >/dev/null 2>&1 || true
+kill "$bg" >/dev/null 2>&1 || true
+wait "$bg" 2>/dev/null || true
+out="$(cat "$SANDBOX/out/bg")"
+# The whole line, not its tail: the sweep's own held line ends the same way,
+# so a partial match would pass without the drop line existing at all.
+assert_contains "a PR that becomes stacked leaves the loop, and says why" \
+  "$out" "PR #8 now sits on another open PR (2 commits also in #9); dropping it from the loop, and --stacked reviews it anyway"
+default_prs
+
 # --- The flag is documented ----------------------------------------------
 out="$(run_autoreview --help)"
+assert_contains "--help names --stacked" "$out" "--stacked, -s"
 assert_contains "--help names --skip-wait-for-ci" "$out" "--skip-wait-for-ci"
 assert_contains "...and the wait it turns off" "$out" "AUTOREVIEW_CI_WAIT"
 out="$(AUTOREVIEW_CI_WAIT=soon run_autoreview --auto)"

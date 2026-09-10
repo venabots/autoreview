@@ -36,6 +36,9 @@ impl CiPolicy {
 pub struct Opts<'a> {
     pub include_approved: bool,
     pub include_dependabot: bool,
+    /// --stacked: review a PR whose diff already carries an open PR's
+    /// commits, instead of holding it until that PR lands.
+    pub include_stacked: bool,
     /// Show the picker instead of sweeping every NEW/UPDATED PR.
     pub pick: bool,
     pub continue_sessions: bool,
@@ -43,6 +46,19 @@ pub struct Opts<'a> {
     /// Appended to "no NEW or UPDATED PRs to review" when a sweep comes up
     /// empty: each tool names its own way to see the rest.
     pub sweep_empty_hint: &'a str,
+}
+
+impl Opts<'_> {
+    /// What the sweep consults before reviewing a PR. Only the sweep asks
+    /// about the stack: a person choosing a row in the picker has already
+    /// decided, and the picker marks the row rather than holding it.
+    ///
+    /// The `pick` term changes no answer today -- both callers already run
+    /// only for a sweep -- and is here so that a third caller cannot quietly
+    /// start holding a pick.
+    pub fn gates(&self) -> prlist::Gates {
+        prlist::Gates { ci: self.ci.gates(), stack: !self.include_stacked && !self.pick }
+    }
 }
 
 /// The chosen PR numbers, plus what the board needs to say about every PR it
@@ -89,6 +105,7 @@ pub fn run(ctx: &RepoContext, opts: &Opts, status: &Status) -> Result<Selection>
         CiPolicy::Wait(limit) if !opts.pick => ci::settle(
             prs,
             &ctx.me,
+            opts.gates(),
             limit,
             status,
             || prlist::fetch(ctx, opts.include_approved, opts.include_dependabot, status).map(|f| f.prs),
@@ -110,7 +127,7 @@ pub fn run(ctx: &RepoContext, opts: &Opts, status: &Status) -> Result<Selection>
         picker::run(&rows, opts.continue_sessions, opts.include_dependabot)?
     } else {
         status.clear();
-        prlist::select_auto(&rows, opts.sweep_empty_hint, opts.ci.gates())
+        prlist::select_auto(&rows, opts.sweep_empty_hint, opts.gates())
     };
     Ok((numbers.unwrap_or_default(), info))
 }
