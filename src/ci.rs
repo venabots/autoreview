@@ -83,9 +83,13 @@ pub fn held_line(held: &[(u64, Ci)]) -> String {
     )
 }
 
-/// The actionable PRs whose checks are still running.
-fn pending(prs: &[PrNode], me: &str) -> Vec<u64> {
+/// The actionable PRs whose checks are still running, and that this run would
+/// review once they pass. A PR the stack gate holds is not one of them: the
+/// wait is up to half an hour, and spending it on a PR that will be left
+/// alone anyway delays every green PR in the same run.
+fn pending(prs: &[PrNode], me: &str, gates: prlist::Gates) -> Vec<u64> {
     prs.iter()
+        .filter(|pr| !(gates.stack && pr.stacked_on.is_some()))
         .filter(|pr| prlist::engagement(pr, me) != prlist::Engagement::Seen)
         .filter(|pr| pr.ci() == Ci::Pending)
         .map(|pr| pr.number)
@@ -102,6 +106,7 @@ fn pending(prs: &[PrNode], me: &str) -> Vec<u64> {
 pub fn settle<F, S>(
     prs: Vec<PrNode>,
     me: &str,
+    gates: prlist::Gates,
     limit: &Interval,
     status: &Status,
     mut refetch: F,
@@ -112,7 +117,7 @@ where
     S: FnMut(Duration),
 {
     let mut prs = prs;
-    let mut waiting = pending(&prs, me);
+    let mut waiting = pending(&prs, me, gates);
     if waiting.is_empty() {
         return Ok(prs);
     }
@@ -148,7 +153,7 @@ where
                 continue;
             }
         }
-        waiting = pending(&prs, me);
+        waiting = pending(&prs, me, gates);
         if waiting.is_empty() {
             return Ok(prs);
         }
@@ -222,6 +227,21 @@ mod tests {
     }
 
     #[test]
+    fn a_pr_the_stack_gate_holds_is_never_waited_for() {
+        // The wait runs for up to half an hour. Spending it on a PR that will
+        // be left alone anyway delays every green PR in the same run.
+        let mut nine = pr(9, Some("PENDING"));
+        nine.stacked_on =
+            Some(crate::stack::StackedOn { pr: 8, why: crate::stack::Why::Base });
+        assert!(pending(std::slice::from_ref(&nine), "me", prlist::Gates::all()).is_empty());
+        assert_eq!(
+            pending(&[nine], "me", prlist::Gates { stack: false, ..prlist::Gates::all() }),
+            vec![9],
+            "--stacked reviews it, so the run waits for it again"
+        );
+    }
+
+    #[test]
     fn nothing_pending_means_no_wait_and_no_second_fetch() {
         let limit = interval::normalize("30").unwrap();
         let mut fetches = 0;
@@ -229,6 +249,7 @@ mod tests {
         let out = settle(
             vec![pr(9, Some("SUCCESS")), pr(8, None), pr(7, Some("FAILURE"))],
             "me",
+            prlist::Gates::all(),
             &limit,
             &Status::silent(),
             || {
@@ -256,6 +277,7 @@ mod tests {
         let out = settle(
             vec![pr(9, Some("PENDING"))],
             "me",
+            prlist::Gates::all(),
             &limit,
             &Status::silent(),
             || Ok(answers.next().expect("more fetches than answers")),
@@ -279,6 +301,7 @@ mod tests {
         let out = settle(
             vec![pr(9, Some("PENDING"))],
             "me",
+            prlist::Gates::all(),
             &limit,
             &Status::silent(),
             || {
@@ -302,6 +325,7 @@ mod tests {
         settle(
             vec![pr(9, Some("PENDING"))],
             "me",
+            prlist::Gates::all(),
             &limit,
             &Status::silent(),
             || Ok(vec![pr(9, Some("PENDING"))]),
@@ -319,6 +343,7 @@ mod tests {
         settle(
             vec![seen(6, Some("PENDING"))],
             "me",
+            prlist::Gates::all(),
             &limit,
             &Status::silent(),
             || {
@@ -346,6 +371,7 @@ mod tests {
         let out = settle(
             vec![pr(9, Some("PENDING"))],
             "me",
+            prlist::Gates::all(),
             &limit,
             &Status::silent(),
             || answers.next().expect("more fetches than answers"),
@@ -366,6 +392,7 @@ mod tests {
         let out = settle(
             vec![pr(9, Some("PENDING"))],
             "me",
+            prlist::Gates::all(),
             &limit,
             &Status::silent(),
             || {
@@ -388,6 +415,7 @@ mod tests {
         let out = settle(
             vec![pr(9, Some("PENDING"))],
             "me",
+            prlist::Gates::all(),
             &limit,
             &Status::silent(),
             || answers.next().expect("more fetches than answers"),

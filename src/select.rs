@@ -49,10 +49,15 @@ pub struct Opts<'a> {
 }
 
 impl Opts<'_> {
-    /// What the sweep consults before reviewing a PR. Only the sweep asks:
-    /// a person choosing a row in the picker has already decided.
+    /// What the sweep consults before reviewing a PR. Only the sweep asks
+    /// about the stack: a person choosing a row in the picker has already
+    /// decided, and the picker marks the row rather than holding it.
+    ///
+    /// The `pick` term changes no answer today -- both callers already run
+    /// only for a sweep -- and is here so that a third caller cannot quietly
+    /// start holding a pick.
     pub fn gates(&self) -> prlist::Gates {
-        prlist::Gates { ci: self.ci.gates(), stack: !self.include_stacked }
+        prlist::Gates { ci: self.ci.gates(), stack: !self.include_stacked && !self.pick }
     }
 }
 
@@ -100,6 +105,7 @@ pub fn run(ctx: &RepoContext, opts: &Opts, status: &Status) -> Result<Selection>
         CiPolicy::Wait(limit) if !opts.pick => ci::settle(
             prs,
             &ctx.me,
+            opts.gates(),
             limit,
             status,
             || prlist::fetch(ctx, opts.include_approved, opts.include_dependabot, status).map(|f| f.prs),

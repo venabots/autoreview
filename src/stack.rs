@@ -18,9 +18,10 @@
 //! Nothing in `baseRefName` shows this. Both PRs said `base: main`. What shows
 //! it is the commits, which the PR list already fetches.
 //!
-//! Each group of related PRs keeps exactly one reviewable member: the PR the
-//! others are built on, or, when no single PR is underneath all of them, the
-//! one opened first. Everything above it waits until it lands.
+//! Every hold names one PR directly underneath, and rests on evidence about
+//! those two PRs alone. Relatedness is never passed along a chain: a PR that
+//! shares no work with the one below it would wait for a merge that changes
+//! nothing about it.
 
 use crate::prlist::PrNode;
 use std::collections::{HashMap, HashSet};
@@ -74,31 +75,31 @@ struct Branch<'a> {
 
 /// Every PR sitting on top of another open PR, and which PR that is.
 ///
+/// Every hold rests on a direct relation between two PRs. Relatedness is not
+/// passed along a chain: two PRs that share nothing are not related because a
+/// third one carries both, and a PR held on something it shares no work with
+/// would never be reviewed until an unrelated PR landed.
+///
 /// Every open PR counts, including drafts, approved ones, bots and your own.
 /// A PR is held by the shape of the branches, not by whether this tool would
 /// have reviewed the PR underneath it: a colleague's branch cut from your own
 /// unmerged work carries your commits in its diff whether or not anyone
 /// reviews yours.
-pub fn parents(prs: &[PrNode]) -> HashMap<u64, StackedOn> {
+///
+/// `default_branch` is the repository's own default branch, which is never a
+/// stack: see `based_on`.
+pub fn parents(prs: &[PrNode], default_branch: Option<&str>) -> HashMap<u64, StackedOn> {
     let branches: Vec<Branch> = prs.iter().map(branch).collect();
-    let mut held = HashMap::new();
-    for group in groups(&branches) {
-        if group.len() < 2 {
-            continue;
-        }
-        let keeper = keeper(&branches, &group);
-        for &i in &group {
-            if i == keeper {
-                continue;
-            }
-            let on = nearest_below(&branches, &group, i).unwrap_or(keeper);
-            // Guard against naming itself: only two PRs with the same tip can
-            // get here, and "stacked on itself" would be nonsense to print.
-            let on = if on == i { keeper } else { on };
-            held.insert(branches[i].number, stacked_on(&branches, i, on));
-        }
-    }
-    held
+    let mut on: Vec<Option<usize>> =
+        (0..branches.len()).map(|i| below(&branches, default_branch, i)).collect();
+    break_circles(&branches, &mut on);
+    branches
+        .iter()
+        .enumerate()
+        .filter_map(|(i, b)| {
+            on[i].map(|j| (b.number, stacked_on(&branches, default_branch, i, j)))
+        })
+        .collect()
 }
 
 fn branch(pr: &PrNode) -> Branch<'_> {
@@ -111,120 +112,139 @@ fn branch(pr: &PrNode) -> Branch<'_> {
     }
 }
 
-/// How PR `above` was found to be sitting on PR `below`. The declared
-/// relation is preferred: it is what the author said, and a stack whose
-/// branches also happen to share commits is still a stack.
-fn stacked_on(branches: &[Branch], above: usize, below: usize) -> StackedOn {
+/// The one PR this one sits on, or None when it sits on nothing and is
+/// reviewed. Three tests, strongest evidence first.
+fn below(branches: &[Branch], default_branch: Option<&str>, i: usize) -> Option<usize> {
+    let all = || 0..branches.len();
+    // 1. The PR says so: its base is another open PR's branch. Two open PRs
+    //    can share a head branch, so the lowest number wins rather than
+    //    whichever the API listed first -- the same repo must answer the same
+    //    way twice.
+    if let Some(j) = all()
+        .filter(|&j| based_on(branches, default_branch, i, j))
+        .min_by_key(|&j| branches[j].number)
+    {
+        return Some(j);
+    }
+    // 2. It carries another PR's tip, so it is built on that PR's work. Of
+    //    the PRs it is built on, the one with the most commits is the nearest,
+    //    which makes a three-deep stack read as a chain.
+    if let Some(j) = all()
+        .filter(|&j| carries_tip(branches, i, j))
+        .max_by_key(|&j| (branches[j].commits.len(), std::cmp::Reverse(branches[j].number)))
+    {
+        return Some(j);
+    }
+    // 3. Neither is built on the other, but their diffs overlap: two branches
+    //    cut from the same unmerged commit. The older PR is reviewed and this
+    //    one waits, because this one came second. A PR that sits on *this* one
+    //    is never the answer -- the evidence there points the other way.
+    all()
+        .filter(|&j| {
+            branches[j].number < branches[i].number
+                && shared(branches, i, j) > 0
+                && !carries_tip(branches, j, i)
+                && !based_on(branches, default_branch, j, i)
+        })
+        .max_by_key(|&j| (shared(branches, i, j), std::cmp::Reverse(branches[j].number)))
+}
+
+/// How PR `above` was found to sit on PR `below`. The declared relation is
+/// preferred: it is what the author said, and a stack whose branches also
+/// share commits is still a stack.
+fn stacked_on(
+    branches: &[Branch],
+    default_branch: Option<&str>,
+    above: usize,
+    below: usize,
+) -> StackedOn {
     let pr = branches[below].number;
-    if based_on(branches, above, below) {
+    if based_on(branches, default_branch, above, below) {
         return StackedOn { pr, why: Why::Base };
     }
-    let shared = branches[above].commits.intersection(&branches[below].commits).count();
-    StackedOn { pr, why: Why::Commits(shared) }
+    // At least one: both remaining tests need a commit in common, and a PR's
+    // tip is one of its own commits.
+    StackedOn { pr, why: Why::Commits(shared(branches, above, below)) }
 }
 
-/// Does `above` merge into `below`'s branch?
-fn based_on(branches: &[Branch], above: usize, below: usize) -> bool {
-    above != below
-        && branches[below].head_ref.is_some()
-        && branches[above].base_ref == branches[below].head_ref
+/// How many commits the two PRs serve in both diffs.
+fn shared(branches: &[Branch], a: usize, b: usize) -> usize {
+    branches[a].commits.intersection(&branches[b].commits).count()
 }
 
-/// Is `above` on top of `below`, by either test? Directional: the declared
-/// base points one way, and carrying the other PR's tip points one way.
-/// Commit overlap alone is not directional, which is what `keeper` settles.
-fn sits_on(branches: &[Branch], above: usize, below: usize) -> bool {
-    based_on(branches, above, below)
-        || (above != below
-            && branches[below].head.is_some_and(|tip| branches[above].commits.contains(tip)))
-}
-
-/// The PRs of each group of related PRs, as indexes into `branches`. Union-find
-/// over both relations, so a stack three deep and a pair of branches cut from
-/// one commit each come out as a single group.
-fn groups(branches: &[Branch]) -> Vec<Vec<usize>> {
-    let mut parent: Vec<usize> = (0..branches.len()).collect();
-    // Overlap, via the commits: two PRs holding the same commit are related,
-    // and so is anything related to either of them.
-    let mut owner: HashMap<&str, usize> = HashMap::new();
-    for (i, b) in branches.iter().enumerate() {
-        for oid in &b.commits {
-            match owner.get(oid) {
-                Some(&j) => union(&mut parent, i, j),
-                None => {
-                    owner.insert(oid, i);
-                }
-            }
-        }
-    }
-    // The declared relation, via the branch names.
-    for i in 0..branches.len() {
-        for j in 0..branches.len() {
-            if based_on(branches, i, j) {
-                union(&mut parent, i, j);
-            }
-        }
-    }
-    let mut grouped: HashMap<usize, Vec<usize>> = HashMap::new();
-    for i in 0..branches.len() {
-        grouped.entry(find(&mut parent, i)).or_default().push(i);
-    }
-    // Sorted, so the held list comes out in a stable order rather than a hash
-    // one: the same repo must produce the same line twice.
-    let mut out: Vec<Vec<usize>> = grouped.into_values().collect();
-    for group in &mut out {
-        group.sort_by_key(|&i| branches[i].number);
-    }
-    out.sort_by_key(|g| g.first().map(|&i| branches[i].number));
-    out
-}
-
-fn find(parent: &mut Vec<usize>, mut i: usize) -> usize {
-    while parent[i] != i {
-        parent[i] = parent[parent[i]];
-        i = parent[i];
-    }
-    i
-}
-
-fn union(parent: &mut Vec<usize>, a: usize, b: usize) {
-    let (ra, rb) = (find(parent, a), find(parent, b));
-    if ra != rb {
-        parent[ra] = rb;
-    }
-}
-
-/// The one member of a group that is still reviewed: the PR with nothing
-/// underneath it, and the lowest-numbered such PR when a group has several
-/// (two branches cut from one unmerged commit, which is the shape the base
-/// branch cannot see). A group where every member sits on another -- two PRs
-/// sharing a tip, or a base cycle -- falls back to the lowest number, so a
-/// group can never hold all of its members.
-fn keeper(branches: &[Branch], group: &[usize]) -> usize {
-    group
-        .iter()
-        .copied()
-        .find(|&i| !group.iter().any(|&j| sits_on(branches, i, j)))
-        .unwrap_or(group[0])
-}
-
-/// The PR immediately below this one: the branch it is based on if it declared
-/// one, otherwise the largest PR whose tip it carries, which is the closest.
-/// Naming the nearest rather than the bottom is what makes a three-deep stack
-/// read as a chain instead of three PRs all pointing at the same one.
+/// Does `above` merge into `below`'s branch, in a way that means a stack?
 ///
-/// Both tests are directional, so a PR can never be told it is stacked on one
-/// above it. Two branches cut from the same commit answer neither, and fall
-/// back to the group's keeper.
-fn nearest_below(branches: &[Branch], group: &[usize], i: usize) -> Option<usize> {
-    if let Some(declared) = group.iter().copied().find(|&j| based_on(branches, i, j)) {
-        return Some(declared);
+/// The branch names alone are not enough, because a long-lived branch is a
+/// base too. Two guards keep an integration branch out:
+///
+/// - the repository's default branch is never a stack tip. A PR that merges
+///   `main` back into a release branch would otherwise hold every PR that
+///   merges into `main`.
+/// - a stack parent creates the branch its children merge into, so no open PR
+///   was already merging into that branch before the parent was opened. On a
+///   git-flow repo the PRs merging into `develop` predate the PR that merges
+///   `develop` onward, and none of them is stacked on it.
+///
+/// The second guard asks about the branch, and every PR merging into it
+/// answers -- the child under test included. Exempting the child would make
+/// one branch long-lived for one child and a stack tip for another, which is
+/// worse than either answer: two children of one parent would cancel each
+/// other out, and a git-flow PR older than the release PR would be held on it
+/// and never reviewed.
+///
+/// The cost is a stack whose top PR was opened before its bottom PR, which
+/// this cannot tell from an integration branch and does not hold. That is the
+/// safe way to be wrong: the two PRs are both reviewed, which costs a second
+/// read of shared context. Holding the wrong PR costs a review nobody does.
+fn based_on(
+    branches: &[Branch],
+    default_branch: Option<&str>,
+    above: usize,
+    below: usize,
+) -> bool {
+    let Some(head) = branches[below].head_ref else {
+        return false;
+    };
+    if above == below || branches[above].base_ref != Some(head) || default_branch == Some(head) {
+        return false;
     }
-    group
+    !branches
         .iter()
-        .copied()
-        .filter(|&j| sits_on(branches, i, j))
-        .max_by_key(|&j| (branches[j].commits.len(), std::cmp::Reverse(branches[j].number)))
+        .any(|b| b.base_ref == Some(head) && b.number < branches[below].number)
+}
+
+/// Does `above` carry `below`'s tip commit, which puts it on top of `below`?
+fn carries_tip(branches: &[Branch], above: usize, below: usize) -> bool {
+    above != below
+        && branches[below].head.is_some_and(|tip| branches[above].commits.contains(tip))
+}
+
+/// A relation that points in a circle would leave every PR in it waiting on
+/// another, and none of them reviewed. Free the lowest-numbered member of each
+/// circle: something in it has to be reviewed, and the oldest PR is the one to
+/// review. Two PRs on the same tip are the way this happens in practice.
+fn break_circles(branches: &[Branch], on: &mut [Option<usize>]) {
+    for start in 0..on.len() {
+        let Some(circle) = circle_from(on, start) else {
+            continue;
+        };
+        if let Some(&free) = circle.iter().min_by_key(|&&i| branches[i].number) {
+            on[free] = None;
+        }
+    }
+}
+
+/// The members of the circle `start` leads into, if it leads into one.
+fn circle_from(on: &[Option<usize>], start: usize) -> Option<Vec<usize>> {
+    let mut path: Vec<usize> = Vec::new();
+    let mut at = start;
+    loop {
+        if let Some(first) = path.iter().position(|&seen| seen == at) {
+            return Some(path[first..].to_vec());
+        }
+        path.push(at);
+        at = on[at]?;
+    }
 }
 
 /// The sweep's line for the PRs it is leaving alone this pass, shaped like the
@@ -237,6 +257,18 @@ pub fn held_line(held: &[(u64, StackedOn)]) -> String {
         "holding {} stacked on another PR: {}; --stacked reviews {them} anyway",
         crate::ui::count(held.len(), "PR"),
         list.join(" ")
+    )
+}
+
+/// The line for a PR that was being watched and now sits on another open PR.
+/// It says the same three things the sweep's line says -- which PR, why, and
+/// the way out -- because a watch list that shrinks without them reads as a
+/// lost PR.
+pub fn dropped_line(pr: u64, on: StackedOn) -> String {
+    format!(
+        "PR #{pr} now sits on another open PR ({}); dropping it from the loop, \
+         and --stacked reviews it anyway",
+        on.detail()
     )
 }
 
@@ -265,7 +297,7 @@ mod tests {
     }
 
     fn held_on(prs: &[PrNode], n: u64) -> Option<StackedOn> {
-        parents(prs).get(&n).copied()
+        parents(prs, Some("main")).get(&n).copied()
     }
 
     #[test]
@@ -304,7 +336,7 @@ mod tests {
             pr(20, "pr19", &["c"]),
             pr(21, "pr20", &["d"]),
         ];
-        let held = parents(&prs);
+        let held = parents(&prs, Some("main"));
         assert_eq!(held.get(&20), Some(&StackedOn { pr: 19, why: Why::Base }));
         assert_eq!(held.get(&21), Some(&StackedOn { pr: 20, why: Why::Base }), "nearest");
         assert_eq!(held.get(&19), None, "one keeper for the whole stack");
@@ -317,7 +349,7 @@ mod tests {
             pr(20, "main", &["a", "b", "c"]),
             pr(21, "main", &["a", "b", "c", "d"]),
         ];
-        let held = parents(&prs);
+        let held = parents(&prs, Some("main"));
         assert_eq!(held.get(&20), Some(&StackedOn { pr: 19, why: Why::Commits(2) }));
         assert_eq!(held.get(&21), Some(&StackedOn { pr: 20, why: Why::Commits(3) }));
         assert_eq!(held.get(&19), None);
@@ -330,7 +362,7 @@ mod tests {
             pr(20, "pr19", &["c"]),
             pr(21, "pr19", &["d"]),
         ];
-        let held = parents(&prs);
+        let held = parents(&prs, Some("main"));
         assert_eq!(held.get(&20).map(|s| s.pr), Some(19));
         assert_eq!(held.get(&21).map(|s| s.pr), Some(19));
         assert_eq!(held.get(&19), None);
@@ -345,7 +377,7 @@ mod tests {
             pr(8, "main", &["c"]),
             pr(6, "develop", &["d", "e"]),
         ];
-        assert!(parents(&prs).is_empty());
+        assert!(parents(&prs, Some("main")).is_empty());
     }
 
     #[test]
@@ -353,7 +385,7 @@ mod tests {
         // Every fixture in this repo's suite predates the oid field, and each
         // must stay reviewable: no commits means no overlap anyone can prove.
         let prs = vec![pr(9, "main", &[]), pr(8, "main", &[]), pr(7, "main", &["a"])];
-        assert!(parents(&prs).is_empty());
+        assert!(parents(&prs, Some("main")).is_empty());
     }
 
     #[test]
@@ -364,7 +396,7 @@ mod tests {
         let mut prs = vec![pr(9, "patch-1", &["a"]), pr(8, "main", &["b"])];
         prs[1].head_ref_name = Some("patch-1".into());
         prs[1].is_cross_repository = true;
-        assert!(parents(&prs).is_empty(), "a fork branch names nothing here");
+        assert!(parents(&prs, Some("main")).is_empty(), "a fork branch names nothing here");
 
         // The same two branches in the base repository are a stack.
         prs[1].is_cross_repository = false;
@@ -372,11 +404,131 @@ mod tests {
     }
 
     #[test]
+    fn a_pr_is_never_held_on_one_it_shares_no_work_with() {
+        // #18 merged both branches to fix a conflict, so it carries #12's work
+        // and #15's. That does not relate #12 and #15 to each other. Holding
+        // #15 until #12 lands would leave real work unreviewed for a merge
+        // that changes nothing about it.
+        let prs = vec![
+            pr(12, "main", &["p", "q"]),
+            pr(15, "main", &["a", "b"]),
+            pr(18, "main", &["a", "b", "p", "q", "m", "t"]),
+        ];
+        let held = parents(&prs, Some("main"));
+        assert_eq!(held.get(&18).map(|s| s.pr), Some(12), "#18 carries both");
+        assert_eq!(held.get(&12), None, "#12 shares nothing with #15");
+        assert_eq!(held.get(&15), None, "and #15 shares nothing with #12");
+    }
+
+    #[test]
+    fn a_chain_of_overlaps_holds_each_pr_on_the_one_it_overlaps() {
+        // #1 and #3 share nothing; only #2 touches both. Each hold names the
+        // PR it actually overlaps, and #1 stays reviewable.
+        let prs = vec![
+            pr(1, "main", &["x", "a"]),
+            pr(2, "main", &["x", "y", "b"]),
+            pr(3, "main", &["y", "c"]),
+        ];
+        let held = parents(&prs, Some("main"));
+        assert_eq!(held.get(&2), Some(&StackedOn { pr: 1, why: Why::Commits(1) }));
+        assert_eq!(held.get(&3), Some(&StackedOn { pr: 2, why: Why::Commits(1) }));
+        assert_eq!(held.get(&1), None);
+    }
+
+    #[test]
+    fn no_hold_ever_reports_nothing_in_common() {
+        // Why::Commits(0) means a hold nothing justifies. Both commit tests
+        // need a commit in common, so it must be unreachable.
+        let prs = vec![
+            pr(1, "main", &["x", "a"]),
+            pr(2, "main", &["x", "y", "b"]),
+            pr(3, "main", &["y", "c"]),
+            pr(4, "main", &["z"]),
+        ];
+        for (n, on) in parents(&prs, Some("main")) {
+            assert_ne!(on.why, Why::Commits(0), "#{n} is held on nothing");
+        }
+    }
+
+    #[test]
+    fn a_long_lived_branch_is_not_a_stack() {
+        // git-flow: #99 merges `develop` onward, and four PRs merge into
+        // `develop`. None of them is stacked on #99 -- their work is not in
+        // its diff, and it lands by a route of its own.
+        let mut prs = vec![pr(99, "main", &["r1"])];
+        prs[0].head_ref_name = Some("develop".into());
+        for n in 1..=4 {
+            prs.push(pr(n, "develop", &[&format!("f{n}")]));
+        }
+        assert!(parents(&prs, Some("main")).is_empty(), "no PR waits on the release");
+
+        // A feature opened after the release PR is no different.
+        prs.push(pr(100, "develop", &["f100"]));
+        assert!(parents(&prs, Some("main")).is_empty());
+    }
+
+    #[test]
+    fn a_stack_opened_from_the_top_down_is_not_held() {
+        // #9 merges into #12's branch, but #9 was opened first, which is what
+        // a PR merging into a long-lived branch looks like. Nothing in the
+        // data tells the two apart, so this is the deliberate miss: both PRs
+        // are reviewed, and the cost is one second read of shared context.
+        // The other way to be wrong holds a PR nobody then reviews.
+        let prs = vec![pr(9, "pr12", &["a"]), pr(12, "main", &["b"])];
+        assert_eq!(held_on(&prs, 9), None);
+        assert_eq!(held_on(&prs, 12), None);
+    }
+
+    #[test]
+    fn one_branch_gets_one_answer_whoever_is_asking() {
+        // Whether a branch is long-lived is a fact about the branch. Judging
+        // it per child would let two children of one parent cancel each
+        // other's hold, and would hold a git-flow PR opened before the release
+        // PR while freeing one opened after it.
+        let mut release = pr(99, "main", &["r1"]);
+        release.head_ref_name = Some("develop".into());
+        let older = pr(1, "develop", &["f1"]);
+        let newer = pr(100, "develop", &["f100"]);
+        let held = parents(&[release, older, newer], Some("main"));
+        assert!(held.is_empty(), "neither child waits on the release: {held:?}");
+
+        // Two children of one parent, and the parent opened last. Both get the
+        // same answer, whatever it is.
+        let mut parent = pr(12, "main", &["a"]);
+        parent.head_ref_name = Some("pr12".into());
+        let held = parents(&[pr(9, "pr12", &["b"]), pr(10, "pr12", &["c"]), parent], Some("main"));
+        assert!(held.is_empty(), "one rule for both children: {held:?}");
+    }
+
+    #[test]
+    fn the_pr_underneath_is_the_same_one_every_run() {
+        // Two open PRs can share a head branch, and the API lists PRs by when
+        // they were last updated. The lowest number wins, so the held line
+        // does not change under a repo nobody touched.
+        let mut prs = vec![pr(20, "shared", &["a"]), pr(8, "main", &["b"]), pr(5, "main", &["c"])];
+        prs[1].head_ref_name = Some("shared".into());
+        prs[2].head_ref_name = Some("shared".into());
+        assert_eq!(held_on(&prs, 20).map(|s| s.pr), Some(5));
+        prs.reverse();
+        assert_eq!(held_on(&prs, 20).map(|s| s.pr), Some(5), "order does not decide it");
+    }
+
+    #[test]
+    fn a_pr_that_merges_the_default_branch_onward_is_not_a_stack() {
+        // #1 merges `main` into `develop`, so its head branch is `main`.
+        // Every PR merging into `main` would otherwise wait on it.
+        let mut prs = vec![pr(1, "develop", &["r1"])];
+        prs[0].head_ref_name = Some("main".into());
+        prs.push(pr(9, "main", &["a"]));
+        assert!(parents(&prs, Some("main")).is_empty());
+    }
+
+    #[test]
     fn a_group_always_keeps_one_reviewable_pr() {
         // Two PRs on the same tip sit on each other, so neither is a keeper by
         // the ancestry rule. Holding both would leave work nobody reviews.
         let prs = vec![pr(9, "main", &["a", "b"]), pr(8, "main", &["a", "b"])];
-        let held = parents(&prs);
+        let held = parents(&prs, Some("main"));
         assert_eq!(held.len(), 1, "exactly one of the two is held: {held:?}");
         assert!(held.contains_key(&9), "the later one waits");
     }
@@ -389,7 +541,19 @@ mod tests {
         let mut prs = vec![pr(9, "pr8", &["a"]), pr(8, "pr9", &["b"])];
         prs[0].head_ref_name = Some("pr9".into());
         prs[1].head_ref_name = Some("pr8".into());
-        assert_eq!(parents(&prs).len(), 1);
+        assert_eq!(parents(&prs, Some("main")).len(), 1);
+    }
+
+    #[test]
+    fn the_dropped_line_says_which_pr_and_the_way_out() {
+        // A PR can become stacked after it was reviewed, and the sweep's own
+        // held line says nothing about a PR that has gone quiet. This is the
+        // only line the reader gets, so it carries all three answers.
+        assert_eq!(
+            dropped_line(16, StackedOn { pr: 15, why: Why::Base }),
+            "PR #16 now sits on another open PR (based on #15); dropping it from the loop, \
+             and --stacked reviews it anyway"
+        );
     }
 
     #[test]

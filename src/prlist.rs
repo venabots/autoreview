@@ -38,6 +38,7 @@ pub const QUERY_LIMIT: usize = 50;
 const QUERY: &str = "
       query($owner:String!, $name:String!) {
         repository(owner:$owner, name:$name) {
+          defaultBranchRef { name }
           pullRequests(states:OPEN, first:50, orderBy:{field:UPDATED_AT, direction:DESC}) {
             nodes {
               number
@@ -374,8 +375,13 @@ pub fn fetch(
     let parsed: serde_json::Value =
         serde_json::from_slice(&out.stdout).context("parsing gh api graphql output")?;
     let prs = extract_nodes(&parsed, status)?;
+    // The repository's own trunk. A PR whose branch *is* the trunk is never a
+    // stack; see `stack::parents`. Absent reads as "no branch is exempt",
+    // which only costs a hold that the second guard usually catches anyway.
+    let default_branch =
+        parsed.pointer("/data/repository/defaultBranchRef/name").and_then(|v| v.as_str());
 
-    Ok(filter_prs(prs, &ctx.me, include_approved, include_dependabot))
+    Ok(filter_prs(prs, &ctx.me, default_branch, include_approved, include_dependabot))
 }
 
 /// Who is left after the filters, and how many were open before them. Split
@@ -385,6 +391,7 @@ pub fn fetch(
 pub fn filter_prs(
     prs: Vec<PrNode>,
     me: &str,
+    default_branch: Option<&str>,
     include_approved: bool,
     include_dependabot: bool,
 ) -> Fetched {
@@ -393,7 +400,7 @@ pub fn filter_prs(
     // stacked on a draft, on a bot's PR, on an approved one or on your own is
     // stacked just the same, and a stack computed over the visible half would
     // miss exactly those.
-    let stacked = stack::parents(&prs);
+    let stacked = stack::parents(&prs, default_branch);
     let open: Vec<PrNode> = prs
         .into_iter()
         .filter(|pr| !pr.is_draft)
@@ -716,7 +723,7 @@ mod tests {
     /// The real chain, not a copy of it: `fetch` differs from this only by
     /// the network call in front of it.
     fn filtered(include_approved: bool, include_dependabot: bool) -> Vec<PrNode> {
-        filter_prs(fixture(), "me", include_approved, include_dependabot).prs
+        filter_prs(fixture(), "me", Some("main"), include_approved, include_dependabot).prs
     }
 
     #[test]
@@ -739,7 +746,7 @@ mod tests {
             pr.is_draft = n < 2;
             page.push(pr);
         }
-        let found = filter_prs(page, "me", false, false);
+        let found = filter_prs(page, "me", Some("main"), false, false);
         assert!(found.truncated, "a full page means there are more");
         assert_eq!(found.open, QUERY_LIMIT - 2, "the drafts are still not open");
     }
@@ -770,13 +777,13 @@ mod tests {
         // The number a user sees in the browser, and the number this tool
         // will act on. They differ on any repo where most PRs are your own,
         // and both come out of the one function that does the filtering.
-        let found = filter_prs(fixture(), "me", false, false);
+        let found = filter_prs(fixture(), "me", Some("main"), false, false);
         assert_eq!(found.open, 6, "six open, one draft");
         assert_eq!(found.prs.len(), 3, "yours, the bot and the approved one go");
         assert!(!found.truncated, "seven nodes is not a full page");
 
         // Widening the flags moves the second number and never the first.
-        let wide = filter_prs(fixture(), "me", true, true);
+        let wide = filter_prs(fixture(), "me", Some("main"), true, true);
         assert_eq!(wide.open, 6, "the draft is still not open");
         assert_eq!(wide.prs.len(), 5);
     }
@@ -897,7 +904,7 @@ mod tests {
     }
 
     fn stacked_rows(prs: Vec<PrNode>) -> Vec<Row> {
-        let found = filter_prs(prs, "me", false, false);
+        let found = filter_prs(prs, "me", Some("main"), false, false);
         build_rows(&found.prs, "me", 0)
     }
 
@@ -922,16 +929,22 @@ mod tests {
 
     #[test]
     fn a_declared_stack_is_held_the_same_way() {
-        // The other shape: #8's base is #9's branch, so GitHub already keeps
-        // their diffs apart -- but #8's code only makes sense on top of #9's,
-        // and reviewing it means reading #9's work for the integration.
+        // The other shape: #9's base is #8's branch. GitHub already keeps
+        // their diffs apart, so they share no commits -- but #9's code only
+        // makes sense on top of #8's, and reviewing it means reading #8's work
+        // for the integration.
         let mut prs = stacked_fixture();
-        prs[1].base_ref_name = Some("vendor".into());
-        prs[1].commits.nodes.retain(|c| c.commit.oid.as_deref() == Some("c3"));
+        prs[0].base_ref_name = Some("decision".into());
+        prs[0].head_ref_oid = Some("c9".into());
+        prs[0].commits.nodes = vec![CommitNode {
+            commit: Commit { oid: Some("c9".into()), committed_date: None, author: None },
+        }];
         let rows = stacked_rows(prs);
+        let nine = rows.iter().find(|r| r.number == 9).unwrap();
         let eight = rows.iter().find(|r| r.number == 8).unwrap();
-        assert_eq!(eight.stacked_on, Some(StackedOn { pr: 9, why: Why::Base }));
-        assert_eq!(select_auto(&rows, "", Gates::all()), Some(vec![9]));
+        assert_eq!(nine.stacked_on, Some(StackedOn { pr: 8, why: Why::Base }));
+        assert_eq!(eight.stacked_on, None, "the one underneath is reviewed");
+        assert_eq!(select_auto(&rows, "", Gates::all()), Some(vec![8]));
     }
 
     #[test]
