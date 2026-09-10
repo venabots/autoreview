@@ -52,7 +52,13 @@ fn display_rows(rows: &[Row], show_resumable: bool) -> Vec<String> {
             }
             row.push(r.rel_time.clone());
             row.push(format!("@{}", r.author));
-            row.push(r.title.clone());
+            // Marked, never hidden: the picker is a person choosing, and a PR
+            // sitting on top of another is worth knowing about rather than
+            // being decided for. The sweep is the one that holds them.
+            row.push(match r.stacked_on {
+                Some(on) => format!("{} (stacked on #{})", r.title, on.pr),
+                None => r.title.clone(),
+            });
             row
         })
         .collect();
@@ -158,6 +164,7 @@ mod tests {
             resumable,
             head: None,
             ci: Ci::None,
+            stacked_on: None,
         }
     }
 

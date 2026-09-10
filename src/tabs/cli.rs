@@ -10,7 +10,7 @@ use crate::interval::{self, Interval};
 pub const HELP: &str = r#"review-prs: pick open non-draft, unapproved PRs and fan out a review per PR.
 
 Usage: review-prs [--auto] [--babysit[=MINUTES]] [--continue] [--all]
-                  [--dependabot] [--skip-wait-for-ci] [--help]
+                  [--dependabot] [--stacked] [--skip-wait-for-ci] [--help]
 
   --auto, -A          Skip the picker; fan out every NEW/UPDATED PR, running
                       $REVIEW_PRS_AUTO_CMD (default: the pr-review-tab skill,
@@ -27,6 +27,11 @@ Usage: review-prs [--auto] [--babysit[=MINUTES]] [--continue] [--all]
                       are marked RESUMABLE in the picker.
   --all, -a           Include PRs already marked APPROVED (default: exclude).
   --dependabot, -d    Include Dependabot PRs (default: hidden; shown dimmed).
+  --stacked, -s       Fan out a PR even when it sits on top of another open
+                      PR. By default --auto fans out the PR underneath and
+                      holds the ones above it until it lands, so a stack is
+                      reviewed once, from the bottom, as it merges. The picker
+                      opens whatever you pick, and marks these rows.
   --skip-wait-for-ci  Fan out a PR whatever its checks say. By default --auto
                       holds a PR until the checks on its head commit pass:
                       a PR opened a minute ago has its linter still running,
@@ -70,6 +75,10 @@ pub struct Config {
     pub continue_sessions: bool,
     pub include_approved: bool,
     pub include_dependabot: bool,
+    /// Fan out a PR whose diff already carries an open PR's commits; off by
+    /// default, which fans out the PR underneath and holds this one until
+    /// that PR lands.
+    pub include_stacked: bool,
     /// Hold a PR whose checks have not passed; off with --skip-wait-for-ci.
     pub wait_for_ci: bool,
     /// How long an --auto sweep waits for pending checks before holding the
@@ -107,6 +116,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     let mut continue_sessions = false;
     let mut include_approved = false;
     let mut include_dependabot = false;
+    let mut include_stacked = false;
     let mut skip_wait_for_ci = false;
 
     // Kept raw until after arg parsing: validating here would make a bad
@@ -126,6 +136,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             "--continue" | "-C" => continue_sessions = true,
             "--all" | "-a" => include_approved = true,
             "--dependabot" | "-d" => include_dependabot = true,
+            "--stacked" | "-s" => include_stacked = true,
             "--skip-wait-for-ci" => skip_wait_for_ci = true,
             "--help" | "-h" => return Ok(Parsed::Help),
             "--version" | "-V" => return Ok(Parsed::Version),
@@ -197,6 +208,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         continue_sessions,
         include_approved,
         include_dependabot,
+        include_stacked,
         wait_for_ci,
         ci_wait,
         review_cmd,
@@ -245,6 +257,7 @@ mod tests {
         assert!(cfg(&["-C"]).continue_sessions && cfg(&["--continue"]).continue_sessions);
         assert!(cfg(&["-a"]).include_approved && cfg(&["--all"]).include_approved);
         assert!(cfg(&["-d"]).include_dependabot && cfg(&["--dependabot"]).include_dependabot);
+        assert!(cfg(&["-s"]).include_stacked && cfg(&["--stacked"]).include_stacked);
         assert!(cfg(&["-b"]).babysit.is_some() && cfg(&["--babysit"]).babysit.is_some());
     }
 
