@@ -106,7 +106,7 @@ setup_sandbox() {
         AUTOREVIEW_SKILLS || true
   unset FAKE_CLAUDE_FAIL FAKE_CLAUDE_IS_ERROR FAKE_CLAUDE_SLEEP \
         FAKE_CLAUDE_GARBAGE FAKE_CLAUDE_KILL_JOB FAKE_CLAUDE_TRAILER \
-        FAKE_CLAUDE_TRANSCRIPT \
+        FAKE_CLAUDE_TRANSCRIPT FAKE_CLAUDE_ERROR_MSG \
         FAKE_GH_APPROVED FAKE_GH_CLOSED FAKE_GH_MY_REVIEW \
         FAKE_GH_VIEW_FAIL FAKE_GH_GRAPHQL_FAIL_AFTER || true
   # The host may have a real dash-p and an inherited override for it; the
@@ -439,6 +439,7 @@ esac
 
 status=0
 label="ok"
+garbage=""
 case " ${FAKE_CLAUDE_FAIL:-} " in
   *" $n "*) status=10; label="agent-error" ;;
 esac
@@ -449,7 +450,7 @@ case " ${FAKE_CLAUDE_IS_ERROR:-} " in
 esac
 # Garbage claude output: dash-p exits 10 with an empty session id.
 case " ${FAKE_CLAUDE_GARBAGE:-} " in
-  *" $n "*) status=10; label="agent-error"; sid="" ;;
+  *" $n "*) status=10; label="agent-error"; sid=""; garbage=1 ;;
 esac
 
 log_line "$CLAUDE_LOG.events" "end $n"
@@ -471,6 +472,16 @@ esac
 if [[ "$status" -eq 0 ]]; then
   printf '{"answer":"reviewed %s%s","metadata":{"session_id":"%s","total_cost_usd":0.42}}\n' \
     "$n" "$trailer" "$sid"
+elif [[ -n "$garbage" ]]; then
+  # Garbage claude output is prose where the envelope should be; the caller
+  # must not find a parseable answer in it.
+  printf 'claude appears to have crashed\n'
+else
+  # The real dash-p exits 10 with the harness's own error text as the
+  # envelope's answer; a usage limit reads exactly like this. The message is
+  # the knob so a test can stage the real one.
+  printf '{"answer":"%s","metadata":{"exit_status":"agent-error","session_id":"%s"}}\n' \
+    "${FAKE_CLAUDE_ERROR_MSG:-agent error}" "$sid"
 fi
 exit "$status"
 EOF

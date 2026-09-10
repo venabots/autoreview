@@ -318,6 +318,12 @@ pub fn run_pass(
                 let (state, code) = job::classify(status, job.guard_tripped, is_override);
                 job.state = state;
                 job.exit_code = code;
+                // A failed built-in review leaves its reason in the envelope:
+                // claude's own usage-limit notice, an API error. Exit 10
+                // without it is a number the reader has to go and decode.
+                if job.state == JobState::Failed && !is_override {
+                    job.error = report::read_agent_error(&rundir.stdout_path(job.pr));
+                }
                 // The slot and the deadline were released at JobReaped;
                 // this event only finishes the bookkeeping.
                 finished += 1;

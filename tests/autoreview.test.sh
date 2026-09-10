@@ -136,6 +136,17 @@ out="$(FAKE_CLAUDE_IS_ERROR="9" run_autoreview --auto)"
 assert_equals "is_error in the envelope fails the run" "$(last_status)" "1"
 assert_contains "is_error is reported as a failure" "$out" "FAILED  #9"
 
+# The reason a review failed is in dash-p's envelope even though the exit
+# code is only a number: claude's own usage-limit notice is the answer. The
+# FAILED line and the summary say it, so nobody has to open the logs to learn
+# the account ran out.
+limit="You've hit your session limit · resets 12pm (America/New_York)"
+out="$(FAKE_CLAUDE_FAIL="9" FAKE_CLAUDE_ERROR_MSG="$limit" run_autoreview --auto)"
+assert_contains "the FAILED line names the reason" \
+  "$out" "FAILED  #9 (exit 10, 0s): $limit"
+assert_contains "the summary groups the reason" \
+  "$out" "error #9: $limit"
+
 # Garbage claude output (a crash, prose instead of JSON) is also exit 10 from
 # dash-p, with an empty session id in the envelope.
 out="$(FAKE_CLAUDE_GARBAGE="9" run_autoreview --auto)"

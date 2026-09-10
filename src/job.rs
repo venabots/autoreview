@@ -62,6 +62,10 @@ pub struct Job {
     pub elapsed_secs: u64,
     /// The exit code, or None for signal-death ("no result").
     pub exit_code: Option<i32>,
+    /// Why a failed review failed, in the harness's own words: claude's
+    /// usage-limit notice, an API error. None when the harness said nothing
+    /// or the reviewer was an override, which promises no envelope.
+    pub error: Option<String>,
     pub guard_tripped: bool,
     pub cost: Option<f64>,
     /// The model dash-p reports the review ran on.
@@ -92,6 +96,7 @@ impl Job {
             started_epoch: 0,
             elapsed_secs: 0,
             exit_code: None,
+            error: None,
             guard_tripped: false,
             cost: None,
             model: None,
