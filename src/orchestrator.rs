@@ -13,6 +13,8 @@
 //! rather than discovered at the summary: codex gets no session flag, no
 //! system prompt, and no budget cap.
 
+use std::path::PathBuf;
+
 /// Probed in this order for the default fallback, so codex is the stand-in
 /// for claude and claude the stand-in for codex.
 pub const BACKENDS: [&str; 2] = ["codex", "claude"];
@@ -175,6 +177,44 @@ impl Fallback {
     }
 }
 
+/// The skills a review cannot start without: the entry point each prompt
+/// names. They call the others (`auto-post-panel-review-comments`,
+/// `approve-pr`), so a run that finds these has found the set.
+pub const ENTRY_SKILLS: [&str; 3] = ["auto-review", "panel-review", "recheck-pr"];
+
+/// Where `backend` looks for skills, in the order it reads them. Empty for a
+/// backend the staged directory already serves, which needs no check.
+///
+/// codex reads `$CODEX_HOME/skills` (default `~/.codex/skills`) and
+/// `~/.agents/skills`. It does not read a directory added at run time, which
+/// is what the staged tree is -- so for codex this is the only place the
+/// review skills can come from.
+pub fn skills_roots(backend: &str, home: Option<&str>, codex_home: Option<&str>) -> Vec<PathBuf> {
+    if backend != "codex" {
+        return Vec::new();
+    }
+    let mut roots = Vec::new();
+    if let Some(c) = codex_home.filter(|c| !c.is_empty()) {
+        roots.push(PathBuf::from(c).join("skills"));
+    } else if let Some(h) = home.filter(|h| !h.is_empty()) {
+        roots.push(PathBuf::from(h).join(".codex").join("skills"));
+    }
+    if let Some(h) = home.filter(|h| !h.is_empty()) {
+        roots.push(PathBuf::from(h).join(".agents").join("skills"));
+    }
+    roots
+}
+
+/// Which of `wanted` none of `roots` holds. A skill is there when its
+/// `SKILL.md` is, symlink or not -- the same test the agents themselves make.
+pub fn missing_skills(roots: &[PathBuf], wanted: &[&'static str]) -> Vec<&'static str> {
+    wanted
+        .iter()
+        .copied()
+        .filter(|name| !roots.iter().any(|r| r.join(name).join("SKILL.md").is_file()))
+        .collect()
+}
+
 /// The backend an automatic fallback would reach for. Naming the CLI is what
 /// makes "there is no fallback" actionable.
 pub fn other_than(primary: &Orchestrator) -> &'static str {
@@ -258,6 +298,45 @@ mod tests {
         // The model is never carried over: the stand-in runs on its own default.
         let pinned = Orchestrator::parse("claude:opus-4.8").unwrap();
         assert_eq!(Fallback::Auto.resolve(&pinned, &all), Some(Orchestrator::parse("codex").unwrap()));
+    }
+
+    #[test]
+    fn only_codex_has_skill_roots_to_check() {
+        // claude is served by the staged directory, so there is nothing to
+        // look for and nothing to refuse over.
+        assert!(skills_roots("claude", Some("/home/x"), None).is_empty());
+        let roots = skills_roots("codex", Some("/home/x"), None);
+        assert_eq!(
+            roots,
+            vec![PathBuf::from("/home/x/.codex/skills"), PathBuf::from("/home/x/.agents/skills")]
+        );
+        // $CODEX_HOME wins over the default location, and ~/.agents still counts.
+        let roots = skills_roots("codex", Some("/home/x"), Some("/elsewhere"));
+        assert_eq!(
+            roots,
+            vec![PathBuf::from("/elsewhere/skills"), PathBuf::from("/home/x/.agents/skills")]
+        );
+        // No HOME to build a path from is no roots, not a path of "/skills".
+        assert!(skills_roots("codex", None, None).is_empty());
+    }
+
+    #[test]
+    fn missing_skills_looks_for_a_skill_md() {
+        let base = std::env::temp_dir().join(format!("ar-orch-skills-{}", std::process::id()));
+        let root = base.join("agents");
+        std::fs::create_dir_all(root.join("auto-review")).unwrap();
+        std::fs::write(root.join("auto-review").join("SKILL.md"), "x").unwrap();
+        // A directory without a SKILL.md is not a skill.
+        std::fs::create_dir_all(root.join("panel-review")).unwrap();
+        let roots = vec![root.clone()];
+        assert_eq!(
+            missing_skills(&roots, &ENTRY_SKILLS),
+            vec!["panel-review", "recheck-pr"]
+        );
+        assert!(missing_skills(&roots, &["auto-review"]).is_empty());
+        // Nowhere to look means everything is missing, which is the refusal.
+        assert_eq!(missing_skills(&[], &ENTRY_SKILLS).len(), ENTRY_SKILLS.len());
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

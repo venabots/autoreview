@@ -22,6 +22,37 @@ use autoreview::status::{Status, step};
 use autoreview::{ci, cli, orchestrator, pool, prlist, queue, repo, select, session, signals, skills, ui};
 use std::collections::{HashMap, HashSet};
 
+/// Refuse an orchestrator that could not find the review skills, naming the
+/// ones it is missing and the directory it reads. Ok for any backend the
+/// staged directory already serves, which has nothing to look for.
+fn require_skills(orch: &orchestrator::Orchestrator) -> Result<(), String> {
+    if orch.discovers_staged_skills() {
+        return Ok(());
+    }
+    let roots = orchestrator::skills_roots(
+        orch.cli(),
+        std::env::var("HOME").ok().as_deref(),
+        std::env::var("CODEX_HOME").ok().as_deref(),
+    );
+    let missing = orchestrator::missing_skills(&roots, &orchestrator::ENTRY_SKILLS);
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err([
+        format!(
+            "error: {} cannot find the review skills: {}",
+            orch.label(),
+            missing.join(", ")
+        ),
+        format!(
+            "  a run stages them for claude only, so install them where {} looks:",
+            orch.cli()
+        ),
+        format!("    ln -s \"$PWD/skills/\"* {}/", orch.skills_home()),
+    ]
+    .join("\n"))
+}
+
 fn select_prs(cfg: &Config) -> select::Opts<'static> {
     select::Opts {
         include_approved: cfg.include_approved,
@@ -211,7 +242,16 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         // summary of the pass that needed it is one whose operator finds
         // out at the worst time. A named fallback that is missing refuses
         // the run; an automatic one that is missing is simply none.
-        let fallback = cfg.fallback.resolve(&cfg.orchestrator, &repo::command_exists);
+        // The skills a run stages are handed over with --add-dir, which
+        // claude reads and codex does not. So an orchestrator that cannot
+        // see the staged copy has to have them installed where it does
+        // look, and a review that could never trigger its skill is worth
+        // refusing before it spends anything rather than after.
+        if let Err(e) = require_skills(&cfg.orchestrator) {
+            eprintln!("{e}");
+            anyhow::bail!(repo::AlreadyReported);
+        }
+        let mut fallback = cfg.fallback.resolve(&cfg.orchestrator, &repo::command_exists);
         // A fallback the operator named by hand has to be installed: they
         // asked for that retry, and a run that quietly has none is not the
         // run they asked for. An automatic one that is missing is not an
@@ -221,11 +261,22 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         {
             repo::require_deps(&[f.cli()])?;
         }
-        println!(
-            "orchestrator: {} · fallback: {}",
-            cfg.orchestrator.label(),
-            cfg.fallback.describe(&cfg.orchestrator, fallback.as_ref())
-        );
+        // A stand-in that could not find the skills is no stand-in. This
+        // does not end the run the way it does for the orchestrator: the
+        // reviews still work, there is just nothing to retry them with.
+        //
+        // The reason is its own wording rather than the one `describe`
+        // gives: that CLI is installed, so saying it is not would send the
+        // reader to install something they already have.
+        let mut stand_in = cfg.fallback.describe(&cfg.orchestrator, fallback.as_ref());
+        if let Some(f) = &fallback
+            && let Err(e) = require_skills(f)
+        {
+            eprintln!("{e}");
+            stand_in = format!("none ({} cannot find the review skills)", f.label());
+            fallback = None;
+        }
+        println!("orchestrator: {} · fallback: {stand_in}", cfg.orchestrator.label());
         cfg.fallback = match fallback {
             Some(f) => orchestrator::Fallback::Spec(f),
             None => orchestrator::Fallback::None,

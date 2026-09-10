@@ -281,6 +281,39 @@ assert_equals "an orchestrator that is not installed is refused up front" \
   "$(last_status)" "1"
 assert_contains "...rather than once per PR" "$out" "missing required command: codex"
 
+# --- An orchestrator that cannot find the skills --------------------------
+# A run stages the bundled skills as a .claude/skills directory and hands it
+# over with --add-dir. claude reads it; codex does not -- it reads its own
+# roots. So a codex run needs them installed, and a review that could never
+# trigger its skill is worth refusing before it spends anything.
+out="$(HOME="$SANDBOX/empty-home" CODEX_HOME="" run_autoreview --auto --orchestrator codex)"
+assert_equals "a codex run with no skills installed is refused" "$(last_status)" "1"
+assert_contains "...naming what it could not find" \
+  "$out" "codex cannot find the review skills: auto-review, panel-review, recheck-pr"
+# The literal the message prints is a tilde path. Matched without the tilde
+# so shellcheck does not read the needle as a path this script meant to expand.
+assert_contains "...and where codex looks" "$out" ".agents/skills/"
+assert_not_contains "...without reviewing anything" "$(claude_calls)" '$auto-review'
+
+# The same miss in the *fallback* is not fatal: the reviews still work, there
+# is just nothing to retry them with.
+out="$(HOME="$SANDBOX/empty-home" CODEX_HOME="" run_autoreview --auto)"
+assert_equals "a fallback that cannot find the skills does not stop the run" \
+  "$(last_status)" "0"
+assert_contains "...and the stand-in line says why, not that it is missing" \
+  "$out" "fallback: none (codex cannot find the review skills)"
+assert_contains "...while the reviews still ran" "$(claude_calls)" "/auto-review 9"
+
+# Installed where codex actually reads them, it is allowed to orchestrate.
+mkdir -p "$SANDBOX/codex-home/.agents/skills"
+for skill in auto-review panel-review recheck-pr; do
+  mkdir -p "$SANDBOX/codex-home/.agents/skills/$skill"
+  : >"$SANDBOX/codex-home/.agents/skills/$skill/SKILL.md"
+done
+out="$(HOME="$SANDBOX/codex-home" CODEX_HOME="" run_autoreview --auto --orchestrator codex)"
+assert_equals "a codex run with the skills installed goes ahead" "$(last_status)" "0"
+assert_contains "...and reviews with codex" "$(claude_calls)" '$auto-review 9'
+
 # --- Concurrency ----------------------------------------------------------
 FAKE_CLAUDE_SLEEP=0.4 run_autoreview --auto --jobs 1 >/dev/null
 assert_equals "--jobs 1 runs one review at a time" \
