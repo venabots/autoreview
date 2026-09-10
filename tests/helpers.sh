@@ -520,6 +520,44 @@ set_ci() {
   mv "$SANDBOX/fixtures/prs.next" "$SANDBOX/fixtures/prs.json"
 }
 
+# Point PR $1's base at PR $2's branch: a declared stack, the shape GitHub's
+# own stacked PRs and every stacking tool produce. Their commits stay disjoint,
+# exactly as GitHub serves them.
+base_pr_on() {
+  jq --argjson top "$1" --argjson base "$2" '
+    .data.repository.pullRequests.nodes |= map(
+      if .number == $base then .headRefName = "branch-\($base)"
+      elif .number == $top then .baseRefName = "branch-\($base)"
+      else . end)' \
+    "$SANDBOX/fixtures/prs.json" >"$SANDBOX/fixtures/prs.next"
+  mv "$SANDBOX/fixtures/prs.next" "$SANDBOX/fixtures/prs.json"
+}
+
+# Put PR $1's branch on top of PR $2's without saying so: the lower PR owns two
+# commits, and the higher one carries those two plus its own, which is what
+# GitHub serves when a branch was cut from another open PR's branch. Both keep
+# whatever base branch they had, because that is the case the base cannot show.
+stack_pr_on() {
+  jq --argjson top "$1" --argjson base "$2" '
+    def commit($oid; $date; $who):
+      {"commit":{"oid":$oid,"committedDate":$date,"author":{"user":{"login":$who}}}};
+    .data.repository.pullRequests.nodes |= map(
+      if .number == $base then
+        .headRefOid = "base2"
+        | .commits = {"nodes":[
+            commit("base1"; "2026-08-10T09:00:00Z"; .author.login),
+            commit("base2"; "2026-08-10T10:00:00Z"; .author.login)]}
+      elif .number == $top then
+        .headRefOid = "top1"
+        | .commits = {"nodes":[
+            commit("base1"; "2026-08-10T09:00:00Z"; "someone-else"),
+            commit("base2"; "2026-08-10T10:00:00Z"; "someone-else"),
+            commit("top1"; "2026-08-10T11:00:00Z"; .author.login)]}
+      else . end)' \
+    "$SANDBOX/fixtures/prs.json" >"$SANDBOX/fixtures/prs.next"
+  mv "$SANDBOX/fixtures/prs.next" "$SANDBOX/fixtures/prs.json"
+}
+
 # Three open PRs by other people, one draft, one of yours, one Dependabot.
 # PR 9 and 8 are NEW (no engagement by "me"); 6 is SEEN (you commented last).
 # 9 and 8 have passing checks; the rest have no checks at all, which the
