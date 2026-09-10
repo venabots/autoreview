@@ -125,6 +125,7 @@ autoreview --pick           # picker, then review each selection headlessly
 autoreview --continue       # resume earlier sessions for a second look
 autoreview --babysit=15     # re-run every 15 min, picking up new PRs as they open
 autoreview --skip-wait-for-ci # review a PR whatever its checks say
+autoreview --stacked        # review PRs stacked on another open PR too
 autoreview --help           # usage
 ```
 
@@ -136,7 +137,7 @@ the point.) `--auto` / `-A` still parse —
 an old alias or cron line keeps working — they just name the default now.
 
 It takes the same selection flags as `review-prs` (`--continue`, `--all`,
-`--dependabot`, `--skip-wait-for-ci`, `--babysit`) plus ten of its own: `--pick`, `--watch`,
+`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus ten of its own: `--pick`, `--watch`,
 `--focus`, `--no-post`, `--jobs`, `--timeout`, `--budget`, `--log-dir`,
 `--max-passes` and `--max-idle`.
 
@@ -475,6 +476,7 @@ review-prs --babysit=15 # ...every 15 minutes (default 30)
 review-prs --continue   # resume an earlier review session instead of starting over
 review-prs --all        # also include PRs already marked APPROVED
 review-prs --dependabot # also include Dependabot PRs (shown dimmed)
+review-prs --stacked    # also fan out PRs stacked on another open PR
 review-prs --auto --skip-wait-for-ci # fan out a PR whatever its checks say
 review-prs --help       # usage
 ```
@@ -635,8 +637,9 @@ spawn time would be overwritten by the review command within seconds.
 1. List the current repo's open, non-draft PRs (via the GitHub GraphQL API).
 2. Annotate each with an engagement badge, a review-state flag, and a relative
    "last activity" time, then sort the most actionable to the top.
-3. Take every `NEW` and `UPDATED` PR whose checks have passed, or let you
-   multi-select with [gum](https://github.com/charmbracelet/gum).
+3. Take every `NEW` and `UPDATED` PR whose checks have passed and which is not
+   [sitting on another open PR](#stacked-prs), or let you multi-select with
+   [gum](https://github.com/charmbracelet/gum).
 
 Then they diverge: `review-prs` opens a terminal tab per PR and runs the
 [review command](#the-review-command) in it; `autoreview` runs a headless
@@ -677,6 +680,54 @@ say. The picker never holds a pick — it shows the checks in a
 after a pick (`--pick --babysit`, `--pick --watch`) holds like any loop on its
 later polls: a picked PR that is pushed to is reviewed again once its checks
 pass.
+
+### Stacked PRs
+
+A PR sitting on top of another open PR is held until that PR lands, so a stack
+is reviewed once, from the bottom, as it merges. Two shapes are held, and each
+is found a different way.
+
+**A declared stack** — the PR's base is another open PR's branch, which is what
+GitHub's stacked PRs and every stacking tool produce. GitHub diffs it from that
+branch, so its diff is clean; but its code only makes sense on top of the PR
+below it, and reviewing it means reading that PR's work for the integration
+anyway. Found by the branch names, which is the one case the base branch does
+answer.
+
+**An undeclared stack** — the branch was cut from another open PR's branch
+while it was in flight, and still says `base: main`. GitHub then serves the
+diff from where the two branches parted, so that PR's commits sit inside this
+one's diff and reviewing both reads the same code twice. Measured on this
+repo's own PRs: #18's diff was 314KB across 23 files, of which 12KB across 5
+files was its own work. The other 96% was #15, open at the same time and
+already reviewed — and both PRs said `base: main`, so nothing in the base
+branch showed it. Found in the commits, whose `oid`s ride along on a list the
+same GraphQL call already fetches.
+
+The sweep names each held PR and how it was found:
+
+```
+holding 2 PRs stacked on another PR: #16 (based on #15) #18 (8 commits also in #15); --stacked reviews them anyway
+```
+
+A held PR is released by the PR underneath it landing. Each group keeps exactly
+one reviewable member — the PR the others are built on, or, when two branches
+were cut from the same unmerged commit, the one opened first — so a group can
+never hold all of its members.
+
+Every open PR counts for this, including drafts, approved ones, bots and your
+own: a colleague's branch cut from your unmerged work carries your commits
+whether or not this tool would ever review yours. So the relation is worked out
+before any filter runs.
+
+Unlike a CI hold, this is **not** a reason for a loop to keep waiting. Checks
+settle by themselves in minutes; a stack moves when a person merges something.
+So a `--watch` or `--babysit` run names a stacked PR once and does not sit
+waiting on it.
+
+`--stacked` / `-s` turns the hold off and reviews every PR in the stack. The
+picker never holds a pick — it marks those rows `(stacked on #15)` so you
+choose knowing.
 
 ## Columns
 
@@ -798,6 +849,7 @@ src/bin/           the three entry points: review-prs, autoreview, panel
 
 src/prlist.rs      the GraphQL query, engagement ranking, the sweep
 src/ci.rs          the head commit's checks, and the wait for them
+src/stack.rs       which PRs sit on top of another open PR
 src/picker.rs      the gum picker
 src/select.rs      fetch, rank, then sweep or pick
 src/session.rs     derived session ids, and how a PR attaches to one
