@@ -120,6 +120,7 @@ mod tests {
             continue_sessions: false,
             include_approved: false,
             include_dependabot: false,
+            include_stacked: false,
             wait_for_ci: true,
             ci_wait: None,
             review_cmd: None,

@@ -3,6 +3,7 @@
 
 use crate::ci::Ci;
 use crate::repo::RepoContext;
+use crate::stack::{self, StackedOn};
 use crate::status::Status;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -26,6 +27,14 @@ pub const QUERY_LIMIT: usize = 50;
 // than a line in the commits list: the rollup is wanted for one commit, and
 // asking for it on a hundred would make the query pay for ninety-nine
 // answers it throws away.
+//
+// The branch names and the commit `oid`s are what find a PR sitting on top of
+// another open PR (see `stack`): the names catch a declared stack, and the
+// oids catch a branch cut from another PR's branch that still says
+// "base: main". Both ride along on fields this one call was making anyway --
+// the oids on a commit list already fetched for its dates. A PR with more than
+// 100 commits loses its oldest, which can only ever hide an overlap, never
+// invent one.
 const QUERY: &str = "
       query($owner:String!, $name:String!) {
         repository(owner:$owner, name:$name) {
@@ -37,10 +46,13 @@ const QUERY: &str = "
               updatedAt
               reviewDecision
               headRefOid
+              baseRefName
+              headRefName
+              isCrossRepository
               author { login }
               comments(last:100) { nodes { author { login } updatedAt } }
               reviews(last:100)  { nodes { author { login } submittedAt } }
-              commits(last:100)  { nodes { commit { committedDate author { user { login } } } } }
+              commits(last:100)  { nodes { commit { oid committedDate author { user { login } } } } }
               headCommit: commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
             }
           }
@@ -73,6 +85,10 @@ pub struct CommitAuthor {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Commit {
+    /// The commit SHA. Optional so that an answer without it -- an older
+    /// fixture, a field the API declined -- reads as "no overlap anyone can
+    /// prove" rather than failing the whole fetch.
+    pub oid: Option<String>,
     #[serde(rename = "committedDate")]
     pub committed_date: Option<String>,
     pub author: Option<CommitAuthor>,
@@ -124,6 +140,18 @@ pub struct PrNode {
     /// comment: both make a PR actionable again, and only one is new code.
     #[serde(rename = "headRefOid")]
     pub head_ref_oid: Option<String>,
+    /// The branch this PR merges into, and the branch this PR is. A PR whose
+    /// base is another open PR's branch is stacked on it by design; see
+    /// `stack`.
+    #[serde(rename = "baseRefName")]
+    pub base_ref_name: Option<String>,
+    #[serde(rename = "headRefName")]
+    pub head_ref_name: Option<String>,
+    /// The head branch lives in a fork, so its name means nothing to another
+    /// PR's base. Absent in an older answer, which reads as "same repo" --
+    /// the ordinary case, and the one the branch names are comparable in.
+    #[serde(rename = "isCrossRepository", default)]
+    pub is_cross_repository: bool,
     pub author: Option<Actor>,
     #[serde(default = "empty_nodes")]
     pub comments: Nodes<CommentNode>,
@@ -134,6 +162,12 @@ pub struct PrNode {
     /// The tip of the branch alone, for its checks. See `ci`.
     #[serde(rename = "headCommit", default = "empty_nodes")]
     pub head_commit: Nodes<HeadCommitNode>,
+    /// The open PR this one sits on top of, if any. Worked out from the whole
+    /// answer rather than read out of it, and written on by `filter_prs` -- so
+    /// every path that re-fetches the list gets a fresh one for free, and none
+    /// of them can carry a stale one.
+    #[serde(skip)]
+    pub stacked_on: Option<StackedOn>,
 }
 
 impl PrNode {
@@ -184,6 +218,24 @@ impl Engagement {
     }
 }
 
+/// What the sweep consults before it reviews a PR. Both are on by default and
+/// each has a flag that turns it off, and they are passed together so that a
+/// caller cannot answer one question while forgetting the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Gates {
+    /// Hold a PR whose checks have not passed. Off with --skip-wait-for-ci.
+    pub ci: bool,
+    /// Hold a PR sitting on top of another open PR. Off with --stacked.
+    pub stack: bool,
+}
+
+impl Gates {
+    /// Everything the sweep would normally consult.
+    pub fn all() -> Gates {
+        Gates { ci: true, stack: true }
+    }
+}
+
 /// What the board needs to say about a PR that is not in the Job itself:
 /// who opened it, and why it is in the queue. Carried alongside the numbers
 /// from selection through to the pass, because the GraphQL answer is the only
@@ -197,6 +249,8 @@ pub struct PrInfo {
     pub head: Option<String>,
     /// See `Row::ci`.
     pub ci: Ci,
+    /// See `Row::stacked_on`.
+    pub stacked_on: Option<StackedOn>,
 }
 
 impl Row {
@@ -207,6 +261,7 @@ impl Row {
             engage: self.engage,
             head: self.head.clone(),
             ci: self.ci,
+            stacked_on: self.stacked_on,
         }
     }
 }
@@ -234,6 +289,9 @@ pub struct Row {
     /// The checks on that commit, which decide whether the sweep reviews
     /// the PR now or holds it.
     pub ci: Ci,
+    /// The open PR this one sits on top of. The sweep reviews the one
+    /// underneath and leaves this one until it lands. See `stack`.
+    pub stacked_on: Option<StackedOn>,
 }
 
 impl Row {
@@ -241,22 +299,39 @@ impl Row {
         self.engage.engaged()
     }
 
-    /// What the sweep reviews now: engaged, and, when the checks gate it,
-    /// with its checks passing.
-    pub fn ready(&self, gate_ci: bool) -> bool {
-        self.engaged() && (!gate_ci || self.ci.ready())
+    /// What the sweep reviews now: engaged, not sitting on another open PR,
+    /// and, when the checks gate it, with its checks passing.
+    pub fn ready(&self, gates: Gates) -> bool {
+        self.stacked(gates).is_none() && self.engaged() && (!gates.ci || self.ci.ready())
     }
 
     /// Engaged, but the checks say not yet: what the sweep names as held.
-    pub fn held(&self, gate_ci: bool) -> bool {
-        self.engaged() && !self.ready(gate_ci)
+    ///
+    /// A PR waiting on the PR underneath it is deliberately not here. Checks
+    /// settle in minutes, so a loop waits for them; a PR merges when someone
+    /// merges it, so a loop that treated the two the same would sit waiting
+    /// on a person. `stacked` names those separately.
+    pub fn held(&self, gates: Gates) -> bool {
+        self.stacked(gates).is_none() && self.engaged() && !self.ready(gates)
+    }
+
+    /// The PR this one is being left alone for, when the sweep is gating on
+    /// that at all. Only ever said about a PR that would otherwise have been
+    /// reviewed: a SEEN PR is not being held by anything.
+    pub fn stacked(&self, gates: Gates) -> Option<StackedOn> {
+        self.stacked_on.filter(|_| gates.stack && self.engaged())
     }
 }
 
 impl PrInfo {
     /// See `Row::held`.
-    pub fn held(&self, gate_ci: bool) -> bool {
-        self.engage.engaged() && gate_ci && !self.ci.ready()
+    pub fn held(&self, gates: Gates) -> bool {
+        self.stacked(gates).is_none() && self.engage.engaged() && gates.ci && !self.ci.ready()
+    }
+
+    /// See `Row::stacked`.
+    pub fn stacked(&self, gates: Gates) -> Option<StackedOn> {
+        self.stacked_on.filter(|_| gates.stack && self.engage.engaged())
     }
 }
 
@@ -314,7 +389,16 @@ pub fn filter_prs(
     include_dependabot: bool,
 ) -> Fetched {
     let truncated = prs.len() >= QUERY_LIMIT;
-    let open: Vec<PrNode> = prs.into_iter().filter(|pr| !pr.is_draft).collect();
+    // Worked out over every open PR, before a single filter runs. A branch
+    // stacked on a draft, on a bot's PR, on an approved one or on your own is
+    // stacked just the same, and a stack computed over the visible half would
+    // miss exactly those.
+    let stacked = stack::parents(&prs);
+    let open: Vec<PrNode> = prs
+        .into_iter()
+        .filter(|pr| !pr.is_draft)
+        .map(|pr| PrNode { stacked_on: stacked.get(&pr.number).copied(), ..pr })
+        .collect();
     let total = open.len();
     let prs: Vec<PrNode> = open
         .into_iter()
@@ -475,6 +559,7 @@ pub fn build_rows(prs: &[PrNode], me: &str, now_epoch: i64) -> Vec<Row> {
                 resumable: false,
                 head: pr.head_ref_oid.clone(),
                 ci: pr.ci(),
+                stacked_on: pr.stacked_on,
             }
         })
         .collect();
@@ -489,20 +574,29 @@ pub fn build_rows(prs: &[PrNode], me: &str, now_epoch: i64) -> Vec<Row> {
     rows
 }
 
-/// The sweep: every NEW/UPDATED PR whose checks are not in the way. SEEN PRs
+/// The sweep: every NEW/UPDATED PR that nothing is in the way of. SEEN PRs
 /// are skipped on purpose -- nothing has changed since you last engaged, so
-/// an unattended sweep has no reason to re-review them. A PR whose checks
-/// are pending or failing is held, and named, unless `gate_ci` is off.
+/// an unattended sweep has no reason to re-review them. A PR whose checks are
+/// pending or failing is held, and named, unless `gates.ci` is off; so is one
+/// sitting on top of another open PR, unless `gates.stack` is off.
 /// Prints the selection; None (after printing) means nothing to do now. The
 /// hint names the caller's own way to see the rest, which is a different
 /// flag in each front-end.
-pub fn select_auto(rows: &[Row], empty_hint: &str, gate_ci: bool) -> Option<Vec<u64>> {
+pub fn select_auto(rows: &[Row], empty_hint: &str, gates: Gates) -> Option<Vec<u64>> {
+    // Said before the CI line: a PR waiting on the PR underneath it is not
+    // waiting on its checks, and naming it twice would invite the reader to
+    // fix the wrong thing.
+    let stacked: Vec<(u64, StackedOn)> =
+        rows.iter().filter_map(|r| r.stacked(gates).map(|on| (r.number, on))).collect();
+    if !stacked.is_empty() {
+        println!("{}", stack::held_line(&stacked));
+    }
     let held: Vec<(u64, Ci)> =
-        rows.iter().filter(|r| r.held(gate_ci)).map(|r| (r.number, r.ci)).collect();
+        rows.iter().filter(|r| r.held(gates)).map(|r| (r.number, r.ci)).collect();
     if !held.is_empty() {
         println!("{}", crate::ci::held_line(&held));
     }
-    let ready: Vec<&Row> = rows.iter().filter(|r| r.ready(gate_ci)).collect();
+    let ready: Vec<&Row> = rows.iter().filter(|r| r.ready(gates)).collect();
     if ready.is_empty() {
         println!("no NEW or UPDATED PRs to review{empty_hint}");
         return None;
@@ -545,6 +639,7 @@ pub fn pr_babysit_done(n: u64) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stack::Why;
 
     // The same shape tests/helpers.sh seeds (its numbering differs slightly:
     // there 5 is the approved PR and 2 the draft): 9 and 8 are NEW by others,
@@ -698,7 +793,7 @@ mod tests {
     fn select_auto_takes_new_and_updated_only() {
         let prs = filtered(false, false);
         let rows = build_rows(&prs, "me", parse_iso("2026-08-10T12:00:00Z").unwrap());
-        assert_eq!(select_auto(&rows, "", true), Some(vec![9, 8]));
+        assert_eq!(select_auto(&rows, "", Gates::all()), Some(vec![9, 8]));
     }
 
     /// The fixture with the head commit's checks set on the PRs named.
@@ -750,18 +845,18 @@ mod tests {
     fn the_sweep_holds_a_pr_whose_checks_are_not_green() {
         let prs = with_ci(&[(9, "PENDING"), (8, "SUCCESS")]);
         let rows = build_rows(&prs, "me", parse_iso("2026-08-10T12:00:00Z").unwrap());
-        assert_eq!(select_auto(&rows, "", true), Some(vec![8]), "9 is held");
-        assert_eq!(select_auto(&rows, "", false), Some(vec![9, 8]), "--skip-wait-for-ci");
+        assert_eq!(select_auto(&rows, "", Gates::all()), Some(vec![8]), "9 is held");
+        assert_eq!(select_auto(&rows, "", Gates { ci: false, ..Gates::all() }), Some(vec![9, 8]), "--skip-wait-for-ci");
 
         // Failing is held the same way: the author is about to push.
         let prs = with_ci(&[(9, "FAILURE"), (8, "ERROR")]);
         let rows = build_rows(&prs, "me", 0);
-        assert_eq!(select_auto(&rows, "", true), None, "nothing left to review");
-        assert_eq!(select_auto(&rows, "", false), Some(vec![9, 8]));
+        assert_eq!(select_auto(&rows, "", Gates::all()), None, "nothing left to review");
+        assert_eq!(select_auto(&rows, "", Gates { ci: false, ..Gates::all() }), Some(vec![9, 8]));
 
         // A PR with no checks at all is never held.
         let rows = build_rows(&filtered(false, false), "me", 0);
-        assert_eq!(select_auto(&rows, "", true), Some(vec![9, 8]));
+        assert_eq!(select_auto(&rows, "", Gates::all()), Some(vec![9, 8]));
     }
 
     #[test]
@@ -770,14 +865,138 @@ mod tests {
         let rows = build_rows(&prs, "me", 0);
         let nine = rows.iter().find(|r| r.number == 9).unwrap();
         let six = rows.iter().find(|r| r.number == 6).unwrap();
-        assert!(nine.engaged() && !nine.ready(true) && nine.ready(false));
-        assert!(nine.held(true) && !nine.held(false));
+        assert!(nine.engaged() && !nine.ready(Gates::all()) && nine.ready(Gates { ci: false, ..Gates::all() }));
+        assert!(nine.held(Gates::all()) && !nine.held(Gates { ci: false, ..Gates::all() }));
         // SEEN is not ready whatever its checks say, and not held either:
         // the hold is for PRs the sweep would otherwise review.
-        assert!(!six.engaged() && !six.ready(true) && !six.ready(false));
-        assert!(!six.held(true));
+        assert!(!six.engaged() && !six.ready(Gates::all()) && !six.ready(Gates { ci: false, ..Gates::all() }));
+        assert!(!six.held(Gates::all()));
         // PrInfo answers the same question for the loop.
-        assert!(nine.info().held(true) && !six.info().held(true));
+        assert!(nine.info().held(Gates::all()) && !six.info().held(Gates::all()));
+    }
+
+    /// Two open PRs, the second cut from the first's branch while it was in
+    /// flight: both say "base: main", and #8 carries #9's two commits as well
+    /// as its own, so its diff is mostly #9's work.
+    fn stacked_fixture() -> Vec<PrNode> {
+        let json = r#"[
+          {"number":9,"title":"Vendor the skills","isDraft":false,
+           "updatedAt":"2026-08-10T10:00:00Z","reviewDecision":null,
+           "headRefOid":"c2","baseRefName":"main","headRefName":"vendor",
+           "author":{"login":"alice"},
+           "comments":{"nodes":[]},"reviews":{"nodes":[]},
+           "commits":{"nodes":[{"commit":{"oid":"c1"}},{"commit":{"oid":"c2"}}]}},
+          {"number":8,"title":"One decision line","isDraft":false,
+           "updatedAt":"2026-08-09T10:00:00Z","reviewDecision":null,
+           "headRefOid":"c3","baseRefName":"main","headRefName":"decision",
+           "author":{"login":"bob"},
+           "comments":{"nodes":[]},"reviews":{"nodes":[]},
+           "commits":{"nodes":[{"commit":{"oid":"c1"}},{"commit":{"oid":"c2"}},{"commit":{"oid":"c3"}}]}}
+        ]"#;
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn stacked_rows(prs: Vec<PrNode>) -> Vec<Row> {
+        let found = filter_prs(prs, "me", false, false);
+        build_rows(&found.prs, "me", 0)
+    }
+
+    #[test]
+    fn what_the_stack_test_needs_reaches_the_rows_from_the_query() {
+        // The hold is only as good as this wiring: the query asks for the
+        // fields, `stack` reads them, filter_prs writes the answer onto the
+        // node, and Row carries it to the sweep and the picker.
+        assert!(QUERY.contains("commit { oid"), "the query must ask for the commit ids");
+        assert!(QUERY.contains("baseRefName"), "...and the branch a PR merges into");
+        assert!(QUERY.contains("headRefName"), "...and the branch it is");
+        assert!(QUERY.contains("isCrossRepository"), "...and whether that branch is a fork's");
+
+        let rows = stacked_rows(stacked_fixture());
+        let nine = rows.iter().find(|r| r.number == 9).unwrap();
+        let eight = rows.iter().find(|r| r.number == 8).unwrap();
+        assert_eq!(eight.stacked_on.map(|s| s.pr), Some(9));
+        assert_eq!(eight.stacked_on.map(|s| s.why), Some(Why::Commits(2)), "#9's two commits");
+        assert_eq!(eight.info().stacked_on.map(|s| s.pr), Some(9));
+        assert_eq!(nine.stacked_on, None, "the one underneath is nobody's descendant");
+    }
+
+    #[test]
+    fn a_declared_stack_is_held_the_same_way() {
+        // The other shape: #8's base is #9's branch, so GitHub already keeps
+        // their diffs apart -- but #8's code only makes sense on top of #9's,
+        // and reviewing it means reading #9's work for the integration.
+        let mut prs = stacked_fixture();
+        prs[1].base_ref_name = Some("vendor".into());
+        prs[1].commits.nodes.retain(|c| c.commit.oid.as_deref() == Some("c3"));
+        let rows = stacked_rows(prs);
+        let eight = rows.iter().find(|r| r.number == 8).unwrap();
+        assert_eq!(eight.stacked_on, Some(StackedOn { pr: 9, why: Why::Base }));
+        assert_eq!(select_auto(&rows, "", Gates::all()), Some(vec![9]));
+    }
+
+    #[test]
+    fn the_sweep_reviews_the_pr_underneath_and_holds_the_one_on_top() {
+        let rows = stacked_rows(stacked_fixture());
+        assert_eq!(select_auto(&rows, "", Gates::all()), Some(vec![9]));
+        assert_eq!(
+            select_auto(&rows, "", Gates { stack: false, ..Gates::all() }),
+            Some(vec![9, 8]),
+            "--stacked reviews both"
+        );
+    }
+
+    #[test]
+    fn a_pr_the_list_hides_still_holds_the_one_cut_from_it() {
+        // The overlap is worked out before a single filter runs. A branch cut
+        // from a draft, or from your own PR, carries those commits in its
+        // diff whether or not this tool would ever review the PR underneath
+        // -- and a stack worked out from the visible half would miss exactly
+        // those.
+        let mut mine = stacked_fixture();
+        mine[0].author = Some(Actor { login: Some("me".into()) });
+        let rows = stacked_rows(mine);
+        assert_eq!(rows.len(), 1, "my own PR is hidden");
+        assert_eq!(rows[0].stacked_on.map(|s| s.pr), Some(9), "and still holds #8");
+        assert_eq!(select_auto(&rows, "", Gates::all()), None);
+
+        let mut draft = stacked_fixture();
+        draft[0].is_draft = true;
+        let rows = stacked_rows(draft);
+        assert_eq!(rows[0].stacked_on.map(|s| s.pr), Some(9));
+    }
+
+    #[test]
+    fn a_stacked_pr_is_never_reported_as_held_for_its_checks() {
+        // The two holds end differently. Checks settle by themselves, so a
+        // loop waits for them; a stack moves when a person merges something,
+        // so a loop that counted this as a CI hold would sit waiting on a
+        // person for as long as it ran.
+        let rows = stacked_rows(stacked_fixture());
+        let eight = rows.iter().find(|r| r.number == 8).unwrap();
+        assert!(eight.stacked(Gates::all()).is_some());
+        assert!(!eight.ready(Gates::all()), "not reviewed");
+        assert!(!eight.held(Gates::all()), "and not waited on either");
+        assert!(!eight.info().held(Gates::all()));
+        // With the gate off it is an ordinary PR again, on both counts.
+        let open = Gates { stack: false, ..Gates::all() };
+        assert!(eight.ready(open) && eight.stacked(open).is_none());
+    }
+
+    #[test]
+    fn a_quiet_pr_is_not_described_as_stacked() {
+        // SEEN PRs are left alone for their own reason. Naming one as held
+        // for the PR underneath it would invite someone to merge that PR
+        // expecting a review that was never coming.
+        let mut prs = stacked_fixture();
+        prs[1].comments.nodes.push(CommentNode {
+            author: Some(Actor { login: Some("me".into()) }),
+            updated_at: Some("2026-08-11T10:00:00Z".into()),
+        });
+        let rows = stacked_rows(prs);
+        let eight = rows.iter().find(|r| r.number == 8).unwrap();
+        assert_eq!(eight.engage, Engagement::Seen);
+        assert!(eight.stacked_on.is_some(), "the overlap is still true");
+        assert!(eight.stacked(Gates::all()).is_none(), "but it is not why we skip it");
     }
 
     #[test]

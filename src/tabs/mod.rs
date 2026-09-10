@@ -18,6 +18,7 @@ fn select_opts(cfg: &Config) -> select::Opts<'static> {
     select::Opts {
         include_approved: cfg.include_approved,
         include_dependabot: cfg.include_dependabot,
+        include_stacked: cfg.include_stacked,
         pick: !cfg.auto,
         continue_sessions: cfg.continue_sessions,
         // One selection, then tabs: there is no next poll here, so pending

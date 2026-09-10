@@ -11,7 +11,7 @@ pub const HELP: &str = r#"autoreview: review open PRs headlessly, with progress 
 Usage: autoreview [--pick] [--watch[=MINUTES]] [--babysit[=MINUTES]]
                   [--focus TEXT] [--no-post] [--continue] [--jobs N]
                   [--timeout SECONDS] [--budget USD] [--log-dir DIR]
-                  [--all] [--dependabot] [--skip-wait-for-ci] [--help]
+                  [--all] [--dependabot] [--stacked] [--skip-wait-for-ci] [--help]
 
 Every NEW or UPDATED PR is reviewed by default -- the actionable ones. SEEN
 PRs (nothing has changed since you last engaged) are left alone, and so is a
@@ -75,6 +75,16 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
                       printed on every run).
   --all, -a           Include PRs already marked APPROVED (default: exclude).
   --dependabot, -d    Include Dependabot PRs (default: hidden; shown dimmed).
+  --stacked, -s       Review a PR even when it sits on top of another open
+                      PR. By default the sweep reviews the PR underneath and
+                      holds the ones above it until it lands, so a stack is
+                      reviewed once, from the bottom, as it merges. Two shapes
+                      are held: a PR whose base is another open PR's branch,
+                      and a branch cut from another open PR's branch that
+                      still says "base: main" -- GitHub then serves that PR's
+                      commits as part of this one's diff, and reviewing both
+                      reads the same code twice. The second is invisible in
+                      the base branch, so it is found in the commits.
   --skip-wait-for-ci  Review a PR whatever its checks say. By default the
                       sweep holds a PR until the checks on its head commit
                       pass: a PR opened a minute ago has its linter still
@@ -150,6 +160,10 @@ pub struct Config {
     pub log_dir: Option<PathBuf>,
     pub include_approved: bool,
     pub include_dependabot: bool,
+    /// Review a PR whose diff already carries an open PR's commits; off by
+    /// default, which reviews the PR underneath and holds this one until that
+    /// PR lands rather than reading the same work twice.
+    pub include_stacked: bool,
     /// Hold a PR whose checks have not passed; off with --skip-wait-for-ci,
     /// which reviews whatever the checks say.
     pub wait_for_ci: bool,
@@ -333,6 +347,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     let mut continue_sessions = false;
     let mut include_approved = false;
     let mut include_dependabot = false;
+    let mut include_stacked = false;
     let mut skip_wait_for_ci = false;
 
     let mut jobs_raw = env_nonempty(env, "AUTOREVIEW_JOBS").unwrap_or_else(|| "2".into());
@@ -365,6 +380,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             "--no-post" | "-n" => no_post = true,
             "--all" | "-a" => include_approved = true,
             "--dependabot" | "-d" => include_dependabot = true,
+            "--stacked" | "-s" => include_stacked = true,
             "--skip-wait-for-ci" => skip_wait_for_ci = true,
             "--help" | "-h" => return Ok(Parsed::Help),
             "--version" | "-V" => return Ok(Parsed::Version),
@@ -508,6 +524,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         log_dir: log_dir_raw.map(PathBuf::from),
         include_approved,
         include_dependabot,
+        include_stacked,
         wait_for_ci,
         ci_wait,
         review_cmd,
@@ -773,6 +790,14 @@ mod tests {
         }
         // A babysit loop outlives whoever started it, picker or not.
         assert!(cfg(&["--pick", "--babysit"]).unattended());
+    }
+
+    #[test]
+    fn a_pr_stacked_on_another_is_held_unless_the_flag_says_otherwise() {
+        // The default is the whole point: a PR whose diff already carries an
+        // open PR's commits is reviewed once, from underneath.
+        assert!(!cfg(&[]).include_stacked);
+        assert!(cfg(&["-s"]).include_stacked && cfg(&["--stacked"]).include_stacked);
     }
 
     #[test]
