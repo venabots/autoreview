@@ -466,10 +466,12 @@ fi
 # ```autoreview block a real reviewer is asked for via the system prompt.
 # The \n and \" sequences are literal here: they are JSON escapes for the
 # consumer to decode, not printf's to interpret.
+# It reports one should-fix finding and the blocker that explains it, so the
+# "not approved yet because" block has something to draw.
 trailer=""
 case " ${FAKE_CLAUDE_TRAILER:-} " in
   *" $n "*)
-    trailer='\n\n```autoreview\n{\"decision\":\"commented\",\"risk\":\"LOW\",\"findings\":{\"must_fix\":0,\"should_fix\":0,\"polish\":1},\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":1,\"top\":\"LOW\"},{\"name\":\"claude\",\"model\":\"claude-opus-4.7\",\"ok\":true,\"findings\":0}]}\n```'
+    trailer='\n\n```autoreview\n{\"decision\":\"commented\",\"risk\":\"LOW\",\"findings\":{\"must_fix\":0,\"should_fix\":1,\"polish\":1},\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":1,\"top\":\"LOW\"},{\"name\":\"claude\",\"model\":\"claude-opus-4.7\",\"ok\":true,\"findings\":0}],\"blockers\":[{\"severity\":\"MEDIUM\",\"domain\":\"money\",\"reversible\":false,\"location\":\"src/pay.rs:88\",\"gist\":\"a retried checkout charges the card twice\"}]}\n```'
     ;;
 esac
 if [[ "$status" -eq 0 ]]; then

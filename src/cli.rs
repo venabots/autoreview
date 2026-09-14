@@ -131,6 +131,12 @@ asked to report its synthesized risk, finding counts, and each panelist's
 model, shown alongside the model, time and cost dash-p accounts for. On a
 terminal that supports OSC 8 hyperlinks, each PR number opens the PR.
 
+Any PR short of an approval carries a "not approved yet because" block under
+it, naming up to three blockers: the severity, which kind of bug it is (money,
+data, security, correctness, ui, perf, docs), whether it can be undone, where
+it is, and one line on what is wrong. It comes from the reviewer, so a review
+that reported none prints none.
+
 Override the reviewer via $AUTOREVIEW_AUTO_CMD for unattended runs (the default,
 and --babysit), or $AUTOREVIEW_CMD for --pick runs (the PR number replaces the
 first "{}", or is appended if absent):

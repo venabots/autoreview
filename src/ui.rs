@@ -17,6 +17,7 @@
 use crate::board::{self, Action, Board};
 use crate::job::{Job, JobState};
 use crate::report::{Panelist, Trailer};
+use crate::why;
 use comfy_table::presets::UTF8_FULL_CONDENSED;
 use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 use console::style;
@@ -186,6 +187,31 @@ pub fn panelist_label(p: &Panelist) -> String {
 /// Failed reviews and why the harness said they failed, one line per
 /// distinct reason. Identical reasons group -- a usage limit hits every PR
 /// in the pass, and reading the same notice five times is noise.
+/// The same block off a TTY: the header and its bullets, indented under the
+/// eight-column label that opens every plain line.
+fn plain_why_lines(job: &Job) -> Vec<String> {
+    let reasons = why::reasons(job);
+    if reasons.is_empty() {
+        return Vec::new();
+    }
+    std::iter::once(why::HEADER.to_string())
+        .chain(reasons)
+        .map(|line| format!("        {line}"))
+        .collect()
+}
+
+/// The same block in the end-of-run summary, where the PR number has to ride
+/// the header: the table above it holds every PR, not just this one.
+fn summary_why_lines(job: &Job) -> Vec<String> {
+    let reasons = why::reasons(job);
+    if reasons.is_empty() {
+        return Vec::new();
+    }
+    std::iter::once(format!("#{} {}", job.pr, why::HEADER))
+        .chain(reasons.into_iter().map(|r| format!("  {r}")))
+        .collect()
+}
+
 pub fn error_lines(jobs: &[Job]) -> Vec<String> {
     let mut groups: Vec<(&str, Vec<u64>)> = Vec::new();
     for job in jobs {
@@ -288,7 +314,14 @@ impl Ui {
                 let verb = if job.resume { "rechecking" } else { "reviewing" };
                 println!("start   #{n}{who} ({verb})");
             }
-            JobState::Done => println!("done    #{n} ({})", fmt_dur(job.elapsed_secs)),
+            JobState::Done => {
+                println!("done    #{n} ({})", fmt_dur(job.elapsed_secs));
+                // Indented under the line they explain, on the same stream,
+                // so a cron log reads the way the board does.
+                for line in plain_why_lines(job) {
+                    println!("{line}");
+                }
+            }
             JobState::Failed => match &job.error {
                 // The reason rides the same line, not a note below it: a
                 // failure the reader has to decode is the gap this closes.
@@ -343,6 +376,12 @@ impl Ui {
             JobState::Done | JobState::Failed | JobState::Timeout => {
                 let width = board.width();
                 let _ = board.println(finished_line(label, job, width));
+                // Under the row it explains, while the pass is still running:
+                // the reason a review stopped short of approving is worth
+                // more now than in a table at the end.
+                for line in why_lines(job, width) {
+                    let _ = board.println(line);
+                }
                 self.finished += 1;
             }
         }
@@ -498,6 +537,11 @@ impl Ui {
         println!();
         print!("{}", align(&rows));
         for job in jobs {
+            for line in summary_why_lines(job) {
+                println!("{line}");
+            }
+        }
+        for job in jobs {
             if let Some(t) = &job.trailer
                 && !t.panel.is_empty()
             {
@@ -566,6 +610,17 @@ impl Ui {
     fn print_summary_tables(&self, jobs: &[Job], pass_dir: &std::path::Path) {
         println!();
         println!("{}", self.results_table(jobs));
+        // Directly under the table, because this is what the VERDICT column
+        // does not have room to say.
+        for job in jobs {
+            let mut block = summary_why_lines(job).into_iter();
+            if let Some(header) = block.next() {
+                println!("{}", style(header).yellow());
+                for line in block {
+                    println!("{}", style(line).dim());
+                }
+            }
+        }
         if let Some(panel) = self.panel_table(jobs) {
             println!("{panel}");
         }
@@ -841,6 +896,19 @@ fn detail_lines(job: &Job, width: usize, now: i64) -> Vec<Line<'static>> {
 fn detail_line(mut spans: Vec<Span<'static>>, width: usize) -> Line<'static> {
     spans.insert(0, Span::raw(DETAIL_INDENT));
     fit(Line::from(spans), width)
+}
+
+/// The "not approved yet because" block, indented under the row it explains.
+/// Empty for an approved PR and for a review that named no blocker, so a
+/// clean pass still scrolls past as one line each.
+fn why_lines(job: &Job, width: usize) -> Vec<Line<'static>> {
+    let reasons = why::reasons(job);
+    if reasons.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = vec![detail_line(vec![Span::from(why::HEADER).yellow()], width)];
+    lines.extend(reasons.into_iter().map(|r| detail_line(vec![Span::from(r).dim()], width)));
+    lines
 }
 
 /// The permanent line a finished review leaves on the board.
@@ -1287,6 +1355,58 @@ mod tests {
         let mut job = Job::new(9);
         job.title = "t".into();
         assert!(text(&running_line("#9".into(), &job, ASSUMED_WIDTH, "⠋")).starts_with("  ⠋ #9"));
+    }
+
+    /// A review that commented on #9 over one blocker.
+    fn unapproved_job() -> Job {
+        let trailer = parse_trailer(
+            "```autoreview\n{\"decision\":\"commented\",\"blockers\":[{\"severity\":\"MEDIUM\",\"domain\":\"money\",\"reversible\":false,\"location\":\"src/pay.rs:88\",\"gist\":\"a retried checkout charges twice\"}]}\n```",
+        );
+        let mut job = Job::new(9);
+        job.verdict = Some("commented".into());
+        job.trailer = trailer;
+        job
+    }
+
+    #[test]
+    fn the_plain_block_sits_under_the_line_it_explains() {
+        // Eight columns, the width of the "done    " label every plain line
+        // opens with, so the reason hangs under the PR it belongs to.
+        assert_eq!(
+            plain_why_lines(&unapproved_job()),
+            vec![
+                "        not approved yet because:".to_string(),
+                "        - [MEDIUM] (money, irreversible) src/pay.rs:88 — a retried checkout charges twice"
+                    .to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_summary_block_names_its_pr() {
+        // The table above it holds every PR of the pass, so a bare header
+        // would belong to none of them.
+        let lines = summary_why_lines(&unapproved_job());
+        assert_eq!(lines[0], "#9 not approved yet because:");
+        assert!(lines[1].starts_with("  - [MEDIUM] (money, irreversible)"));
+    }
+
+    #[test]
+    fn an_approved_pr_draws_no_block_on_any_path() {
+        let mut job = unapproved_job();
+        job.verdict = Some("approved".into());
+        assert!(plain_why_lines(&job).is_empty());
+        assert!(summary_why_lines(&job).is_empty());
+        assert!(why_lines(&job, ASSUMED_WIDTH).is_empty());
+    }
+
+    #[test]
+    fn the_board_block_is_cut_to_the_row_width() {
+        // It prints into the live area, where a line wider than the terminal
+        // pushes the board's own rows out of place.
+        for line in why_lines(&unapproved_job(), 40) {
+            assert!(text(&line).chars().count() <= 40, "{}", text(&line));
+        }
     }
 
     #[test]

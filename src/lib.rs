@@ -33,3 +33,4 @@ pub mod stats;
 pub mod status;
 pub mod tabs;
 pub mod ui;
+pub mod why;

@@ -345,6 +345,18 @@ assert_contains "each panelist's model and result are shown" \
   "$out" "codex (gpt-5.5) 1 finding, top LOW"
 assert_contains "a clean panelist is shown too" "$out" "claude (claude-opus-4.7) clean"
 
+# A verdict short of an approval says why, in the reviewer's own words: the
+# severity, which kind of bug it is, and whether it can be undone. Without
+# the domain a reader has to open the PR to tell a stray pixel from a double
+# charge.
+assert_contains "an unapproved PR says why" "$out" "not approved yet because:"
+assert_contains "...with the severity, domain and blast radius" \
+  "$out" "[MEDIUM] (money, irreversible) src/pay.rs:88"
+assert_contains "...and the reviewer's one-line gist" \
+  "$out" "a retried checkout charges the card twice"
+# #9 was approved on GitHub, so nothing hangs under it.
+assert_not_contains "an approved PR explains nothing" "$out" "#9 not approved yet because:"
+
 # The same review is appended to the ledger, which is where `autoreview
 # stats` reads the history from. PR #9 reported no trailer, so it has nothing
 # to say about the models and is not recorded.
