@@ -26,7 +26,10 @@ use ratatui::text::{Line, Span};
 use std::collections::HashSet;
 use std::io::IsTerminal;
 
-pub const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", " "];
+/// The frames the spinner turns through. The board indexes this slice
+/// directly, so every frame has to draw something: a blank in the cycle
+/// blanks the row once a turn, which reads as a flash rather than as motion.
+pub const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 /// The most title any board row will show, on a terminal wide enough for it.
 const TITLE_WIDTH: usize = 60;
 /// Below this a title is no longer a title. A row this tight drops the title
@@ -41,6 +44,14 @@ const GAUGE_WIDTH: usize = 24;
 const DETAIL_LINES: usize = 6;
 /// The indent of a detail line, so it sits under the row's label.
 const DETAIL_INDENT: &str = "      ";
+
+/// The same frames for indicatif, which takes the last string it is handed as
+/// the one it leaves on the line when the bar stops. The blank on the end is
+/// that parting frame, so a finished step erases its spinner; it is not part
+/// of the animation, and handing it to the board would flash the row.
+pub fn spinner_ticks() -> Vec<&'static str> {
+    SPINNER_FRAMES.iter().copied().chain([" "]).collect()
+}
 
 pub fn fmt_dur(s: u64) -> String {
     if s >= 3600 {
@@ -1276,6 +1287,20 @@ mod tests {
         let mut job = Job::new(9);
         job.title = "t".into();
         assert!(text(&running_line("#9".into(), &job, ASSUMED_WIDTH, "⠋")).starts_with("  ⠋ #9"));
+    }
+
+    #[test]
+    fn every_spinner_frame_draws_something() {
+        // The board walks these frames in order, so a blank one empties the
+        // lead for a tick and the row flashes. The blank belongs only at the
+        // end of the indicatif ticks, where it is what a finished bar leaves
+        // behind.
+        for frame in SPINNER_FRAMES {
+            assert!(!frame.trim().is_empty(), "blank frame {frame:?} in the cycle");
+        }
+        let ticks = spinner_ticks();
+        assert_eq!(ticks.len(), SPINNER_FRAMES.len() + 1);
+        assert_eq!(ticks.last(), Some(&" "));
     }
 
     #[test]
