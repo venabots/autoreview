@@ -27,6 +27,32 @@ pub struct Trailer {
     pub findings: Option<Findings>,
     #[serde(default)]
     pub panel: Vec<Panelist>,
+    /// What stands between this PR and an approval, worst first. Empty on an
+    /// approving review, and empty from any reviewer old enough not to know
+    /// the field.
+    #[serde(default)]
+    pub blockers: Vec<Blocker>,
+}
+
+/// One reason a review did not approve. The severity and the location come
+/// from the synthesis; `domain` and `reversible` are the two axes that
+/// separate a misaligned button from a double charge, because a reader
+/// triaging a pass needs to know which one a HIGH is before opening it.
+#[derive(Deserialize, Debug, Default, Clone)]
+pub struct Blocker {
+    #[serde(default)]
+    pub severity: Option<String>,
+    /// money, data, security, correctness, ui, perf or docs.
+    #[serde(default)]
+    pub domain: Option<String>,
+    /// False when the damage cannot be undone once it lands: money moved,
+    /// data lost. None when the reviewer did not say.
+    #[serde(default)]
+    pub reversible: Option<bool>,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub gist: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Default, Clone)]
@@ -56,7 +82,7 @@ pub struct Panelist {
 /// The one-line system-prompt instruction that asks for the trailer. One line
 /// on purpose: it travels through dash-p as a single `=`-form token, and the
 /// test suite logs each reviewer call on a single line.
-pub const TRAILER_INSTRUCTION: &str = "When your reply concludes a PR review task, end it with a fenced code block tagged autoreview containing exactly one JSON object shaped like {\"decision\":\"approved|commented|changes-requested|none\",\"risk\":\"LOW|MEDIUM|HIGH|CRITICAL\",\"findings\":{\"must_fix\":0,\"should_fix\":0,\"polish\":0},\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":2,\"top\":\"MEDIUM\"}]}. decision is what actually happened on the PR: approved = an approving review was submitted, commented = findings were posted without approval, changes-requested = a blocking review was submitted, none = nothing landed on the PR. risk and findings come from the synthesized review. panel lists every launched panelist with its self-reported model, whether it returned a verdict (ok), its finding count, and its top severity. Use null for anything unknown. No prose inside the block.";
+pub const TRAILER_INSTRUCTION: &str = "When your reply concludes a PR review task, end it with a fenced code block tagged autoreview containing exactly one JSON object shaped like {\"decision\":\"approved|commented|changes-requested|none\",\"risk\":\"LOW|MEDIUM|HIGH|CRITICAL\",\"findings\":{\"must_fix\":0,\"should_fix\":0,\"polish\":0},\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":2,\"top\":\"MEDIUM\"}],\"blockers\":[{\"severity\":\"HIGH\",\"domain\":\"money\",\"reversible\":false,\"location\":\"src/pay.rs:88\",\"gist\":\"a retried checkout charges the card twice\"}]}. decision is what actually happened on the PR: approved = an approving review was submitted, commented = findings were posted without approval, changes-requested = a blocking review was submitted, none = nothing landed on the PR. risk and findings come from the synthesized review. panel lists every launched panelist with its self-reported model, whether it returned a verdict (ok), its finding count, and its top severity. blockers says why the PR is not approved yet, worst first, one entry per must-fix or should-fix finding and none for polish: domain is money, data, security, correctness, ui, perf or docs; reversible is false when the damage cannot be undone once it lands, such as money moved or data lost; gist is one short sentence. Leave blockers empty when you approved. Use null for anything unknown. No prose inside the block.";
 
 /// The trailer the summary reads: from the session transcript when there is
 /// one, and from dash-p's stdout envelope otherwise. The last fenced block
@@ -258,7 +284,14 @@ pub fn parse_trailer(answer: &str) -> Option<Trailer> {
 /// How long any one process-reported field may be before it is cut. Shared
 /// with panel, whose model names land in headings.
 pub const MAX_FIELD_CHARS: usize = 80;
+/// A blocker's gist is a sentence, not a label, so it gets more room than the
+/// one-word fields -- but still a bound, because it lands on the board under a
+/// finished row.
+pub const MAX_GIST_CHARS: usize = 120;
 const MAX_PANELISTS: usize = 16;
+/// Enough to explain any review a person would read. A trailer that claims
+/// more is padding the terminal, not explaining a PR.
+const MAX_BLOCKERS: usize = 8;
 
 /// Agent-authored strings end up on the terminal, and control bytes in them
 /// are the classic escape-injection vector -- dropped at the door, so no
@@ -273,11 +306,22 @@ pub fn sanitize(trailer: &mut Trailer) {
         strip_risky(&mut p.model);
         strip_risky(&mut p.top);
     }
+    trailer.blockers.truncate(MAX_BLOCKERS);
+    for b in &mut trailer.blockers {
+        strip_risky(&mut b.severity);
+        strip_risky(&mut b.domain);
+        strip_risky(&mut b.location);
+        cap_risky(&mut b.gist, MAX_GIST_CHARS);
+    }
 }
 
 fn strip_risky(s: &mut Option<String>) {
+    cap_risky(s, MAX_FIELD_CHARS);
+}
+
+fn cap_risky(s: &mut Option<String>, max: usize) {
     if let Some(v) = s {
-        *v = sanitize_for_display(v).chars().take(MAX_FIELD_CHARS).collect();
+        *v = sanitize_for_display(v).chars().take(max).collect();
     }
 }
 
@@ -742,6 +786,46 @@ mod tests {
         assert_eq!(t.risk.as_deref(), Some("MEDIUM"));
         assert_eq!(t.findings.as_ref().unwrap().should_fix, Some(1));
         assert_eq!(t.panel[0].model.as_deref(), Some("gpt-5.5"));
+    }
+
+    #[test]
+    fn blockers_parse_with_both_axes() {
+        let answer = "```autoreview\n{\"decision\":\"commented\",\"blockers\":[{\"severity\":\"HIGH\",\"domain\":\"money\",\"reversible\":false,\"location\":\"src/pay.rs:88\",\"gist\":\"a retried checkout charges twice\"}]}\n```";
+        let b = &parse_trailer(answer).unwrap().blockers[0];
+        assert_eq!(b.severity.as_deref(), Some("HIGH"));
+        assert_eq!(b.domain.as_deref(), Some("money"));
+        assert_eq!(b.reversible, Some(false));
+        assert_eq!(b.location.as_deref(), Some("src/pay.rs:88"));
+    }
+
+    #[test]
+    fn a_trailer_without_blockers_still_parses() {
+        // Every reviewer that predates the field reports none, and a review
+        // that approved reports none either way.
+        let t = parse_trailer("```autoreview\n{\"decision\":\"approved\"}\n```").unwrap();
+        assert!(t.blockers.is_empty());
+    }
+
+    #[test]
+    fn blockers_are_sanitized_and_bounded() {
+        // A blocker is agent text headed for the terminal under a board row,
+        // and the board is in raw mode while it lands.
+        let long = "x".repeat(400);
+        let answer = format!(
+            "```autoreview\n{{\"blockers\":[{{\"domain\":\"mo\\u001b[31mney\",\"gist\":\"{long}\"}}]}}\n```"
+        );
+        let b = &parse_trailer(&answer).unwrap().blockers[0];
+        // The escape byte goes; what it would have driven stays as text, the
+        // same shape every other trailer field keeps.
+        assert_eq!(b.domain.as_deref(), Some("mo[31mney"));
+        assert_eq!(b.gist.as_deref().unwrap().chars().count(), MAX_GIST_CHARS);
+    }
+
+    #[test]
+    fn a_flood_of_blockers_is_cut() {
+        let many: Vec<String> = (0..40).map(|n| format!("{{\"gist\":\"finding {n}\"}}")).collect();
+        let answer = format!("```autoreview\n{{\"blockers\":[{}]}}\n```", many.join(","));
+        assert_eq!(parse_trailer(&answer).unwrap().blockers.len(), MAX_BLOCKERS);
     }
 
     #[test]
