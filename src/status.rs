@@ -11,7 +11,7 @@
 //! cron, CI, a pipe -- it is one plain line per step, on stderr, so a log
 //! records what happened while stdout stays the report.
 
-use crate::ui::SPINNER_FRAMES;
+use crate::ui::spinner_ticks;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::io::IsTerminal;
 use std::time::Duration;
@@ -34,7 +34,7 @@ impl Status {
         bar.set_style(
             ProgressStyle::with_template("{spinner:.magenta} {msg}")
                 .expect("spinner template")
-                .tick_strings(SPINNER_FRAMES),
+                .tick_strings(&spinner_ticks()),
         );
         // Steady, so the line keeps moving while a network call blocks: a
         // frozen spinner says the same thing silence does.
@@ -236,7 +236,7 @@ mod tests {
         bar.set_style(
             ProgressStyle::with_template("{spinner:.magenta} {msg}")
                 .expect("spinner template")
-                .tick_strings(SPINNER_FRAMES),
+                .tick_strings(&spinner_ticks()),
         );
         bar.set_message("reading the repo");
         bar.finish_and_clear();
