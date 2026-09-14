@@ -50,3 +50,4 @@ comments and the commit history, not written at the time of the decision.
 - [0015](0015-the-board-is-an-inline-ratatui-viewport.md) The board is an inline ratatui viewport
 - [0016](0016-a-running-review-is-followed-through-its-transcript.md) A running review is followed through its transcript
 - [0017](0017-a-review-says-why-it-did-not-approve.md) A review says why it did not approve
+- [0018](0018-rendering-defects-cap-at-low.md) Rendering defects cap at LOW

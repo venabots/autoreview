@@ -207,6 +207,7 @@ DECISION: Approve
 
 The verdict is what you did to the PR, one of four fixed strings. Apply the
 rules in order. The first rule that matches wins:
+
 1. `DECISION: Approve` — you submitted an approving review.
 2. `DECISION: Request changes` — you submitted a blocking review (only when
    the user asked for one; see Gotchas).
@@ -275,6 +276,13 @@ locked`) is a **missing** reviewer, not a returned one. If you can't
    `Proof (missing)`: `panel-review` buckets it as LOW except on auth,
    session handling, payments, schema migrations, crypto, or production
    infra, where it lands in must-fix and #3 withholds approval on it.
+
+   A rendering defect does not withhold approval either. `panel-review`
+   caps one at LOW unless it blocks the primary action, misstates money or
+   state, locks people out, or breaks the layout at a supported viewport —
+   and an uncapped one lands in should-fix or must-fix, where #3 catches it.
+   Do not second-guess the cap here: a finding tagged `(ui)` at LOW rides
+   along in the polish comments like any other.
 
 5. **Not a draft.** The PR is **not** a draft. `gh pr review --approve`
    succeeds on draft PRs, but a draft is the author explicitly saying

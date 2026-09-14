@@ -443,6 +443,30 @@ When _not_ to use:
      ALSO independently satisfies another HIGH trigger (e.g. wrong-layer fix in
      auth/payments code) lands here too.
 
+   **Rendering defects cap at LOW.** A defect whose whole effect is visual —
+   spacing, alignment, color, a stray scrollbar, a transient flash, a
+   truncated label, a non-blocking console warning — is a `polish` finding,
+   however many panelists raised it. The data, the money, the state and the
+   permissions behind it are right; what is wrong is how it looks, and a
+   reviewer that blocks a merge on it spends the author's attention on the
+   cheapest thing to fix later.
+
+   Four things lift one back to MEDIUM or above. Each is about what the user
+   can no longer do, not about how bad it looks:
+   - **It blocks the primary action.** The control is unreachable or
+     invisible, or the flow cannot be completed.
+   - **It misstates money, a balance, a quantity or a state.** A number that
+     renders wrong is not a rendering defect: the user acts on it.
+   - **It locks people out.** Keyboard or screen-reader users cannot reach
+     the flow, or a surface traps them with no way to dismiss it.
+   - **It breaks the layout at a supported viewport** badly enough that
+     content is unreadable.
+
+   Do not run the cap the other way. A money, data or security defect that
+   happens to surface in a component is not a rendering defect, and a
+   rendering defect on a payment screen is still a rendering defect unless
+   one of the four holds.
+
    This is the single source of truth for severity assignment. The
    `### Approach check` section promotes substantiated `(questionable):` flags
    into `### must-fix` as HIGH-severity findings — it does not separately mutate
@@ -621,11 +645,20 @@ When _not_ to use:
 
    Omit any bucket that has no entries — no empty headings, no "none" lines.
 
+   **Every finding names its domain.** Between the severity tag and the
+   location, in parentheses: `money`, `data`, `security`, `correctness`,
+   `ui`, `perf` or `docs` — which kind of bug this is. Add `, irreversible`
+   when the damage cannot be undone once it lands: money moved, data
+   deleted, a secret leaked, a migration applied. Reversible is the default
+   and stays unwritten. You assign the domain even when no panelist named
+   one; a reader triaging ten PRs has to tell a stray pixel from a double
+   charge without opening either.
+
    **Per-finding shape (CRITICAL / HIGH / MEDIUM):**
 
    ```md
-   - [SEVERITY] file:line — one-sentence issue. Fix: one-sentence suggested
-     change. Flagged by: codex (gpt-5.5)
+   - [SEVERITY] (domain) file:line — one-sentence issue. Fix: one-sentence
+     suggested change. Flagged by: codex (gpt-5.5)
    ```
 
    When 2+ panelists raised the same finding, list every panelist on the
@@ -633,10 +666,11 @@ When _not_ to use:
    consensus signal — no separate "CONSENSUS" badge, no separate section:
 
    ```md
-   - [MEDIUM] packages/evm/src/receipts.ts:130 + packages/evm/src/errors.ts:364
-     — `RETRYABLE_RPC_CODES` duplicated verbatim across two files. Fix: export
-     from errors.ts and import in receipts.ts. Flagged by 2: claude
-     (claude-opus-4.7), opencode (qwen3.6-plus)
+   - [MEDIUM] (correctness) packages/evm/src/receipts.ts:130 +
+     packages/evm/src/errors.ts:364 — `RETRYABLE_RPC_CODES` duplicated
+     verbatim across two files. Fix: export from errors.ts and import in
+     receipts.ts. Flagged by 2: claude (claude-opus-4.7), opencode
+     (qwen3.6-plus)
    ```
 
    When panelists assigned different severities to the same finding, use the
@@ -652,8 +686,16 @@ When _not_ to use:
    enough:
 
    ```md
-   - [LOW] packages/evm/src/broadcast.ts:299-307 — `stripSerialized` is
-     unreachable post-`sanitizeMessage`. Flagged by: claude (claude-opus-4.7)
+   - [LOW] (correctness) packages/evm/src/broadcast.ts:299-307 —
+     `stripSerialized` is unreachable post-`sanitizeMessage`. Flagged by:
+     claude (claude-opus-4.7)
+   ```
+
+   A capped rendering defect looks the same, in its own domain:
+
+   ```md
+   - [LOW] (ui) apps/web/src/components/summary-row.tsx:64 — the risk badge
+     sits two pixels above its row on Safari. Flagged by: codex (gpt-5.5)
    ```
 
    If a LOW finding genuinely needs a `Fix:` line (e.g. the change is
@@ -665,7 +707,7 @@ When _not_ to use:
    place of `file:line`:
 
    ```md
-   - [HIGH] root cause: `orders` table allows duplicate
+   - [HIGH] (data) root cause: `orders` table allows duplicate
      `(user_id, idempotency_key)` rows — the diff adds client-side validation in
      `web/src/forms/order.tsx:42` that papers over it; this is the third caller
      to re-implement the same validation. Fix: add a unique constraint on
@@ -685,8 +727,8 @@ When _not_ to use:
    than an inline one:
 
    ```md
-   - [LOW] PR description — states no problem this change solves; the diff
-     rewrites `packages/evm/src/nonce.ts` and a reader cannot tell what was
+   - [LOW] (docs) PR description — states no problem this change solves; the
+     diff rewrites `packages/evm/src/nonce.ts` and a reader cannot tell what was
      wrong before. Fix: add one or two sentences on the problem and how a
      reviewer can see it is fixed. Flagged by: codex (gpt-5.5)
    ```
@@ -698,10 +740,11 @@ When _not_ to use:
    or evidence:
 
    ```md
-   - [LOW] packages/evm/src/broadcast.ts:140-172 — the new retry path has no
-     test and the PR body has no testing note. Fix: add a test that fails the
-     first send with a retryable code and asserts one retry, then note the run
-     in the PR body. Flagged by 2: codex (gpt-5.5), claude (claude-opus-4.7)
+   - [LOW] (correctness) packages/evm/src/broadcast.ts:140-172 — the new
+     retry path has no test and the PR body has no testing note. Fix: add a
+     test that fails the first send with a retryable code and asserts one
+     retry, then note the run in the PR body. Flagged by 2: codex (gpt-5.5),
+     claude (claude-opus-4.7)
    ```
 
    **Order within a bucket.** Within a severity, items raised by more panelists
