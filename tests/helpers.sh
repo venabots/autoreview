@@ -78,10 +78,14 @@ setup_sandbox() {
   write_fake_cmux
   write_fake_dashp
   write_fake_orchestrators
+  write_fake_codex_skills
   write_fake_override
 
   export PATH="$SANDBOX/bin:$SANDBOX/cli/claude:$SANDBOX/cli/codex:$PATH"
   export CLAUDE_CONFIG_DIR="$SANDBOX/claude"
+  # Exported, not unset: it overrides whatever the host has, so the codex
+  # skill check reads the sandbox's copies and never the developer's.
+  export CODEX_HOME="$SANDBOX/codex"
   # Every finished review is appended to the ledger; the suite's go here, not
   # into the developer's own history.
   export AUTOREVIEW_LEDGER="$SANDBOX/out/ledger.jsonl"
@@ -339,6 +343,21 @@ EOF
 # in for the whole subprocess. They exist so the checks find them, which is
 # also why they must exist here rather than being inherited from the host --
 # a CI runner has neither, and the developer's box has both.
+# The skills codex resolves for itself. A run stages the bundled skills as a
+# .claude/skills directory and hands it over with --add-dir, which claude
+# reads and codex does not -- so a codex run checks its own roots instead and
+# refuses when they hold nothing. $CODEX_HOME is the first of those roots, so
+# pointing it into the sandbox makes the check pass here without depending on
+# what the developer happens to have installed. The CI runner has nothing in
+# ~/.agents/skills and the developer's box has everything, which is how a test
+# like this passes locally and fails on CI.
+write_fake_codex_skills() {
+  for skill in auto-review panel-review recheck-pr; do
+    mkdir -p "$SANDBOX/codex/skills/$skill"
+    printf -- '---\nname: %s\n---\n' "$skill" >"$SANDBOX/codex/skills/$skill/SKILL.md"
+  done
+}
+
 write_fake_orchestrators() {
   for cli in claude codex; do
     # One directory each, and neither is $SANDBOX/bin. `without_cli` hides a
