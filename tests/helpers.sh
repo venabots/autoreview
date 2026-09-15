@@ -77,10 +77,15 @@ setup_sandbox() {
   write_fake_gum
   write_fake_cmux
   write_fake_dashp
+  write_fake_orchestrators
+  write_fake_codex_skills
   write_fake_override
 
-  export PATH="$SANDBOX/bin:$PATH"
+  export PATH="$SANDBOX/bin:$SANDBOX/cli/claude:$SANDBOX/cli/codex:$PATH"
   export CLAUDE_CONFIG_DIR="$SANDBOX/claude"
+  # Exported, not unset: it overrides whatever the host has, so the codex
+  # skill check reads the sandbox's copies and never the developer's.
+  export CODEX_HOME="$SANDBOX/codex"
   # Every finished review is appended to the ledger; the suite's go here, not
   # into the developer's own history.
   export AUTOREVIEW_LEDGER="$SANDBOX/out/ledger.jsonl"
@@ -106,7 +111,7 @@ setup_sandbox() {
         AUTOREVIEW_MAX_BUDGET_USD AUTOREVIEW_LOG_DIR \
         AUTOREVIEW_BABYSIT_INTERVAL AUTOREVIEW_MAX_PASSES \
         AUTOREVIEW_MAX_IDLE AUTOREVIEW_CI_WAIT REVIEW_PRS_CI_WAIT \
-        AUTOREVIEW_SKILLS || true
+        AUTOREVIEW_SKILLS AUTOREVIEW_ORCHESTRATOR AUTOREVIEW_FALLBACK || true
   unset FAKE_CLAUDE_FAIL FAKE_CLAUDE_IS_ERROR FAKE_CLAUDE_SLEEP \
         FAKE_CLAUDE_GARBAGE FAKE_CLAUDE_KILL_JOB FAKE_CLAUDE_TRAILER \
         FAKE_CLAUDE_TRANSCRIPT FAKE_CLAUDE_ERROR_MSG \
@@ -332,6 +337,74 @@ EOF
   chmod +x "$SANDBOX/bin/cmux"
 }
 
+# The orchestrator CLIs. A built-in run requires the one it will drive to be
+# on PATH, and picks its fallback from what else is installed -- so what the
+# sandbox provides decides both. Never executed: the fake dash-p above stands
+# in for the whole subprocess. They exist so the checks find them, which is
+# also why they must exist here rather than being inherited from the host --
+# a CI runner has neither, and the developer's box has both.
+# The skills codex resolves for itself. A run stages the bundled skills as a
+# .claude/skills directory and hands it over with --add-dir, which claude
+# reads and codex does not -- so a codex run checks its own roots instead and
+# refuses when they hold nothing. $CODEX_HOME is the first of those roots, so
+# pointing it into the sandbox makes the check pass here without depending on
+# what the developer happens to have installed. The CI runner has nothing in
+# ~/.agents/skills and the developer's box has everything, which is how a test
+# like this passes locally and fails on CI.
+write_fake_codex_skills() {
+  for skill in auto-review panel-review recheck-pr; do
+    mkdir -p "$SANDBOX/codex/skills/$skill"
+    printf -- '---\nname: %s\n---\n' "$skill" >"$SANDBOX/codex/skills/$skill/SKILL.md"
+  done
+}
+
+write_fake_orchestrators() {
+  for cli in claude codex; do
+    # One directory each, and neither is $SANDBOX/bin. `without_cli` hides a
+    # CLI by dropping every PATH directory that holds one, so an orchestrator
+    # sitting next to the fake gh and dash-p would take them with it.
+    mkdir -p "$SANDBOX/cli/$cli"
+    printf '#!/usr/bin/env bash\necho "fake %s should never run" >&2\nexit 99\n' \
+      "$cli" >"$SANDBOX/cli/$cli/$cli"
+    chmod +x "$SANDBOX/cli/$cli/$cli"
+  done
+}
+
+# Run something with $1 nowhere on PATH, for the tests about a box that does
+# not have that CLI. Every directory holding one is dropped, not just the
+# sandbox's: `command_exists` searches the whole PATH, and a developer's box
+# has the real claude and codex behind the sandbox -- which is exactly how a
+# test like this passes locally and fails on a CI runner, or the reverse.
+without_cli() {
+  local cli="$1"; shift
+  local saved="$PATH" pruned="" dir
+  local IFS=:
+  for dir in $saved; do
+    [[ -f "$dir/$cli" ]] && continue
+    pruned="${pruned:+$pruned:}$dir"
+  done
+  unset IFS
+  PATH="$pruned"
+  "$@"
+  local status=$?
+  PATH="$saved"
+  return "$status"
+}
+
+# The sandbox's own tools must survive hiding either orchestrator: a pruned
+# PATH that also took gh or dash-p with it would fail the run for a reason
+# the test is not about, and would do it silently -- the run exits nonzero
+# either way. Checked once at setup, where the fix is obvious.
+assert_sandbox_survives_pruning() {
+  local cli tool
+  for cli in claude codex; do
+    for tool in gh dash-p; do
+      without_cli "$cli" command -v "$tool" >/dev/null ||
+        not_ok "hiding $cli keeps $tool reachable" "the sandbox's $tool was pruned too"
+    done
+  done
+}
+
 write_fake_dashp() {
   cat >"$SANDBOX/bin/dash-p" <<'EOF'
 #!/usr/bin/env bash
@@ -380,16 +453,22 @@ for word in $prompt; do
   esac
 done
 
-log_line "$CLAUDE_LOG" "$*"
+# One line per call, whatever the arguments hold. The prompt handed to an
+# orchestrator with no system prompt of its own carries the trailer request
+# after a blank line, and a raw "$*" would split that call across three log
+# lines -- so every assertion that greps for a flag would read half a call.
+log_line "$CLAUDE_LOG" "$(printf '%s' "$*" | tr '\n' ' ')"
 log_line "$CLAUDE_LOG.events" "start $n"
 
 meta=""
 sid=""
+harness="claude"
 prev=""
 for arg in "$@"; do
   case "$prev" in
     --meta-file) meta="$arg" ;;
     --session-id|--resume) sid="$arg" ;;
+    -H|--harness) harness="$arg" ;;
   esac
   prev="$arg"
 done
@@ -446,6 +525,14 @@ garbage=""
 case " ${FAKE_CLAUDE_FAIL:-} " in
   *" $n "*) status=10; label="agent-error" ;;
 esac
+# The orchestrator this PR fails under, for the fallback tests: "9:claude"
+# fails PR 9 only while claude is driving, so the retry under codex succeeds.
+# This is what an outage looks like -- one provider down, the other up.
+for pair in ${FAKE_HARNESS_FAIL:-}; do
+  case "$pair" in
+    "$n:$harness") status=10; label="agent-error" ;;
+  esac
+done
 # An is_error turn IS exit 10 under dash-p; the knob keeps its name so the
 # test scenarios keep their meaning.
 case " ${FAKE_CLAUDE_IS_ERROR:-} " in
@@ -458,9 +545,11 @@ esac
 
 log_line "$CLAUDE_LOG.events" "end $n"
 
+model="claude-fable-5"
+[[ "$harness" == "codex" ]] && model="gpt-5.5"
 if [[ -n "$meta" ]]; then
-  printf '{"harness":"claude","drive":"print","exit_status":"%s","session_id":"%s","total_cost_usd":0.42,"num_turns":3,"duration_ms":10,"model_resolved":"claude-fable-5"}\n' \
-    "$label" "$sid" >"$meta"
+  printf '{"harness":"%s","drive":"print","exit_status":"%s","session_id":"%s","total_cost_usd":0.42,"num_turns":3,"duration_ms":10,"model_resolved":"%s"}\n' \
+    "$harness" "$label" "$sid" "$model" >"$meta"
 fi
 # PRs named in $FAKE_CLAUDE_TRAILER end their answer with the fenced
 # ```autoreview block a real reviewer is asked for via the system prompt.

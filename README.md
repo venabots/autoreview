@@ -21,6 +21,7 @@ autoreview             picks every PR that is NEW or UPDATED, once CI passes
        └─ /auto-review a panel of models reviews the diff independently,
                        their findings are synthesized, verified, and posted
   ← verdict            read back from GitHub, not taken from the agent's word
+  ↻ fallback → codex   the agent's provider failed; the other one retries it
   ↻ --babysit          watch on an interval: new PRs join, fixed ones leave
 ```
 
@@ -41,6 +42,10 @@ Four things that shape the whole design:
   review's spend, `--timeout` stops a wedged one, `--max-passes` stops a
   conversation becoming a loop, and `--max-idle` stops a quiet PR keeping a
   cron-started process alive forever.
+- **One provider being down does not stop the sweep.** The agent driving a
+  review is a choice (`--orchestrator`), and a review that fails because its
+  provider did is retried under the other one. See
+  [Orchestrators and the fallback](#orchestrators-and-the-fallback).
 
 ## Requirements
 
@@ -51,6 +56,10 @@ Four things that shape the whole design:
   built-in reviewer runs through it (`brew install venabots/tap/dash-p`; set
   `$DASHP_BIN` to point elsewhere). Not needed when `$AUTOREVIEW_CMD` replaces
   the reviewer.
+- An orchestrator CLI — **`autoreview` only**: `claude` by default, `codex`
+  with `--orchestrator codex`. Installing both is what gives a run its
+  fallback, and is the recommended setup: see
+  [Orchestrators and the fallback](#orchestrators-and-the-fallback).
 - `pgrep` — refuses to resume a review session another process still holds;
   without it `--continue` loses that guard in both tools, and `autoreview`
   requires it. Standard on macOS; `procps` on slim Linux images.
@@ -118,11 +127,26 @@ that supports the [Agent Skills](https://agentskills.io) layout:
 npx skills add venabots/autoreview --skill '*' --global
 ```
 
-Or point a skills directory at the checkout:
+Or point a skills directory at the checkout. Each agent reads its own:
+
+| Agent  | Reads                                                   |
+| ------ | ------------------------------------------------------- |
+| claude | `~/.claude/skills/`                                     |
+| codex  | `~/.agents/skills/` (and `~/.codex/skills`, deprecated) |
 
 ```sh
 ln -s "$PWD/skills/"* ~/.claude/skills/
+ln -s "$PWD/skills/"* ~/.agents/skills/
 ```
+
+**Staging reaches claude only, so a codex orchestrator needs the second line.**
+What a run stages is a `.claude/skills` directory handed over with
+`--add-dir`. Claude Code resolves a skill from it; codex does not, because it
+reads its skills from its own roots and from its project root, never from a
+directory added at run time. So under
+[`--orchestrator codex`](#orchestrators-and-the-fallback) the bundled copy
+never arrives, and the skills have to be installed where codex looks. A run
+checks before it spends anything and refuses if they are missing.
 
 | Skill                                                                       | Run by                                                                                         |
 | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -164,8 +188,9 @@ the point.) `--auto` / `-A` still parse —
 an old alias or cron line keeps working — they just name the default now.
 
 It takes the same selection flags as `review-prs` (`--continue`, `--all`,
-`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus ten of its own: `--pick`, `--watch`,
-`--focus`, `--no-post`, `--jobs`, `--timeout`, `--budget`, `--log-dir`,
+`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus twelve of
+its own: `--pick`, `--watch`, `--focus`, `--no-post`, `--jobs`,
+`--orchestrator`, `--fallback`, `--timeout`, `--budget`, `--log-dir`,
 `--max-passes` and `--max-idle`.
 
 **`--focus` steers a run.** It reaches every panelist as the reviewer focus:
@@ -289,6 +314,113 @@ name and the model: `panel #9: codex (gpt-5.5) 1 finding, top LOW`. A failed
 review names its reason on its line: `FAILED  #9 (exit 10, 3s): You've hit
 your session limit · resets 12pm (America/New_York)`.
 
+### Orchestrators and the fallback
+
+The **orchestrator** is the agent that runs the review: one session that reads
+the skill, fans the panel out, synthesizes the findings, posts them, and
+approves. It is not the panel. The panel is chosen by the
+[`panel-review`](skills/panel-review) skill and is several models either way —
+`--orchestrator` picks the one driving them.
+
+```sh
+autoreview --orchestrator codex             # codex runs the reviews
+autoreview --orchestrator codex:gpt-5.5     # ...on a named model
+autoreview --fallback none                  # never retry under another provider
+```
+
+Two backends can orchestrate, because both take an explicit skill invocation
+and both read the Agent Skills layout:
+
+| Orchestrator | Prompt form      | Sessions           | `--budget`   |
+| ------------ | ---------------- | ------------------ | ------------ |
+| `claude`     | `/auto-review N` | pinned and resumed | enforced     |
+| `codex`      | `$auto-review N` | fresh every review | not enforced |
+
+Those last two columns are dash-p's doing, not a preference: it forwards
+`--session-id`, `--resume` and `--max-budget-usd` to claude alone. So flags
+that cannot reach a codex run are **not sent** rather than silently dropped,
+and a run says so at startup instead of leaving you to notice:
+
+```
+note: codex cannot resume a review session; every pass reviews fresh
+note: --budget is not enforced under codex; dash-p forwards the cap to claude alone
+```
+
+A codex run loses `--continue` and the second-look pass that `--babysit` does
+after the first interval — each pass reviews from scratch. Nothing else
+changes: the panel, the posting, the approval gate and the GitHub verdict
+readback are all the same, because none of them is the orchestrator's job.
+
+**The fallback is what an outage costs you.** `dash-p` exits **10** when the
+orchestrator itself fails — the provider is down, a usage limit was hit, the
+turn came back `is_error`. Nothing about the PR caused that, so the review is
+worth trying again somewhere else. By default the other backend retries it,
+once:
+
+```
+  ↻ #9 claude exit 10 · retrying with codex
+  ✓ #9 approved · risk LOW · 5m01s · via codex
+```
+
+and the summary says what happened, so a green run never hides a provider
+that fell over:
+
+```
+PR #9: claude failed (exit 10); reviewed with codex instead
+```
+
+Five things worth knowing about it:
+
+- **Only exit 10 is retried.** A timeout already had the whole allowance and
+  retrying would spend it twice. A signal-death was somebody's decision. An
+  overridden reviewer (`$AUTOREVIEW_AUTO_CMD`) is judged by its exit status
+  alone, with no dash-p behind it to say what that status means.
+- **Once.** The retry is one more chance, not a promise. If both providers
+  fail, the run still fails and the summary names both attempts.
+- **A retry is always a fresh review.** The failed attempt's session belongs
+  to the provider that just failed, and cannot be handed to another backend.
+- **The failed attempt is kept.** Its log is set aside as
+  `pr-N.<orchestrator>.log`, so the outage still explains itself after the
+  retry has written the plain names.
+- **It respects `--jobs`.** A retry is a whole review, so it waits for a slot
+  like anything else.
+
+The default is `auto`: whichever of codex and claude is not the orchestrator,
+if it is installed. A run says which on its first line, and says why when
+there is none, because installing the other CLI is the fix:
+
+```
+orchestrator: claude · fallback: codex
+orchestrator: claude · fallback: none (codex is not installed)
+```
+
+`--fallback none` turns it off. A fallback named by hand must be installed —
+you asked for that retry, so a run that quietly has none is not the run you
+asked for. `$AUTOREVIEW_ORCHESTRATOR` and `$AUTOREVIEW_FALLBACK` set both from
+the environment, which is where a cron line usually wants them.
+
+**During an outage you get reviews, not approvals.** The fallback rescues the
+*orchestrator*, but the panel is drawn from the same CLIs — so a provider
+being down also costs you its panelist. With three panelists and one down,
+coverage is 2/3, under the 75% the approval gate needs. The reviews still run,
+the findings still post; the stamp waits for a human or for the next
+`--babysit` pass once the provider is back. That is the intended trade: an
+approval is the one thing that should not be given on thin coverage.
+
+**A failing panelist is a different thing entirely, and is already handled.**
+A panelist that crashes or times out is not exit 10 and does not fail the
+review: [`panel-review`](skills/panel-review) marks it failed in its report,
+the synthesis is told not to count it toward consensus, and
+[`auto-review`](skills/auto-review)'s gate withholds approval unless at least
+**75% of the launched panel returned** and at least two did. So a panel that
+comes back short posts its findings and declines to approve, rather than
+approving on thin coverage. The panel table in the summary is where you see
+it:
+
+```
+│ #8 ┆ claude-opus-4.7 ┆ failed   ┆ -        ┆ -      │
+```
+
 ### Verdicts and models
 
 The VERDICT column is read back from GitHub, not taken from the agent's
@@ -343,14 +475,16 @@ failed too.
 
 ### Prompts
 
-Skills are invoked by slash name rather than in prose — an unattended one-shot
-has no human to correct a prompt that failed to trigger the skill.
+Skills are invoked by name rather than in prose — an unattended one-shot has
+no human to correct a prompt that failed to trigger the skill. Each backend
+has its own explicit form: Claude Code takes a slash command, and codex
+reserves `/` for its own built-in commands and takes `$name` instead.
 
-| Run                                                  | Prompt            |
-| ---------------------------------------------------- | ----------------- |
-| The default sweep, and `--babysit`                   | `/auto-review N`  |
-| A first review under `--pick`                        | `/panel-review N` |
-| `--continue`, and every babysit pass after the first | `/recheck-pr N`   |
+| Run                                                  | claude            | codex             |
+| ---------------------------------------------------- | ----------------- | ----------------- |
+| The default sweep, and `--babysit`                   | `/auto-review N`  | `$auto-review N`  |
+| A first review under `--pick`                        | `/panel-review N` | `$panel-review N` |
+| `--continue`, and every babysit pass after the first | `/recheck-pr N`   | `$recheck-pr N`   |
 
 Reaching for `--pick` is the one thing that proves somebody is watching, so it
 is what marks a run attended — and a `--babysit` loop outlives that person
@@ -436,6 +570,9 @@ most intervals — without reading each other's results:
 - `pr-N.meta.json` — the metadata envelope (session id, cost, exit status);
   written even when a timeout or interrupt leaves stdout empty
 - `pr-N.log` — stderr, which is where a failure explains itself
+- `pr-N.<orchestrator>.log` — the same three files for an attempt the
+  [fallback](#orchestrators-and-the-fallback) took over, set aside under the
+  name of the orchestrator that failed. Only written when a review was retried.
 
 Beside the passes, `run-<random>/agent/` holds the bundled skills as the
 reviewers saw them, so a review can be read against the exact instructions it
@@ -522,6 +659,10 @@ AUTOREVIEW_AUTO_CMD='my-review' autoreview
 AUTOREVIEW_CMD='gh pr checkout {} && my-review {}' autoreview --pick
 ```
 
+An override replaces the orchestrator, so `--orchestrator` and the fallback do
+not apply to it: there is no dash-p behind it to say what its exit status
+means, and its failures are its own to retry.
+
 An override owns its own session handling and receives
 `$REVIEW_PRS_SESSION_ID` and `$REVIEW_PRS_SESSION_RESUME` — the same contract
 `review-prs` uses, so one wrapper works with both. Here they arrive in the
@@ -599,6 +740,11 @@ configuration all still live in the skill. This is the common path only.
 The same PR list, fanned into one terminal tab per PR instead of a headless
 process. Reach for it when you want to watch a review happen and interrupt it;
 reach for [`autoreview`](#autoreview) for everything else.
+
+Its tabs run `claude`, and there is no `--orchestrator` here: a tab has no
+exit status to read, so there is nothing for a fallback to act on — you are
+sitting in front of it, which is the point. To drive a different agent, use
+`$REVIEW_PRS_CMD` (see [The review command](#the-review-command)).
 
 Run from inside any GitHub repo:
 
@@ -1010,6 +1156,7 @@ src/skills.rs      the review skills, compiled in and staged for each run
 src/repo.rs        dependency checks, repo and user context
 src/interval.rs    babysit-interval parsing
 src/cli.rs         autoreview's flags
+src/orchestrator.rs which agent drives a review, and what retries it
 
 src/tabs/          review-prs: cli, per-tab command, terminal spawners
 src/panel/         panel: cli, target, worktrees, fan-out, synthesis

@@ -19,8 +19,39 @@ use autoreview::rundir::RunDir;
 use autoreview::select::CiPolicy;
 use autoreview::stack::{self, StackedOn};
 use autoreview::status::{Status, step};
-use autoreview::{ci, cli, pool, prlist, queue, repo, select, session, signals, skills, ui};
+use autoreview::{ci, cli, orchestrator, pool, prlist, queue, repo, select, session, signals, skills, ui};
 use std::collections::{HashMap, HashSet};
+
+/// Refuse an orchestrator that could not find the review skills, naming the
+/// ones it is missing and the directory it reads. Ok for any backend the
+/// staged directory already serves, which has nothing to look for.
+fn require_skills(orch: &orchestrator::Orchestrator) -> Result<(), String> {
+    if orch.discovers_staged_skills() {
+        return Ok(());
+    }
+    let roots = orchestrator::skills_roots(
+        orch.cli(),
+        std::env::var("HOME").ok().as_deref(),
+        std::env::var("CODEX_HOME").ok().as_deref(),
+    );
+    let missing = orchestrator::missing_skills(&roots, &orchestrator::ENTRY_SKILLS);
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err([
+        format!(
+            "error: {} cannot find the review skills: {}",
+            orch.label(),
+            missing.join(", ")
+        ),
+        format!(
+            "  a run stages them for claude only, so install them where {} looks:",
+            orch.cli()
+        ),
+        format!("    ln -s \"$PWD/skills/\"* {}/", orch.skills_home()),
+    ]
+    .join("\n"))
+}
 
 fn select_prs(cfg: &Config) -> select::Opts<'static> {
     select::Opts {
@@ -201,9 +232,66 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // another process holds is a safety check, not a nicety.
     repo::require_deps(&["gh", "git", "pgrep"])?;
     let dashp = repo::dashp_bin();
+    let mut cfg = cfg.clone();
     if cfg.review_cmd.is_none() {
-        repo::require_deps(&[dashp.as_str()])?;
+        // The orchestrator's own CLI too: dash-p would only report it
+        // missing one PR at a time, as exit 30, after the PR list was read.
+        repo::require_deps(&[dashp.as_str(), cfg.orchestrator.cli()])?;
+        // The fallback is decided here, against PATH, and said on the first
+        // line: an unattended run that only reveals its stand-in in the
+        // summary of the pass that needed it is one whose operator finds
+        // out at the worst time. A named fallback that is missing refuses
+        // the run; an automatic one that is missing is simply none.
+        // The skills a run stages are handed over with --add-dir, which
+        // claude reads and codex does not. So an orchestrator that cannot
+        // see the staged copy has to have them installed where it does
+        // look, and a review that could never trigger its skill is worth
+        // refusing before it spends anything rather than after.
+        if let Err(e) = require_skills(&cfg.orchestrator) {
+            eprintln!("{e}");
+            anyhow::bail!(repo::AlreadyReported);
+        }
+        let mut fallback = cfg.fallback.resolve(&cfg.orchestrator, &repo::command_exists);
+        // A fallback the operator named by hand has to be installed: they
+        // asked for that retry, and a run that quietly has none is not the
+        // run they asked for. An automatic one that is missing is not an
+        // error -- it is just no retry, said on the line below.
+        if let Some(f) = &fallback
+            && matches!(cfg.fallback, orchestrator::Fallback::Spec(_))
+        {
+            repo::require_deps(&[f.cli()])?;
+        }
+        // A stand-in that could not find the skills is no stand-in. This
+        // does not end the run the way it does for the orchestrator: the
+        // reviews still work, there is just nothing to retry them with.
+        //
+        // The reason is its own wording rather than the one `describe`
+        // gives: that CLI is installed, so saying it is not would send the
+        // reader to install something they already have.
+        let mut stand_in = cfg.fallback.describe(&cfg.orchestrator, fallback.as_ref());
+        if let Some(f) = &fallback
+            && let Err(e) = require_skills(f)
+        {
+            eprintln!("{e}");
+            stand_in = format!("none ({} cannot find the review skills)", f.label());
+            fallback = None;
+        }
+        println!("orchestrator: {} · fallback: {stand_in}", cfg.orchestrator.label());
+        cfg.fallback = match fallback {
+            Some(f) => orchestrator::Fallback::Spec(f),
+            None => orchestrator::Fallback::None,
+        };
+        if cfg.budget.is_some()
+            && let orchestrator::Fallback::Spec(f) = &cfg.fallback
+            && !f.supports_budget()
+        {
+            eprintln!(
+                "note: --budget is not enforced on a review {} takes over; dash-p forwards the cap to claude alone",
+                f.label()
+            );
+        }
     }
+    let cfg = &cfg;
     // Three network calls stand between here and the first thing worth
     // showing. Saying which one is running turns a silent wait into a wait.
     let status = Status::new();

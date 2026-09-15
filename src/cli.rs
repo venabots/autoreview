@@ -5,12 +5,14 @@
 
 use crate::interval::{self, Interval};
 use crate::skills::Source;
+use crate::orchestrator::{Fallback, Orchestrator};
 use std::path::PathBuf;
 
 pub const HELP: &str = r#"autoreview: review open PRs headlessly, with progress and a real exit status.
 
 Usage: autoreview [--pick] [--watch[=MINUTES]] [--babysit[=MINUTES]]
                   [--focus TEXT] [--no-post] [--continue] [--jobs N]
+                  [--orchestrator SPEC] [--fallback SPEC|none]
                   [--timeout SECONDS] [--budget USD] [--log-dir DIR]
                   [--skills DIR|installed] [--all] [--dependabot]
                   [--stacked] [--skip-wait-for-ci] [--help]
@@ -61,6 +63,21 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
                       from scratch. Marked RESUMABLE in the picker.
   --jobs N, -j N      Reviews to run at once (default 2, or $AUTOREVIEW_JOBS).
                       Keep it low: a panel review is itself several agents.
+  --orchestrator SPEC Which agent CLI runs each review (default claude, or
+                      $AUTOREVIEW_ORCHESTRATOR). SPEC is claude or codex,
+                      optionally with a model: codex:gpt-5.5. This is the
+                      session that runs the review skill and fans the panel
+                      out; the panelists are chosen by the skill, not here.
+                      Under codex a review cannot pin or resume a session,
+                      --budget is not enforced, and a re-check is a fresh
+                      review: dash-p forwards those flags to claude alone.
+  --fallback SPEC     Which orchestrator retries a review whose orchestrator
+                      failed (exit 10: the provider was down, a usage limit
+                      was hit, the session errored). Default auto (or
+                      $AUTOREVIEW_FALLBACK): the other of codex and claude,
+                      if it is installed. "none" turns the retry off. A
+                      fallback review is always a fresh review, and it runs
+                      on its own default model unless SPEC pins one.
   --max-idle N        How many checks in a row may find nothing to do before
                       --babysit stops (default 3, or $AUTOREVIEW_MAX_IDLE).
                       Ignored under --watch, which is meant to sit idle.
@@ -116,12 +133,19 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
   --help, -h          Show this help.
   --version, -V       Show the version.
 
-Each PR is reviewed by a dash-p subprocess driving claude headlessly:
-  dash-p --output-format json --meta-file ... --timeout ... \
+Each PR is reviewed by a dash-p subprocess driving the orchestrator headlessly:
+  dash-p -H claude --output-format json --meta-file ... --timeout ... \
     --dangerously-skip-permissions --session-id UUID -- "/auto-review N"
 where UUID is derived from the repo directory plus owner/name#N, so the same PR
 in this checkout always maps to the same session -- and `claude --resume UUID`
-reopens it interactively later. Set $DASHP_BIN to point at a different dash-p.
+reopens it interactively later. Under codex the prompt is "$auto-review N",
+codex's explicit skill invocation, and `codex resume <id>` reopens the thread
+the summary names. Set $DASHP_BIN to point at a different dash-p.
+
+When the orchestrator exits 10 the review is retried once under the fallback,
+which the run names on its first line. A panelist that fails is not exit 10:
+the review skill counts it as missing and withholds approval below 75%
+coverage, and the review still completes.
 
 The summary shows what each review concluded. RESULT is the review process
 (done / timed out / failed); VERDICT is what landed on the PR, read back from
@@ -206,6 +230,11 @@ pub struct Config {
     pub review_cmd: Option<String>,
     /// Where the built-in reviewer's skills come from.
     pub skills: Source,
+    /// The agent CLI that runs each review: the session that runs the skill.
+    pub orchestrator: Orchestrator,
+    /// What retries a review whose orchestrator exited 10. `Auto` until run
+    /// start resolves it against PATH; the pool only ever sees a decided one.
+    pub fallback: Fallback,
     /// Printed to stderr before the run starts, e.g. the silent-fallback
     /// warning when an unattended run ignores $AUTOREVIEW_CMD.
     pub startup_notes: Vec<String>,
@@ -397,6 +426,9 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         env_nonempty(env, "AUTOREVIEW_BABYSIT_INTERVAL").unwrap_or_else(|| "30".into());
     let mut watch_interval_raw =
         env_nonempty(env, "AUTOREVIEW_WATCH_INTERVAL").unwrap_or_else(|| "2".into());
+    let mut orchestrator_raw =
+        env_nonempty(env, "AUTOREVIEW_ORCHESTRATOR").unwrap_or_else(|| "claude".into());
+    let mut fallback_raw = env_nonempty(env, "AUTOREVIEW_FALLBACK").unwrap_or_else(|| "auto".into());
 
     let mut it = args.into_iter().peekable();
     while let Some(arg) = it.next() {
@@ -421,6 +453,8 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
                 focus = Some(checked_focus(&raw)?);
             }
             "--jobs" | "-j" => jobs_raw = require_value("--jobs", it.next())?,
+            "--orchestrator" => orchestrator_raw = require_value("--orchestrator", it.next())?,
+            "--fallback" => fallback_raw = require_value("--fallback", it.next())?,
             "--max-passes" => max_passes_raw = require_value("--max-passes", it.next())?,
             "--max-idle" => max_idle_raw = require_value("--max-idle", it.next())?,
             "--timeout" => timeout_raw = require_value("--timeout", it.next())?,
@@ -440,6 +474,10 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
                     other.strip_prefix("--jobs=").or_else(|| other.strip_prefix("-j="))
                 {
                     jobs_raw = require_value("--jobs", Some(v.to_string()))?;
+                } else if let Some(v) = other.strip_prefix("--orchestrator=") {
+                    orchestrator_raw = require_value("--orchestrator", Some(v.to_string()))?;
+                } else if let Some(v) = other.strip_prefix("--fallback=") {
+                    fallback_raw = require_value("--fallback", Some(v.to_string()))?;
                 } else if let Some(v) = other.strip_prefix("--max-idle=") {
                     max_idle_raw = require_value("--max-idle", Some(v.to_string()))?;
                 } else if let Some(v) = other.strip_prefix("--max-passes=") {
@@ -488,6 +526,20 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
                 "error: --budget expects a positive dollar amount, got \"{b}\""
             )));
         }
+    }
+
+    let orchestrator = Orchestrator::parse(&orchestrator_raw).map_err(err)?;
+    let fallback = Fallback::parse(&fallback_raw).map_err(err)?;
+    // A fallback that is the primary again would retry the failure that
+    // just happened. A different model on the same backend is allowed: a
+    // model-specific problem is real, even if an outage would hit both.
+    if let Fallback::Spec(f) = &fallback
+        && *f == orchestrator
+    {
+        return Err(err(format!(
+            "error: --fallback {} is the orchestrator itself; name a different one, or none",
+            f.label()
+        )));
     }
 
     // Validated only when babysitting is actually on, so an unrelated bad env
@@ -548,6 +600,24 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         (Some(raw), None) => Source::parse(raw).map_err(err)?,
         (None, _) => Source::Bundled,
     };
+    // What dash-p does not forward to a non-claude orchestrator is said up
+    // front, once: a cap that quietly does not apply is worse than no cap,
+    // and a babysit loop that re-reviews from scratch every interval should
+    // not be a surprise read off the summary.
+    if review_cmd.is_none() {
+        if budget_raw.is_some() && !orchestrator.supports_budget() {
+            startup_notes.push(format!(
+                "note: --budget is not enforced under {}; dash-p forwards the cap to claude alone",
+                orchestrator.label()
+            ));
+        }
+        if !orchestrator.supports_sessions() && (continue_sessions || babysit || watch) {
+            startup_notes.push(format!(
+                "note: {} cannot resume a review session; every pass reviews fresh",
+                orchestrator.label()
+            ));
+        }
+    }
 
     // --no-post works by choosing the reviewer, and an override is not ours
     // to choose. Every other flag that cannot reach an override settles for a
@@ -581,6 +651,8 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         ci_wait,
         review_cmd,
         skills,
+        orchestrator,
+        fallback,
         startup_notes,
     })))
 }
@@ -1052,6 +1124,80 @@ mod tests {
             .err()
             .unwrap();
         assert!(e.msg.contains("invalid babysit interval"));
+    }
+
+    #[test]
+    fn the_orchestrator_and_its_fallback_come_off_the_command_line() {
+        assert_eq!(cfg(&[]).orchestrator, Orchestrator::claude());
+        assert_eq!(cfg(&[]).fallback, Fallback::Auto, "a stand-in unless told otherwise");
+        assert_eq!(cfg(&["--orchestrator", "codex"]).orchestrator.backend, "codex");
+        assert_eq!(cfg(&["--orchestrator=codex:gpt-5.5"]).orchestrator.label(), "codex:gpt-5.5");
+        assert_eq!(cfg(&["--fallback", "none"]).fallback, Fallback::None);
+        assert_eq!(
+            cfg(&["--orchestrator=codex", "--fallback=claude"]).fallback,
+            Fallback::Spec(Orchestrator::claude())
+        );
+        // Both settable from the environment, which is where a cron line
+        // usually wants them.
+        let from_env = match run_env(
+            &[],
+            &[("AUTOREVIEW_ORCHESTRATOR", "codex"), ("AUTOREVIEW_FALLBACK", "none")],
+        ) {
+            Ok(Parsed::Run(c)) => c,
+            _ => panic!("expected a run"),
+        };
+        assert_eq!(from_env.orchestrator.backend, "codex");
+        assert_eq!(from_env.fallback, Fallback::None);
+    }
+
+    #[test]
+    fn a_fallback_that_is_the_orchestrator_is_refused() {
+        // Retrying the provider that just failed is not a retry.
+        let m = msg(&["--fallback", "claude"]);
+        assert!(m.contains("is the orchestrator itself"), "got {m}");
+        assert!(m.contains("or none"), "says the way out: {m}");
+        // A different model on the same backend is a real difference.
+        assert!(run(&["--fallback", "claude:opus-4.8"]).is_ok());
+        // And so is the other way round.
+        assert!(msg(&["--orchestrator=codex", "--fallback=codex"]).contains("orchestrator itself"));
+    }
+
+    #[test]
+    fn a_backend_that_cannot_orchestrate_is_refused_by_name() {
+        let m = msg(&["--orchestrator", "opencode"]);
+        assert!(m.contains("unknown orchestrator \"opencode\""), "got {m}");
+        assert!(m.contains("codex, claude"), "lists what does work: {m}");
+        // The fallback says "fallback", not "orchestrator" -- the operator
+        // has to know which of the two flags to fix.
+        let m = msg(&["--fallback", "gemini"]);
+        assert!(m.contains("unknown fallback \"gemini\""), "got {m}");
+    }
+
+    #[test]
+    fn what_cannot_reach_a_codex_run_is_said_before_the_run_starts() {
+        let notes = |args: &[&str]| cfg(args).startup_notes.join("\n");
+        // A cap dash-p will not forward is worse than no cap, unsaid.
+        let n = notes(&["--orchestrator=codex", "--budget", "2.50"]);
+        assert!(n.contains("--budget is not enforced under codex"), "got {n}");
+        // A loop that re-reviews from scratch every interval should not be
+        // a surprise read off the summary.
+        for flag in ["--continue", "--babysit", "--watch"] {
+            let n = notes(&["--orchestrator=codex", flag]);
+            assert!(n.contains("cannot resume a review session"), "{flag}: {n}");
+        }
+        // Neither is said when it does not apply.
+        assert_eq!(notes(&["--orchestrator=codex"]), "");
+        assert_eq!(notes(&["--budget", "2.50", "--continue"]), "");
+        // An override is not ours to describe: it owns its own sessions and
+        // its own spending, whatever the orchestrator flag says.
+        let c = match run_env(
+            &["--orchestrator=codex", "--continue"],
+            &[("AUTOREVIEW_AUTO_CMD", "my-review")],
+        ) {
+            Ok(Parsed::Run(c)) => c,
+            _ => panic!("expected a run"),
+        };
+        assert!(c.startup_notes.is_empty(), "got {:?}", c.startup_notes);
     }
 
     #[test]
