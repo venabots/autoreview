@@ -177,6 +177,7 @@ autoreview --continue       # resume earlier sessions for a second look
 autoreview --babysit=15     # re-run every 15 min, picking up new PRs as they open
 autoreview --skip-wait-for-ci # review a PR whatever its checks say
 autoreview --stacked        # review PRs stacked on another open PR too
+autoreview --tui --watch    # full screen: every PR on the left, its review on the right
 autoreview --help           # usage
 ```
 
@@ -188,10 +189,10 @@ the point.) `--auto` / `-A` still parse —
 an old alias or cron line keeps working — they just name the default now.
 
 It takes the same selection flags as `review-prs` (`--continue`, `--all`,
-`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus twelve of
-its own: `--pick`, `--watch`, `--focus`, `--no-post`, `--jobs`,
+`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus thirteen
+of its own: `--pick`, `--watch`, `--focus`, `--no-post`, `--jobs`,
 `--orchestrator`, `--fallback`, `--timeout`, `--budget`, `--log-dir`,
-`--max-passes` and `--max-idle`.
+`--max-passes`, `--max-idle` and `--tui`.
 
 **`--focus` steers a run.** It reaches every panelist as the reviewer focus:
 
@@ -472,6 +473,63 @@ The exit status is the fourth, and it is the one that makes the whole thing
 automatable: dash-p's codes are the signal, so an `is_error` turn and garbage
 output are both `agent-error`, and a review that overruns `--timeout` counts as
 failed too.
+
+### The full-screen view
+
+`--tui` draws the run full screen instead of the inline board. Every PR the run
+is responsible for is on the left, one row each, under a heading for its
+state. The selected PR's details are on the right.
+
+```
+autoreview · acme/widgets · watching every 2m · a reviewed PR rests 30m · log …
+RUNNING 1                                 │ #9 Add retry logic
+⠸ #9     1m12s        @alice Add retry lo…│ @alice
+QUEUED 1                                  │
+· #7     queued       @dan Bump deps      │ reviewing 1m12s · claude
+WAITING 2                                 │ session 3fcba529-a817-5cea-aea7-9c6bdf065a96
+◷ #8     rest 28m04s  @bob Fix typo       │ 14 turns · 9 tool calls
+◷ #5     CI failing   @erin Cache keys    │
+FINISHED 1                                │ ACTIVITY
+✓ #4     approved     @carol Refactor cli…│   40s ago  Read     pool.rs
+                                          │   12s ago  Bash     cargo test --quiet
+1 running · 1 queued · 2 waiting · 1 finished · next check in 1m40s   q quit  j/k move
+```
+
+| Section  | What is in it                                                                 |
+| -------- | ----------------------------------------------------------------------------- |
+| RUNNING  | reviews in progress, with the transcript activity the inline board follows    |
+| QUEUED   | reviews this pass has not started yet                                         |
+| WAITING  | PRs held for their checks or for the PR underneath, resting, capped, or quiet |
+| FINISHED | PRs the run is done with, newest first                                        |
+
+A PR has one row, whatever has happened to it. The row keeps the PR's newest
+finished review in every section, so a PR that is resting under `--watch`
+still shows its verdict, its "not approved yet" block and the review text.
+
+| Key               | Does                                                          |
+| ----------------- | ------------------------------------------------------------- |
+| `j` `k`, arrows   | move the selection                                            |
+| `g` `G`           | first and last row                                            |
+| `ctrl-d` `ctrl-u` | scroll the right pane                                         |
+| `r`               | open the selected review in a new herdr, cmux or Ghostty tab  |
+| `o`               | open the PR in the browser                                    |
+| `x` `x`           | stop the selected running review                              |
+| `R`               | review the selected PR now (`--watch` or `--babysit`)         |
+| `l`               | show the run log in the right pane; `esc` puts it away        |
+| `q`               | quit; a second `q` when reviews are running, which stops them |
+
+`r` runs `cd <repo> && claude --resume <session>` in the new tab, or
+`codex resume <session>` for a review codex drove. It refuses a review that
+is still running. `x` ends a review as a failure, reported as "stopped"; the
+fallback does not retry it, and the next pass reviews that PR from scratch.
+`R` puts a waiting PR first in the next pass and wakes the run to start it,
+whatever the rest, the cap or the sweep say. A PR that is approved or closed
+is still refused.
+
+While the view is up, everything the run would have printed goes to
+`autoreview.log` in the run directory, byte for byte, and `l` shows it. A run
+that ends keeps the view until `q`, then prints one summary table for the
+whole run. Off a terminal, `--tui` says so and the run prints its plain lines.
 
 ### Prompts
 
@@ -1168,6 +1226,7 @@ src/report.rs      autoreview: verdict readback and the agent's trailer
 src/rundir.rs      autoreview: what one run writes under --log-dir
 src/ui.rs          autoreview: what every board row and summary says
 src/board.rs       autoreview: the live area, an inline viewport in raw mode
+src/tui/           autoreview --tui: the list, the detail pane, keys, the terminal
 src/findings.rs    the findings a synthesized review attributes to each panelist
 src/ledger.rs      the append-only record of finished reviews, across runs
 src/stats/         autoreview stats: cli, per-model folding, rendering, import
@@ -1186,11 +1245,12 @@ parsing, session goldens, ranking, CLI validation, argv and tab-command
 shapes), then runs the bash suites — the real binaries against fake `gh`,
 `gum`, `cmux` and `dash-p` on `PATH`, inside a throwaway git repo, with
 `$CLAUDE_CONFIG_DIR` pointed at a throwaway session store. They never touch
-your repos, your Claude Code sessions, or GitHub. One file,
-`tests/board.test.sh`, runs autoreview on a pty rather than a pipe, through
-`tests/pty.py`: a driver that answers the board's cursor query, resizes the
-terminal mid-pass and presses keys. It is the only time the live board is
-drawn under test, and it needs `python3`; without one it says so and skips.
+your repos, your Claude Code sessions, or GitHub. Two files,
+`tests/board.test.sh` and `tests/tui.test.sh`, run autoreview on a pty rather
+than a pipe, through `tests/pty.py`: a driver that answers the board's cursor
+query, resizes the terminal mid-pass and presses keys. They are the only times
+the live board and the full-screen view are drawn under test, and they need
+`python3`; without one they say so and skip.
 It finishes with `bash -n`
 and `shellcheck` over the suite itself and over the scripts in `skills/`, which
 is all the bash in the repo.

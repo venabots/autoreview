@@ -1,0 +1,87 @@
+# The TUI is a full-screen view over the same engine
+
+Recorded: 2026-09-17
+Status: accepted
+
+## Context
+
+The inline board (decision 0015) shows the reviews that are running. A review
+that finishes becomes one line and scrolls away. To learn what it found you
+open `pr-N.review.md`, and to talk to it you copy a session id out of the
+summary into `claude --resume`. A watch run that lasts all day leaves a
+day of results in scrollback, and nothing shows the PRs it is waiting on.
+
+What was wanted was a place to go back to: every PR the run is responsible
+for, what each review is doing or found, and a key that reopens a review in a
+new terminal tab.
+
+## Decision
+
+`autoreview --tui` draws the run full screen, in `src/tui/`. Without the
+flag nothing changes: the inline board, the plain lines and the summary are
+as they were.
+
+- **A flag, not a fourth binary.** The view needs everything the babysit and
+  watch loop does, and that loop lives in `src/bin/autoreview.rs`. A second
+  binary would copy it or force it into the library first. The flag uses the
+  same loop, the same flags and the same exit status.
+- **The alternate screen, full size.** A full-screen ratatui viewport takes
+  its size from `/dev/tty` and redraws on a resize without asking where the
+  cursor is, which is the query the inline board is built around.
+- **fds 1 and 2 go to the run log while the view is up.** The loop prints a
+  line for everything it does, from a dozen places, and one of them landing
+  on the screen would scribble over it. With the fds on
+  `<run>/autoreview.log`, every existing line goes there unchanged, the plain
+  form included, since `ui.tty` is off while the view is up. The view draws
+  through its own handle on `/dev/tty`. The saved fds are duplicated
+  close-on-exec, so no reviewer inherits the terminal.
+- **Nothing asks crossterm for the cursor while the view is up.** The query
+  writes to `stdout()`, which is the log file then. So the view never calls
+  ratatui's `Terminal::clear`, `init` or `restore`; it enters, clears and
+  leaves the alternate screen itself.
+- **One row per PR, not one per review.** Sections run top to bottom:
+  running, queued, waiting, finished. Every row carries the newest review
+  that finished, whatever its section: under `--watch` a reviewed PR spends
+  most of its life resting, and a list that offered its review only once the
+  PR was finished for good would hide it where it is wanted.
+- **Keys act on the frame the person saw.** Selection follows a PR, not a
+  place, because rows move as reviews finish. Stopping a review and quitting
+  mid-pass take a second press, and the arming names its PR, so a second `x`
+  on another row stops nothing.
+- **`r` opens `claude --resume <id>` in a new tab** through the spawner
+  review-prs uses, built from the orchestrator's reopen command so it cannot
+  drift from the summary's hint. It refuses a review that is running: two
+  processes would write one transcript.
+- **A stopped review is a failure.** It ends with the outcome "stopped", the
+  fallback never retries it, the run exits 1, and the next pass reviews the
+  PR from scratch.
+- **`R` asks for a review now.** A queued review starts next. Any other PR
+  goes first in the next intake, past the rest, the cap and the sweep's own
+  view: those bound a loop nobody watches, and a key press is somebody
+  watching. A PR that is approved or closed, or outside a `--pick`, is still
+  refused. A request wakes the loop's wait early, except the waits after a
+  failure, where a key press would repeat the call that just failed, and a
+  wake it caused is not an idle check.
+- **The loop keeps the view drawn while it waits.** Its sleeps and its `gh`
+  calls run in tenths of a second, drawing and reading keys; the calls run on
+  a scoped thread.
+- **A run that ends keeps the view until `q`,** saying why it ended, and
+  exits with the status it would have had. The summary printed after it is
+  one table for the whole run, the newest review of each PR.
+
+## Consequences
+
+- The plain output contract is untouched. The view's own words are not a
+  contract in the same way; `tests/tui.test.sh` pins the ones that matter by
+  driving it on a pty and reading the run log.
+- A tab opened with `r` holds the session. A later pass sees it in use and
+  reviews that PR fresh, as it does for any session open elsewhere.
+- The pass asks two questions where it asked one: `ui.ticking()` is whether
+  it animates and follows activity, `ui.tty` whether output is styled for a
+  terminal. The view needs the first without the second.
+- `Job` and `Tail` are `Clone`, for the summary at the end. An archived
+  review drops its activity, so a day of watching does not keep every event.
+- The detail pane uses ratatui's `unstable-rendered-line-info` feature to
+  count wrapped lines. An upgrade of ratatui has to check it still exists.
+- The picker, the CI wait and the startup lines all run before the view
+  opens, on the normal screen, and stay above the summary when it closes.
