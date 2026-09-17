@@ -6,6 +6,7 @@
 //! shows the reviews that are running; this view keeps the ones that ran,
 //! which is where a person wants to go back to.
 
+pub mod actions;
 pub mod keys;
 pub mod model;
 
