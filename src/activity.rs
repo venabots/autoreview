@@ -48,7 +48,7 @@ pub struct Event {
     pub at: Option<i64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Source {
     /// Nothing to follow, and the reason in words the details view shows.
     None(&'static str),
@@ -59,7 +59,7 @@ enum Source {
     Plain(PathBuf),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tail {
     source: Source,
     /// Start at the end of the file when it is first seen. A resumed

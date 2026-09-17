@@ -795,6 +795,15 @@ assert_equals "an all-approved run still exits 0" "$(last_status)" "0"
 assert_contains "...and ends" "$out" "nothing left to babysit"
 assert_contains "...while admitting the last look failed" "$out" "could not refresh the PR list"
 
+# --- --tui off a terminal -------------------------------------------------
+# A pipe has no screen to take. The run says so once and prints its plain
+# lines, as a run without the flag would.
+out="$(run_autoreview --tui)"
+assert_contains "--tui off a terminal says there is none" "$out" \
+  "note: --tui needs a terminal; printing plain lines"
+assert_contains "...and prints the plain lines" "$out" "done    #9"
+assert_equals "...and exits 0" "$(last_status)" "0"
+
 # --- --watch never stops --------------------------------------------------
 # The three things that end a --babysit run must not end a watch run. Each of
 # these would have stopped the loop before: everything approved (nothing left),

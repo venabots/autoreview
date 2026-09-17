@@ -44,7 +44,7 @@ pub enum JobState {
     Timeout,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Job {
     pub pr: u64,
     /// The PR title, for the live board; empty when unknown.
@@ -445,6 +445,7 @@ mod tests {
             orchestrator: Orchestrator::claude(),
             fallback: crate::orchestrator::Fallback::None,
             startup_notes: vec![],
+            tui: false,
         }
     }
 

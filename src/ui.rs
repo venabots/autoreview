@@ -26,6 +26,11 @@ use ratatui::style::{Color as Ink, Stylize};
 use ratatui::text::{Line, Span};
 use std::collections::HashSet;
 use std::io::IsTerminal;
+use std::path::PathBuf;
+
+mod full;
+
+pub use full::Woke;
 
 /// The frames the spinner turns through. The board indexes this slice
 /// directly, so every frame has to draw something: a blank in the cycle
@@ -238,7 +243,13 @@ fn opt_label(v: Option<&str>) -> String {
 }
 
 pub struct Ui {
+    /// Whether output is styled for a terminal and the inline board may
+    /// draw. False while the full-screen view is up: the plain lines then
+    /// go to the run log, which is where fds 1 and 2 point.
     pub tty: bool,
+    /// Whether stdout was a terminal when the run started. What `tty` goes
+    /// back to when the full-screen view closes.
+    terminal: bool,
     /// Where a "#9" links to, or None when hyperlinks are off (no terminal,
     /// or a terminal that asked for plain output).
     pr_url_base: Option<String>,
@@ -257,6 +268,16 @@ pub struct Ui {
     /// PRs a person asked to have reviewed now that the current pass could
     /// not start, for the loop to put in the next one.
     requests: Vec<u64>,
+    /// The full-screen view, while it is up.
+    screen: Option<crate::tui::Screen>,
+    /// The run directory, once the full-screen view has opened. The summary
+    /// at the end covers the whole run, and says where its files are.
+    run_root: Option<PathBuf>,
+    /// Every review of the run, kept for the full-screen view and the
+    /// summary at its end. Empty when the view never opened.
+    archive: Vec<crate::tui::Archived>,
+    /// The pass directory the current or last pass writes to.
+    pass_dir: PathBuf,
 }
 
 impl Ui {
@@ -268,6 +289,7 @@ impl Ui {
         let linked = tty && console::colors_enabled();
         Ui {
             tty,
+            terminal: tty,
             pr_url_base: linked.then_some(pr_url_base),
             board: None,
             frame: 0,
@@ -276,6 +298,10 @@ impl Ui {
             expanded: HashSet::new(),
             live: Vec::new(),
             requests: Vec::new(),
+            screen: None,
+            run_root: None,
+            archive: Vec::new(),
+            pass_dir: PathBuf::new(),
         }
     }
 
@@ -284,7 +310,7 @@ impl Ui {
     /// `tty`, which is whether output is styled for a terminal. A view that
     /// sends the plain lines to a log still has rows to animate.
     pub fn ticking(&self) -> bool {
-        self.tty
+        self.tty || self.screen.is_some()
     }
 
     /// Keep a request for the next pass. Asked twice is asked once.
@@ -311,6 +337,9 @@ impl Ui {
     /// A note the user should see now: spawn failures, session fallbacks.
     /// On the board it prints above the rows; elsewhere it goes to stderr.
     pub fn note(&mut self, note: String) {
+        if let Some(screen) = &mut self.screen {
+            screen.flash(note.clone());
+        }
         match &mut self.board {
             Some(b) => {
                 let note = fit_str(&note, b.width().saturating_sub(2));
@@ -396,6 +425,7 @@ impl Ui {
 
     /// Print the pass header and stand up the live board.
     pub fn begin_pass(&mut self, total: usize, jobs_max: u32, pass_dir: &std::path::Path) {
+        self.pass_dir = pass_dir.to_path_buf();
         self.finished = 0;
         self.total = total;
         if !self.tty {
@@ -449,6 +479,10 @@ impl Ui {
     /// Redraw the live area: one row per running review, the footer under
     /// them. Called on the pool's tick, which is also what turns the spinner.
     pub fn render(&mut self, jobs: &[Job]) {
+        if let Some(screen) = &mut self.screen {
+            screen.draw(jobs, &self.pass_dir, &self.archive);
+            return;
+        }
         let Some(board) = &mut self.board else {
             return;
         };
@@ -503,6 +537,9 @@ impl Ui {
     /// back for the pass to act on. Nothing off a TTY: there is no board to
     /// press a key at.
     pub fn poll_input(&mut self) -> Vec<Action> {
+        if let Some(screen) = &mut self.screen {
+            return screen.events();
+        }
         let Some(board) = &self.board else {
             return Vec::new();
         };
@@ -1117,7 +1154,7 @@ fn footer_line(pos: usize, len: usize, msg: &str, hint: &str, width: usize) -> L
 /// A panic must not leave the terminal without its cursor.
 impl Drop for Ui {
     fn drop(&mut self) {
-        self.end_pass();
+        self.shutdown();
         self.show_cursor();
     }
 }
@@ -1684,6 +1721,7 @@ mod tests {
     fn ui(tty: bool, pr_url_base: Option<&str>) -> Ui {
         Ui {
             tty,
+            terminal: tty,
             pr_url_base: pr_url_base.map(String::from),
             board: None,
             frame: 0,
@@ -1692,6 +1730,10 @@ mod tests {
             expanded: HashSet::new(),
             live: Vec::new(),
             requests: Vec::new(),
+            screen: None,
+            run_root: None,
+            archive: Vec::new(),
+            pass_dir: PathBuf::new(),
         }
     }
 

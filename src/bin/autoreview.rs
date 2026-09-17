@@ -19,8 +19,12 @@ use autoreview::rundir::RunDir;
 use autoreview::select::CiPolicy;
 use autoreview::stack::{self, StackedOn};
 use autoreview::status::{Status, step};
+use autoreview::tui::{self, Wait};
+use autoreview::ui::Woke;
 use autoreview::{ci, cli, orchestrator, pool, prlist, queue, repo, select, session, signals, skills, ui};
 use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::Receiver;
+use std::time::Duration;
 
 /// Refuse an orchestrator that could not find the review skills, naming the
 /// ones it is missing and the directory it reads. Ok for any backend the
@@ -219,6 +223,64 @@ fn drop_finished(prs: &[u64], tracker: &mut Queue) -> Vec<u64> {
     open
 }
 
+/// What the full-screen view lists as waiting: every PR this run is
+/// responsible for that the next pass will not review, and why. A PR the
+/// sweep holds says so first; one it merely left alone says whether it is
+/// capped, resting, or just quiet.
+fn waiting_list(
+    watching: &[u64],
+    held: &[(u64, Ci)],
+    stacked: &[(u64, StackedOn)],
+    tracker: &Queue,
+    queue: &[u64],
+    now: u64,
+) -> Vec<(u64, Wait)> {
+    let held = held.iter().map(|&(pr, ci)| (pr, Wait::Checks(ci)));
+    let stacked = stacked.iter().map(|&(pr, on)| (pr, Wait::Stacked(on)));
+    let watched = watching.iter().map(|&pr| {
+        let wait = match tracker.rest_left(pr, now) {
+            _ if tracker.is_capped(pr) => Wait::Capped,
+            Some(left) => Wait::Resting { until: now + left },
+            None => Wait::Quiet,
+        };
+        (pr, wait)
+    });
+    let mut out: Vec<(u64, Wait)> = Vec::new();
+    for (pr, wait) in held.chain(stacked).chain(watched) {
+        if !queue.contains(&pr) && !out.iter().any(|(seen, _)| *seen == pr) {
+            out.push((pr, wait));
+        }
+    }
+    out
+}
+
+/// What the full-screen view's header says about the run.
+fn screen_header(cfg: &Config, ctx: &repo::RepoContext, rundir: &RunDir) -> tui::Header {
+    let mode = match (&cfg.watch, &cfg.babysit) {
+        (Some(w), Some(b)) => format!("watching every {} · a reviewed PR rests {}", w.normalized, b.normalized),
+        (Some(w), None) => format!("watching every {}", w.normalized),
+        (None, Some(b)) => format!("babysitting every {}", b.normalized),
+        (None, None) => "one pass".to_string(),
+    };
+    tui::Header {
+        repo: format!("{}/{}", ctx.owner, ctx.name),
+        mode,
+        repo_root: ctx.repo_root.clone(),
+        log: rundir.root.join("autoreview.log"),
+        looping: cfg.watch.is_some() || cfg.babysit.is_some(),
+    }
+}
+
+/// The end of a run. The full-screen view stays up, saying why, until `q`;
+/// then the terminal is given back with the run's summary. Without the view
+/// this only puts the cursor back.
+fn close(ui: &mut ui::Ui, ended: &str, rx: &Receiver<pool::Event>) {
+    ui.hold(ended, rx);
+    ui.shutdown();
+    ui.print_final(&[]);
+    ui.show_cursor();
+}
+
 /// True when no PR on the watch list could ever be reviewed again: the list
 /// is empty, or everything left on it has had all its passes. Waiting on a
 /// capped PR is waiting for something that cannot happen.
@@ -361,6 +423,12 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     signals::install(tx.clone());
     let mut ui = ui::Ui::new(ui::pr_url_base(&ctx.owner, &ctx.name));
     ui.hide_cursor();
+    // After everything the run says on its way in -- the selection, the
+    // skills, the notes -- so that stays on the normal screen, above where
+    // the summary lands.
+    if cfg.tui {
+        ui.open_screen(screen_header(cfg, &ctx, &rundir), &rundir.root);
+    }
 
     // --babysit re-runs the whole pass on an interval, dropping PRs as they
     // are approved (or closed -- waiting for an approval that is never coming
@@ -407,6 +475,13 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     let mut held_announced: HashSet<(u64, Ci)> = held_at_start.iter().copied().collect();
     let mut stacked_announced: HashSet<(u64, StackedOn)> =
         stacked_at_start.iter().copied().collect();
+    // The PRs held for the PR underneath them as of the last look, for the
+    // view. Only the view reads it.
+    let mut stacked: Vec<(u64, StackedOn)> = stacked_at_start.clone();
+    ui.know(&info);
+    ui.waiting(waiting_list(&[], &held, &stacked, &tracker, &queue, now_secs()));
+    // Why the run ended, for the view to say while it waits for `q`.
+    let mut ended = String::from("the pass is done");
     let mut pass = 1u32;
     let (failures, total) = loop {
         // A watch run reaches the loop with an empty queue whenever there is
@@ -422,7 +497,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 if watch.is_some() {
                     eprintln!("\nwarning: could not open the log directory ({e:#})");
                     println!("waiting, then trying again");
-                    interruptible_sleep(&rx, std::time::Duration::from_secs(poll_secs), &ui);
+                    ui.wait(Duration::from_secs(poll_secs), &rx, false);
                     continue;
                 }
                 return Err(e);
@@ -444,13 +519,15 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             jobs
         };
         let failures = pool::failures(&jobs);
+        let total = jobs.len();
+        ui.archive(jobs);
 
         // A run with no interval at all does one pass and stops. --watch
         // always has one, and falls back to its own poll interval if that
         // ever stopped being true -- the same fallback the queue takes, so
         // the two cannot disagree about whether the loop continues.
         let Some(babysit) = cfg.babysit.clone().or_else(|| watch.clone()) else {
-            break (failures, jobs.len());
+            break (failures, total);
         };
         // How often to look for new work. Under --watch that is its own
         // interval; under --babysit the one interval does both jobs.
@@ -470,13 +547,19 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         // later: the interval exists to give an author time to answer, and a
         // PR that just arrived has nothing to answer.
         let mut already_waited = false;
+        // How the last wait ended. One a person cut short to ask for a
+        // review is not an idle check.
+        let mut last_woke = Woke::Elapsed;
         let mut idle_polls = 0u32;
         let next_queue = loop {
             // The watch list shrinks only here, and only on GitHub's word:
             // the review either landed as an approval or it did not, and a
             // run that believed its own report would babysit a PR it never
             // approved.
-            watching = drop_finished(&watching, &mut tracker);
+            let open = ui.while_busy("checking which PRs are finished", &rx, || {
+                drop_finished(&watching, &mut tracker)
+            });
+            watching = open;
             // A held PR is a PR this run is waiting on: its checks may pass
             // on the next poll. So a watch list with nothing left is not
             // finished while anything is held -- as of the last look, which
@@ -486,7 +569,8 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
 
             let refresh = Status::new();
             refresh.step(step::fetching(&ctx.owner, &ctx.name));
-            let looked = actionable_now(&cfg, &ctx, &refresh);
+            let looked =
+                ui.while_busy("checking the PR list", &rx, || actionable_now(&cfg, &ctx, &refresh));
             refresh.clear();
             let fresh = match looked {
                 Ok(seen) => {
@@ -519,6 +603,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                         .copied()
                         .collect();
                     report_stacked(&held_for_this_run(&naming, &tracker), &mut stacked_announced);
+                    stacked = held_for_this_run(&seen.stacked, &tracker);
                     // Said out loud, like any other way a PR leaves the loop:
                     // a watch list that shrank in silence reads as a lost PR.
                     for (pr, on) in &dropped {
@@ -539,8 +624,9 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                         // missing a PR for long.
                         let wait = poll.secs.saturating_mul(refresh_failures.min(5) as u64);
                         println!("looking again in {}", ui::fmt_dur(wait));
-                        interruptible_sleep(&rx, std::time::Duration::from_secs(wait), &ui);
+                        ui.wait(Duration::from_secs(wait), &rx, false);
                         already_waited = true;
+                        last_woke = Woke::Elapsed;
                         continue;
                     }
                     // A run with nothing left to watch is finished whatever
@@ -553,6 +639,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                         // was never looked for.
                         eprintln!("\nwarning: could not refresh the PR list ({e:#})");
                         println!("nothing left to babysit");
+                        ended = "nothing left to babysit".into();
                         break None;
                     }
                     // Otherwise conclude nothing from a failed look: deciding
@@ -562,15 +649,21 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     eprintln!("\nwarning: could not refresh the PR list ({e:#})");
                     if refresh_failures >= 3 {
                         eprintln!("error: the PR list has failed to refresh 3 times; giving up");
+                        ended = "the PR list failed to refresh 3 times; giving up".into();
                         break None;
                     }
                     println!("looking again in {}", babysit.normalized);
-                    interruptible_sleep(&rx, std::time::Duration::from_secs(babysit.secs), &ui);
+                    ui.wait(Duration::from_secs(babysit.secs), &rx, false);
                     already_waited = true;
+                    last_woke = Woke::Elapsed;
                     continue;
                 }
             };
 
+            // A person's requests go first, whatever the sweep said.
+            for pr in ui.take_requests() {
+                tracker.request(pr);
+            }
             let intake = tracker.next(&watching, &fresh, now_secs());
             // A PR that joined is this run's responsibility from now on, so it
             // is watched until it is approved or closed -- not only while it
@@ -581,6 +674,8 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             // a new hold is named.
             held_announced.retain(|(pr, _)| !intake.queue.contains(pr));
             report_intake(&intake, &cfg);
+            ui.know(&info);
+            ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &intake.queue, now_secs()));
             if !intake.queue.is_empty() {
                 break Some(intake.queue);
             }
@@ -597,6 +692,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 // waiting for something the queue is built to refuse.
                 if cfg.pick && watching.is_empty() {
                     println!("\nevery picked PR is finished; nothing left to watch");
+                    ended = "every picked PR is finished; nothing left to watch".into();
                     break None;
                 }
                 println!(
@@ -604,7 +700,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     poll.normalized,
                     waiting_on(&watching)
                 );
-                interruptible_sleep(&rx, std::time::Duration::from_secs(poll.secs), &ui);
+                last_woke = ui.wait(Duration::from_secs(poll.secs), &rx, true);
                 already_waited = true;
                 continue;
             }
@@ -612,6 +708,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 // Nothing open to wait for, or nothing left that may be
                 // reviewed again. No interval would change that.
                 println!("\nnothing left to babysit");
+                ended = "nothing left to babysit".into();
                 break None;
             }
             // An open PR nobody is touching must not keep a process alive for
@@ -623,7 +720,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             // is idle by construction and says nothing about whether the
             // author is coming back. Counting it would make --max-idle 1 stop
             // without ever waiting.
-            if already_waited {
+            if already_waited && last_woke == Woke::Elapsed {
                 idle_polls += 1;
             }
             if idle_polls >= cfg.max_idle {
@@ -632,6 +729,10 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     ui::count(idle_polls as usize, "idle check"),
                     still_open(&watching, held.len())
                 );
+                ended = format!(
+                    "nothing has changed in {} since the last review",
+                    ui::count(idle_polls as usize, "idle check")
+                );
                 break None;
             }
             println!(
@@ -639,7 +740,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 babysit.normalized,
                 still_open(&watching, held.len())
             );
-            interruptible_sleep(&rx, std::time::Duration::from_secs(babysit.secs), &ui);
+            last_woke = ui.wait(Duration::from_secs(babysit.secs), &rx, true);
             already_waited = true;
         };
 
@@ -648,10 +749,10 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             // first is a clean end; the second is not, and a cron wrapper has
             // to be able to tell them apart.
             if refresh_failures >= 3 {
-                ui.show_cursor();
+                close(&mut ui, &ended, &rx);
                 return Ok(1);
             }
-            break (failures, jobs.len());
+            break (failures, total);
         };
         queue = next;
         // The interval is what gives the author time to answer, so it is
@@ -668,10 +769,23 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 babysit.normalized,
                 ui::count(watching.len(), "PR")
             );
-            interruptible_sleep(&rx, std::time::Duration::from_secs(babysit.secs), &ui);
+            ui.wait(Duration::from_secs(babysit.secs), &rx, true);
+            // The queue was settled before the wait. A PR asked for during
+            // it joins now, at the front, rather than an interval later.
+            let asked = ui.take_requests();
+            if !asked.is_empty() {
+                for pr in asked {
+                    tracker.request(pr);
+                }
+                let extra = tracker.next(&watching, &[], now_secs());
+                watching.extend(extra.joined.iter().copied());
+                report_intake(&extra, &cfg);
+                let rest: Vec<u64> = queue.iter().copied().filter(|pr| !extra.queue.contains(pr)).collect();
+                queue = extra.queue.into_iter().chain(rest).collect();
+            }
         }
     };
-    ui.show_cursor();
+    close(&mut ui, &ended, &rx);
 
     // Exit nonzero when any review in the final pass did not complete
     // cleanly, so a cron job or a CI step can tell a finished sweep from a
@@ -681,34 +795,6 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         return Ok(1);
     }
     Ok(0)
-}
-
-/// The babysit interval sleep, listening on the same channel the pass engine
-/// uses -- a signal mid-interval must end the loop the same way it ends a
-/// pass, not wait out the timer.
-fn interruptible_sleep(
-    rx: &std::sync::mpsc::Receiver<pool::Event>,
-    dur: std::time::Duration,
-    ui: &ui::Ui,
-) {
-    let deadline = std::time::Instant::now() + dur;
-    loop {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
-        if left.is_zero() {
-            return;
-        }
-        match rx.recv_timeout(left) {
-            Ok(pool::Event::Signal) => {
-                println!();
-                eprintln!("interrupted; stopping running reviews");
-                ui.show_cursor();
-                std::process::exit(130);
-            }
-            // Stale job events from a pass that already finished.
-            Ok(_) => {}
-            Err(_) => return,
-        }
-    }
 }
 
 fn main() {
