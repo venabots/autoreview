@@ -86,6 +86,7 @@ fn wait_state(wait: Wait, now: i64) -> (String, Style) {
             (format!("rest {}", fmt_dur(left)), style.fg(Color::DarkGray))
         }
         Wait::Quiet => ("quiet".into(), style.fg(Color::DarkGray)),
+        Wait::Next => ("next pass".into(), style.fg(Color::DarkGray)),
     }
 }
 

@@ -35,6 +35,9 @@ pub enum Wait {
     Resting { until: u64 },
     /// Nothing has changed since its last review. The next check decides.
     Quiet,
+    /// The next pass reviews it; under --babysit that pass waits out the
+    /// interval first.
+    Next,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -209,16 +212,17 @@ impl Row<'_> {
     }
 
     /// Whether `R` may ask for this PR now. A queued review can always be
-    /// started first; anything else needs a run that looks again.
+    /// started first; anything else needs a run that looks again. Under a
+    /// run that looks again, a finished row is a PR the run has dropped --
+    /// approved, merged or closed -- because every PR it still watches is
+    /// listed as waiting.
     pub fn requestable(&self, looping: bool) -> Result<(), String> {
         match self.section {
             Section::Running => Err(format!("PR #{} is being reviewed now", self.pr)),
             Section::Queued => Ok(()),
             _ if !looping => Err("this run makes one pass; review-now needs --watch or --babysit".into()),
-            _ if self.last.is_some_and(|l| l.job.verdict.as_deref() == Some("approved")) => {
-                Err(format!("PR #{} is approved; this run is finished with it", self.pr))
-            }
-            _ => Ok(()),
+            Section::Finished => Err(format!("PR #{} is finished for this run", self.pr)),
+            Section::Waiting => Ok(()),
         }
     }
 }
@@ -382,6 +386,6 @@ mod tests {
         assert!(row.requestable(false).is_ok(), "a queued review can start first");
 
         let row = one(None, Some(&approved), Section::Finished);
-        assert!(row.requestable(true).unwrap_err().contains("approved"));
+        assert!(row.requestable(true).unwrap_err().contains("finished for this run"));
     }
 }

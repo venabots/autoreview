@@ -261,11 +261,15 @@ impl Screen {
     }
 
     fn pick(&self, row: &Row) -> Picked {
+        let request = match &self.ended {
+            Some(_) => Err("this run has ended; nothing more will be reviewed".to_string()),
+            None => row.requestable(self.header.looping),
+        };
         Picked {
             pr: row.pr,
             resume: row.resumable().and_then(|r| actions::resume_line(r.job, &self.header.repo_root)),
             stop: row.stoppable(),
-            request: row.requestable(self.header.looping),
+            request,
         }
     }
 
@@ -281,6 +285,7 @@ impl Screen {
             repo_root: &self.header.repo_root,
             review: self.review.as_ref().and_then(|(_, text)| text.as_deref()),
             next_check: self.next_check,
+            can_request: self.header.looping && self.ended.is_none(),
         };
         detail::lines(row, &ctx)
     }
@@ -591,7 +596,7 @@ mod tests {
     fn review_now_needs_a_run_that_loops() {
         let mut screen = Screen::new(None, header(true));
         frame(&mut screen, &[], &[done(7)], 120);
-        // Approved: the run is finished with it.
+        // Not waiting under a loop: the run is finished with it.
         assert!(screen.press(Intent::ReviewNow, Instant::now()).is_empty());
         let mut waiting = Screen::new(None, header(true));
         waiting.set_waiting(vec![(5, Wait::Quiet)]);
@@ -608,8 +613,12 @@ mod tests {
     fn an_ended_run_says_so_and_quits_at_once() {
         let mut screen = Screen::new(None, header(true));
         screen.set_ended("nothing left to babysit");
+        screen.set_waiting(vec![(5, Wait::Quiet)]);
         let out = frame(&mut screen, &[], &[done(7)], 120);
         assert!(out.contains("nothing left to babysit · q quits"), "{out}");
+        // Nothing reads a request any more, so none is taken.
+        assert!(screen.press(Intent::ReviewNow, Instant::now()).is_empty());
+        assert!(screen.message.as_ref().unwrap().0.contains("this run has ended"));
         assert_eq!(screen.press(Intent::Quit, Instant::now()), vec![Action::Stop]);
     }
 

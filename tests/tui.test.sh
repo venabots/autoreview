@@ -127,4 +127,14 @@ assert_equals "...and only it" "$(reviews_of 8)" "1"
 assert_contains "q ends a watch run" "$out" "autoreview-exit=130"
 check_cooked "the terminal is given back after a watch run"
 
+# --- A babysit run: R reviews one PR now, the rest keep their interval ------
+# The fixture never changes, so after the first pass both PRs are queued for
+# the next one, which waits out the interval first. R takes the first of
+# them through on its own.
+out="$(run_tui --key 3.0:R --key 7.0:q -- --babysit=1)"
+assert_contains "the next pass's PRs are listed as waiting for it" "$out" "next pass"
+assert_equals "R reviews the asked-for PR at once" "$(reviews_of 9)" "2"
+assert_equals "...and the rest keep their interval" "$(reviews_of 8)" "1"
+assert_contains "q ends a babysit run" "$out" "autoreview-exit=130"
+
 finish

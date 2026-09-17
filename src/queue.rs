@@ -30,6 +30,9 @@ pub struct Intake {
     pub joined: Vec<u64>,
     /// Actionable, but they have had their passes. Named once per run.
     pub capped: Vec<u64>,
+    /// Asked for by a person, and refused: finished for this run, or
+    /// outside a --pick.
+    pub refused: Vec<u64>,
 }
 
 pub struct Queue {
@@ -199,6 +202,7 @@ impl Queue {
         let mut intake = Intake::default();
         for pr in std::mem::take(&mut self.requested) {
             if !self.eligible(pr) {
+                intake.refused.push(pr);
                 continue;
             }
             intake.queue.push(pr);
@@ -529,11 +533,15 @@ mod tests {
         let mut q = sweep(3);
         q.mark_done(9);
         q.request(9);
-        assert!(q.next(&[], &[], 0).queue.is_empty(), "approved is final");
+        let intake = q.next(&[], &[], 0);
+        assert!(intake.queue.is_empty(), "approved is final");
+        assert_eq!(intake.refused, vec![9], "and the refusal is said");
 
         let mut picked = Queue::new(3, Some(vec![9]));
         picked.request(8);
-        assert!(picked.next(&[9], &[], 0).queue.is_empty(), "not picked");
+        let intake = picked.next(&[9], &[], 0);
+        assert!(intake.queue.is_empty(), "not picked");
+        assert_eq!(intake.refused, vec![8]);
     }
 
     #[test]

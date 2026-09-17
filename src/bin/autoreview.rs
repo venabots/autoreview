@@ -170,8 +170,9 @@ fn still_open(watching: &[u64], held: usize) -> String {
 }
 
 /// Say what changed since the last pass, so a queue that grew explains itself
-/// rather than a count quietly going up.
-fn report_intake(intake: &queue::Intake, cfg: &Config) {
+/// rather than a count quietly going up. A request the queue refused is said
+/// too: the view told the person it would be reviewed.
+fn report_intake(intake: &queue::Intake, cfg: &Config, ui: &mut ui::Ui) {
     if !intake.joined.is_empty() {
         let list: Vec<String> = intake.joined.iter().map(|n| format!("#{n}")).collect();
         println!(
@@ -185,6 +186,9 @@ fn report_intake(intake: &queue::Intake, cfg: &Config) {
             "PR #{pr} has had {} in this run; leaving it alone",
             ui::count(cfg.max_passes as usize, "review")
         );
+    }
+    for pr in &intake.refused {
+        ui.note(format!("note: PR #{pr} was asked for, but this run has finished with it"));
     }
 }
 
@@ -224,9 +228,9 @@ fn drop_finished(prs: &[u64], tracker: &mut Queue) -> Vec<u64> {
 }
 
 /// What the full-screen view lists as waiting: every PR this run is
-/// responsible for that the next pass will not review, and why. A PR the
-/// sweep holds says so first; one it merely left alone says whether it is
-/// capped, resting, or just quiet.
+/// responsible for that is not in a pass right now, and why. The next pass's
+/// PRs come first; then the ones the sweep holds; then the ones it merely
+/// left alone, capped, resting or quiet.
 fn waiting_list(
     watching: &[u64],
     held: &[(u64, Ci)],
@@ -235,6 +239,7 @@ fn waiting_list(
     queue: &[u64],
     now: u64,
 ) -> Vec<(u64, Wait)> {
+    let next = queue.iter().map(|&pr| (pr, Wait::Next));
     let held = held.iter().map(|&(pr, ci)| (pr, Wait::Checks(ci)));
     let stacked = stacked.iter().map(|&(pr, on)| (pr, Wait::Stacked(on)));
     let watched = watching.iter().map(|&pr| {
@@ -246,8 +251,8 @@ fn waiting_list(
         (pr, wait)
     });
     let mut out: Vec<(u64, Wait)> = Vec::new();
-    for (pr, wait) in held.chain(stacked).chain(watched) {
-        if !queue.contains(&pr) && !out.iter().any(|(seen, _)| *seen == pr) {
+    for (pr, wait) in next.chain(held).chain(stacked).chain(watched) {
+        if !out.iter().any(|(seen, _)| *seen == pr) {
             out.push((pr, wait));
         }
     }
@@ -428,17 +433,17 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // the summary lands.
     if cfg.tui {
         ui.open_screen(screen_header(cfg, &ctx, &rundir), &rundir.root);
-    }
-
-    // --babysit re-runs the whole pass on an interval, dropping PRs as they
-    // are approved (or closed -- waiting for an approval that is never coming
-    // would re-review forever), until nothing is left. The loop is this
         if cfg.no_post {
             ui.after_summary(format!(
                 "nothing was posted to any PR; the reviews are in {}",
                 rundir.root.display()
             ));
         }
+    }
+
+    // --babysit re-runs the whole pass on an interval, dropping PRs as they
+    // are approved (or closed -- waiting for an approval that is never coming
+    // would re-review forever), until nothing is left. The loop is this
     // process, so an interval that never converges is one process you can
     // see and kill.
     let mut cfg = cfg.clone();
@@ -535,6 +540,9 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         let Some(babysit) = cfg.babysit.clone().or_else(|| watch.clone()) else {
             break (failures, total);
         };
+        // The PRs just reviewed are waiting again, not finished, until the
+        // look below says otherwise.
+        ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &[], now_secs()));
         // How often to look for new work. Under --watch that is its own
         // interval; under --babysit the one interval does both jobs.
         let poll = watch.clone().unwrap_or_else(|| babysit.clone());
@@ -679,7 +687,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             // pushed to and held again afterwards, that is a new hold, and
             // a new hold is named.
             held_announced.retain(|(pr, _)| !intake.queue.contains(pr));
-            report_intake(&intake, &cfg);
+            report_intake(&intake, &cfg, &mut ui);
             ui.know(&info);
             ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &intake.queue, now_secs()));
             if !intake.queue.is_empty() {
@@ -775,19 +783,25 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 babysit.normalized,
                 ui::count(watching.len(), "PR")
             );
-            ui.wait(Duration::from_secs(babysit.secs), &rx, true);
-            // The queue was settled before the wait. A PR asked for during
-            // it joins now, at the front, rather than an interval later.
-            let asked = ui.take_requests();
-            if !asked.is_empty() {
-                for pr in asked {
+            let until = std::time::Instant::now() + Duration::from_secs(babysit.secs);
+            loop {
+                let left = until.saturating_duration_since(std::time::Instant::now());
+                if ui.wait(left, &rx, true) == Woke::Elapsed {
+                    break;
+                }
+                // A person asked for a PR during the wait. That PR is
+                // reviewed now, on its own: the rest keep their interval,
+                // and the look after this pass finds them again.
+                for pr in ui.take_requests() {
                     tracker.request(pr);
                 }
-                let extra = tracker.next(&watching, &[], now_secs());
-                watching.extend(extra.joined.iter().copied());
-                report_intake(&extra, &cfg);
-                let rest: Vec<u64> = queue.iter().copied().filter(|pr| !extra.queue.contains(pr)).collect();
-                queue = extra.queue.into_iter().chain(rest).collect();
+                let asked = tracker.next(&watching, &[], now_secs());
+                watching.extend(asked.joined.iter().copied());
+                report_intake(&asked, &cfg, &mut ui);
+                if !asked.queue.is_empty() {
+                    queue = asked.queue;
+                    break;
+                }
             }
         }
     };

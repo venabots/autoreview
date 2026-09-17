@@ -39,11 +39,13 @@ as they were.
   writes to `stdout()`, which is the log file then. So the view never calls
   ratatui's `Terminal::clear`, `init` or `restore`; it enters, clears and
   leaves the alternate screen itself.
-- **One row per PR, not one per review.** Sections run top to bottom:
-  running, queued, waiting, finished. Every row carries the newest review
-  that finished, whatever its section: under `--watch` a reviewed PR spends
-  most of its life resting, and a list that offered its review only once the
-  PR was finished for good would hide it where it is wanted.
+- **One row per PR, not one per review.** Sections run top to bottom: running,
+  queued, waiting, finished. Under a run that looks again, every PR it still
+  watches is listed as waiting, including the ones the next pass will review,
+  so a finished row is a PR the run has dropped. Every row carries the newest
+  review that finished, whatever its section: under `--watch` a reviewed PR
+  spends most of its life resting, and a list that offered its review only
+  once the PR was finished for good would hide it where it is wanted.
 - **Keys act on the frame the person saw.** Selection follows a PR, not a
   place, because rows move as reviews finish. Stopping a review and quitting
   mid-pass take a second press, and the arming names its PR, so a second `x`
@@ -58,10 +60,14 @@ as they were.
 - **`R` asks for a review now.** A queued review starts next. Any other PR
   goes first in the next intake, past the rest, the cap and the sweep's own
   view: those bound a loop nobody watches, and a key press is somebody
-  watching. A PR that is approved or closed, or outside a `--pick`, is still
-  refused. A request wakes the loop's wait early, except the waits after a
-  failure, where a key press would repeat the call that just failed, and a
-  wake it caused is not an idle check.
+  watching. A PR the run has finished with, or one outside a `--pick`, is
+  still refused, and the refusal is said.
+- **A request wakes the loop's wait, and brings only itself.** When
+  `--babysit` waits out its interval before a pass, a request runs a pass of
+  that PR alone; the others keep their interval, because it is what gives
+  their authors time to answer. The waits after a failure do not wake: a key
+  press there would repeat the call that just failed. A wake a request
+  caused is not an idle check.
 - **The loop keeps the view drawn while it waits.** Its sleeps and its `gh`
   calls run in tenths of a second, drawing and reading keys; the calls run on
   a scoped thread.

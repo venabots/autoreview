@@ -495,12 +495,12 @@ FINISHED 1                                │ ACTIVITY
 1 running · 1 queued · 2 waiting · 1 finished · next check in 1m40s   q quit  j/k move
 ```
 
-| Section  | What is in it                                                                 |
-| -------- | ----------------------------------------------------------------------------- |
-| RUNNING  | reviews in progress, with the transcript activity the inline board follows    |
-| QUEUED   | reviews this pass has not started yet                                         |
-| WAITING  | PRs held for their checks or for the PR underneath, resting, capped, or quiet |
-| FINISHED | PRs the run is done with, newest first                                        |
+| Section  | What is in it                                                                                   |
+| -------- | ----------------------------------------------------------------------------------------------- |
+| RUNNING  | reviews in progress, with the transcript activity the inline board follows                      |
+| QUEUED   | reviews this pass has not started yet                                                           |
+| WAITING  | PRs due at the next pass, held for their checks or the PR underneath, resting, capped, or quiet |
+| FINISHED | PRs the run is done with, newest first                                                          |
 
 A PR has one row, whatever has happened to it. The row keeps the PR's newest
 finished review in every section, so a PR that is resting under `--watch`
@@ -522,9 +522,10 @@ still shows its verdict, its "not approved yet" block and the review text.
 `codex resume <session>` for a review codex drove. It refuses a review that
 is still running. `x` ends a review as a failure, reported as "stopped"; the
 fallback does not retry it, and the next pass reviews that PR from scratch.
-`R` puts a waiting PR first in the next pass and wakes the run to start it,
-whatever the rest, the cap or the sweep say. A PR that is approved or closed
-is still refused.
+`R` reviews a waiting PR now, whatever the rest, the cap or the sweep say. It
+wakes the run and reviews that PR on its own; under `--babysit` the other PRs
+keep their interval. A PR the run has finished with is refused, and so is
+anything once the run has ended.
 
 While the view is up, everything the run would have printed goes to
 `autoreview.log` in the run directory, byte for byte, and `l` shows it. A run
