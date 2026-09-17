@@ -53,6 +53,17 @@ pub fn make_unique_dir(parent: &Path, prefix: &str) -> Result<PathBuf> {
     bail!("could not create a unique directory under {}", parent.display());
 }
 
+/// The review of PR `pr` in the pass written to `pass_dir`, as text. Free
+/// of `RunDir` so a view can find a review from a pass that has ended.
+pub fn review_file(pass_dir: &Path, pr: u64) -> PathBuf {
+    pass_dir.join(format!("pr-{pr}.review.md"))
+}
+
+/// The reviewer's stderr for PR `pr` in the pass written to `pass_dir`.
+pub fn log_file(pass_dir: &Path, pr: u64) -> PathBuf {
+    pass_dir.join(format!("pr-{pr}.log"))
+}
+
 pub struct RunDir {
     pub root: PathBuf,
     pub pass_dir: PathBuf,
@@ -101,7 +112,7 @@ impl RunDir {
         self.pass_dir.join(format!("pr-{pr}.json"))
     }
     pub fn log_path(&self, pr: u64) -> PathBuf {
-        self.pass_dir.join(format!("pr-{pr}.log"))
+        log_file(&self.pass_dir, pr)
     }
     pub fn meta_path(&self, pr: u64) -> PathBuf {
         self.pass_dir.join(format!("pr-{pr}.meta.json"))
@@ -110,7 +121,7 @@ impl RunDir {
     /// dash-p's envelope and JSON-escaped -- readable by a program and not by
     /// a person. This is the same review with the wrapper taken off.
     pub fn review_path(&self, pr: u64) -> PathBuf {
-        self.pass_dir.join(format!("pr-{pr}.review.md"))
+        review_file(&self.pass_dir, pr)
     }
     fn session_file(&self, pr: u64) -> PathBuf {
         self.root.join(format!("session-{pr}.id"))
