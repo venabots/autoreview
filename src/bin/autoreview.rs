@@ -320,6 +320,10 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         }
         other => other?,
     };
+    // The selection clears the spinner on the paths it finishes, not on one
+    // that fails. A watch run carries on past a failed first fetch, and a
+    // spinner left ticking would draw over everything the run prints next.
+    drop(status);
     // What the sweep held for its checks. The picker holds nothing, so a
     // --pick run has no held PRs whatever the column said.
     let held_at_start: Vec<(u64, Ci)> = if cfg.pick {
