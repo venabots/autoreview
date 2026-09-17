@@ -56,11 +56,9 @@ pub fn stop_group(pgid: i32) {
 /// reviews that already finished are still worth reopening -- so hand back
 /// their session ids on the way out rather than dropping them.
 fn interrupt(jobs: &[Job], ui: &mut Ui, rundir: &RunDir) -> ! {
-    // The board first: it holds the terminal in raw mode, and the message
-    // below must land on a terminal that has been given back.
-    ui.end_pass();
-    println!();
-    eprintln!("interrupted; stopping running reviews");
+    // The reviews before anything prints. A hangup leaves no terminal to
+    // print to, and a print that fails panics, which would end the process
+    // with the reviewers still running and still spending.
     for job in jobs {
         if let Some(pgid) = job.pgid
             && !matches!(job.state, JobState::Done | JobState::Failed | JobState::Timeout)
@@ -68,6 +66,11 @@ fn interrupt(jobs: &[Job], ui: &mut Ui, rundir: &RunDir) -> ! {
             stop_group(pgid);
         }
     }
+    // Then the board: it holds the terminal in raw mode, and the message
+    // below must land on a terminal that has been given back.
+    ui.end_pass();
+    println!();
+    eprintln!("interrupted; stopping running reviews");
     if !jobs.is_empty() {
         ui.print_summary(jobs, &rundir.pass_dir);
     }
