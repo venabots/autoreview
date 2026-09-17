@@ -82,6 +82,12 @@ assert_contains "...and go to the run log" "$(run_log)" "start   #9 @alice (revi
 assert_contains "...with the pass summary" "$(run_log)" "SESSION"
 check_cooked "the terminal is given back cooked"
 
+# Under --no-post every VERDICT reads "nothing posted". The line that says
+# why goes under the whole-run summary, not only into the log.
+out="$(run_tui --key 3.0:q -- --no-post)"
+assert_contains "--no-post says why nothing landed, under the summary" "$out" \
+  "nothing was posted to any PR; the reviews are in $SANDBOX/out/logs/run-"
+
 # --- r opens the review in a new tab, o opens the PR ----------------------
 # The sandbox drives the cmux spawner, whose fake records the command a tab
 # was sent. The fake gh records a --web call.

@@ -278,6 +278,8 @@ pub struct Ui {
     archive: Vec<crate::tui::Archived>,
     /// The pass directory the current or last pass writes to.
     pass_dir: PathBuf,
+    /// A line the full-screen run's summary ends with.
+    final_note: Option<String>,
 }
 
 impl Ui {
@@ -302,6 +304,7 @@ impl Ui {
             run_root: None,
             archive: Vec::new(),
             pass_dir: PathBuf::new(),
+            final_note: None,
         }
     }
 
@@ -1734,6 +1737,7 @@ mod tests {
             run_root: None,
             archive: Vec::new(),
             pass_dir: PathBuf::new(),
+            final_note: None,
         }
     }
 

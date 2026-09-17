@@ -433,6 +433,12 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // --babysit re-runs the whole pass on an interval, dropping PRs as they
     // are approved (or closed -- waiting for an approval that is never coming
     // would re-review forever), until nothing is left. The loop is this
+        if cfg.no_post {
+            ui.after_summary(format!(
+                "nothing was posted to any PR; the reviews are in {}",
+                rundir.root.display()
+            ));
+        }
     // process, so an interval that never converges is one process you can
     // see and kill.
     let mut cfg = cfg.clone();

@@ -203,6 +203,13 @@ impl Ui {
         }
     }
 
+    /// A line to print under the whole-run summary. A line the loop prints
+    /// after a pass goes to the log while the view is up, and one that
+    /// explains the summary has to be where the summary is.
+    pub fn after_summary(&mut self, note: String) {
+        self.final_note = Some(note);
+    }
+
     /// The summary a run ends with. A run that had the view gets one table
     /// for the whole run, the newest review of each PR in it; any other run
     /// gets the pass summary it has always had, which only an interrupted
@@ -215,6 +222,9 @@ impl Ui {
                     println!("logs: {}", root.display());
                 } else {
                     self.print_summary(&reviews, root);
+                }
+                if let Some(note) = &self.final_note {
+                    println!("{note}");
                 }
             }
             None if !jobs.is_empty() => self.print_summary(jobs, &self.pass_dir),
