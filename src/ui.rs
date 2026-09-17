@@ -523,7 +523,7 @@ impl Ui {
                 }
             }
             Action::Collapse => self.expanded.clear(),
-            Action::Stop => {}
+            Action::Stop | Action::StopReview(_) => {}
         }
     }
 

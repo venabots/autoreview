@@ -241,6 +241,24 @@ fn launch(
     }
 }
 
+/// Stop one running review because a person asked. It ends as a failure,
+/// like a review killed from outside, and the next pass reviews the PR from
+/// scratch. A reaped review has nothing left to stop, and its process group
+/// id may already belong to something else.
+fn stop_review(jobs: &mut [Job], deadlines: &mut [Option<Deadline>], pr: u64, ui: &mut Ui) {
+    let Some(idx) = jobs.iter().position(|j| j.pr == pr) else { return };
+    let job = &mut jobs[idx];
+    let pgid = job.pgid.filter(|_| job.state == JobState::Running && !job.reaped);
+    let Some(pgid) = pgid else {
+        ui.note(format!("note: PR #{pr} has no review running; nothing to stop"));
+        return;
+    };
+    job.stopped = true;
+    deadlines[idx] = None;
+    stop_group(pgid);
+    ui.note(format!("note: stopped the review of PR #{pr}"));
+}
+
 /// Whether a finished attempt is one the fallback should retry: the
 /// orchestrator itself failed (dash-p's exit 10 -- an outage, a usage limit,
 /// an is_error turn), there is a fallback to retry under, and this was the
@@ -249,7 +267,8 @@ fn launch(
 /// is judged by its exit status alone, with no dash-p behind it to have
 /// said what the status means.
 fn should_fall_back(job: &Job, state: JobState, code: Option<i32>, cfg: &Config) -> bool {
-    state == JobState::Failed
+    !job.stopped
+        && state == JobState::Failed
         && code == Some(10)
         && cfg.review_cmd.is_none()
         && matches!(cfg.fallback, Fallback::Spec(_))
@@ -371,7 +390,15 @@ pub fn run_pass(
                 job.sid = job::summary_sid(job, meta.as_ref(), is_override);
             }
             Ok(Event::JobExited { idx, status, readback }) => {
-                let (state, code) = job::classify(status, jobs[idx].guard_tripped, is_override);
+                // A stopped review is a failure with no result, whatever the
+                // kill made the reviewer exit with: dash-p may answer TERM
+                // with 10, which would otherwise read as an outage and be
+                // retried, or with 20, which would read as a timeout.
+                let (state, code) = if jobs[idx].stopped {
+                    (JobState::Failed, None)
+                } else {
+                    job::classify(status, jobs[idx].guard_tripped, is_override)
+                };
                 if should_fall_back(&jobs[idx], state, code, cfg)
                     && let Fallback::Spec(fallback) = &cfg.fallback
                 {
@@ -391,7 +418,7 @@ pub fn run_pass(
                 // A failed built-in review leaves its reason in the envelope:
                 // claude's own usage-limit notice, an API error. Exit 10
                 // without it is a number the reader has to go and decode.
-                if job.state == JobState::Failed && !is_override {
+                if job.state == JobState::Failed && !is_override && !job.stopped {
                     job.error = report::read_agent_error(&rundir.stdout_path(job.pr));
                 }
                 // The slot and the deadline were released at JobReaped;
@@ -511,8 +538,12 @@ pub fn run_pass(
         // With the board up the terminal is in raw mode, so ctrl-C is a key
         // rather than a signal. Read here, on this thread, after every wake:
         // the board must never own a reader thread (see src/board.rs).
-        if ui.poll_input().contains(&Action::Stop) {
-            interrupt(&jobs, ui, rundir);
+        for action in ui.poll_input() {
+            match action {
+                Action::Stop => interrupt(&jobs, ui, rundir),
+                Action::StopReview(pr) => stop_review(&mut jobs, &mut deadlines, pr, ui),
+                _ => {}
+            }
         }
 
         // What each running review is doing, for the board. One stat per
@@ -550,4 +581,25 @@ pub fn run_pass(
 
 pub fn failures(jobs: &[Job]) -> usize {
     jobs.iter().filter(|j| j.state != JobState::Done).count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg() -> Config {
+        let Ok(crate::cli::Parsed::Run(cfg)) = crate::cli::parse(Vec::new(), &|_| None) else {
+            panic!("an empty command line parses");
+        };
+        Config { fallback: Fallback::Spec(crate::orchestrator::Orchestrator::parse("codex").unwrap()), ..*cfg }
+    }
+
+    #[test]
+    fn a_stopped_review_is_never_retried() {
+        let cfg = cfg();
+        let mut job = Job::new(9);
+        assert!(should_fall_back(&job, JobState::Failed, Some(10), &cfg), "an outage is retried");
+        job.stopped = true;
+        assert!(!should_fall_back(&job, JobState::Failed, Some(10), &cfg), "a person stopped it");
+    }
 }

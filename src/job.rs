@@ -72,6 +72,9 @@ pub struct Job {
     /// or the reviewer was an override, which promises no envelope.
     pub error: Option<String>,
     pub guard_tripped: bool,
+    /// A person stopped this review from the screen. It ends as a failure,
+    /// like a review killed from outside, but it says who stopped it.
+    pub stopped: bool,
     pub cost: Option<f64>,
     /// The model dash-p reports the review ran on.
     pub model: Option<String>,
@@ -132,6 +135,7 @@ impl Job {
             exit_code: None,
             error: None,
             guard_tripped: false,
+            stopped: false,
             cost: None,
             model: None,
             verdict: None,
@@ -217,10 +221,14 @@ impl Job {
         }
     }
 
-    /// How a finished job failed, in the words the reader needs: an exit
-    /// status when there was one, otherwise the fact that the job left no
-    /// result at all (killed from outside -- an OOM kill, a stray pkill).
+    /// How a finished job failed, in the words the reader needs: that a
+    /// person stopped it, an exit status when there was one, otherwise the
+    /// fact that the job left no result at all (killed from outside -- an
+    /// OOM kill, a stray pkill).
     pub fn outcome(&self) -> String {
+        if self.stopped {
+            return "stopped".into();
+        }
         match self.exit_code {
             Some(code) => format!("exit {code}"),
             None => "no result".into(),
@@ -639,5 +647,9 @@ mod tests {
         assert_eq!(job.outcome(), "exit 10");
         job.exit_code = None;
         assert_eq!(job.outcome(), "no result");
+        // Whatever the kill left behind, a stopped review says it was stopped.
+        job.stopped = true;
+        job.exit_code = Some(10);
+        assert_eq!(job.outcome(), "stopped");
     }
 }
