@@ -334,10 +334,8 @@ impl Screen {
     }
 
     fn move_by(&mut self, delta: isize) {
-        let at = self.selected.and_then(|pr| self.order.iter().position(|p| *p == pr)).unwrap_or(0);
-        let to = at.saturating_add_signed(delta).min(self.order.len().saturating_sub(1));
-        if let Some(pr) = self.order.get(to) {
-            self.selected = Some(*pr);
+        if let Some(pr) = model::step(&self.order, self.selected, delta) {
+            self.selected = Some(pr);
         }
     }
 

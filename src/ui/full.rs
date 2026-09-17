@@ -64,10 +64,6 @@ impl Ui {
         }
     }
 
-    pub fn has_screen(&self) -> bool {
-        self.screen.is_some()
-    }
-
     /// Keep a finished pass for the view and the summary at the end. Its
     /// activity is dropped: a day of watching would otherwise keep every
     /// event of every review.
@@ -94,10 +90,6 @@ impl Ui {
         if let Some(screen) = &mut self.screen {
             screen.know(info);
         }
-    }
-
-    pub fn has_requests(&self) -> bool {
-        !self.requests.is_empty()
     }
 
     /// Draw once and read the keys, between passes. A request is kept for

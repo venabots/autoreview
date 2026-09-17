@@ -162,11 +162,12 @@ pub fn position(rows: &[Row], selected: Option<u64>) -> Option<usize> {
     Some(selected.and_then(|pr| rows.iter().position(|r| r.pr == pr)).unwrap_or(0))
 }
 
-/// The PR `delta` rows away from the selection, held at the ends.
-pub fn step(rows: &[Row], selected: Option<u64>, delta: isize) -> Option<u64> {
-    let at = position(rows, selected)?;
-    let to = at.saturating_add_signed(delta).min(rows.len() - 1);
-    Some(rows[to].pr)
+/// The PR `delta` rows away from the selection in `order`, the list's PRs
+/// top to bottom, held at the ends.
+pub fn step(order: &[u64], selected: Option<u64>, delta: isize) -> Option<u64> {
+    let at = selected.and_then(|pr| order.iter().position(|p| *p == pr)).unwrap_or(0);
+    let to = at.saturating_add_signed(delta).min(order.len().checked_sub(1)?);
+    Some(order[to])
 }
 
 /// How many rows each section holds, in section order.
@@ -334,10 +335,13 @@ mod tests {
         assert_eq!(position(&rows, Some(42)), Some(0), "a PR that left the list");
         assert_eq!(position(&rows, None), Some(0));
         assert_eq!(position(&[], Some(8)), None);
-        assert_eq!(step(&rows, Some(9), 1), Some(8));
-        assert_eq!(step(&rows, Some(8), 1), Some(8), "held at the end");
-        assert_eq!(step(&rows, Some(9), -1), Some(9), "held at the start");
-        assert_eq!(step(&rows, None, 5), Some(8));
+        let order: Vec<u64> = rows.iter().map(|r| r.pr).collect();
+        assert_eq!(step(&order, Some(9), 1), Some(8));
+        assert_eq!(step(&order, Some(8), 1), Some(8), "held at the end");
+        assert_eq!(step(&order, Some(9), -1), Some(9), "held at the start");
+        assert_eq!(step(&order, Some(42), 1), Some(8), "from the top when its PR left");
+        assert_eq!(step(&order, None, 5), Some(8));
+        assert_eq!(step(&[], Some(8), 1), None);
     }
 
     fn one<'a>(live: Option<&'a Job>, last: Option<&'a Job>, section: Section) -> Row<'a> {
