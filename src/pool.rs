@@ -17,7 +17,7 @@ use crate::board::Action;
 use crate::ui::Ui;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -55,12 +55,10 @@ pub fn stop_group(pgid: i32) {
 /// Ctrl-C (or a dropped ssh session) must not leave reviews running, and the
 /// reviews that already finished are still worth reopening -- so hand back
 /// their session ids on the way out rather than dropping them.
-fn interrupt(jobs: &[Job], ui: &mut Ui, rundir: &RunDir) -> ! {
-    // The board first: it holds the terminal in raw mode, and the message
-    // below must land on a terminal that has been given back.
-    ui.end_pass();
-    println!();
-    eprintln!("interrupted; stopping running reviews");
+fn interrupt(jobs: &[Job], ui: &mut Ui) -> ! {
+    // The reviews before anything prints. A hangup leaves no terminal to
+    // print to, and a print that fails panics, which would end the process
+    // with the reviewers still running and still spending.
     for job in jobs {
         if let Some(pgid) = job.pgid
             && !matches!(job.state, JobState::Done | JobState::Failed | JobState::Timeout)
@@ -68,11 +66,9 @@ fn interrupt(jobs: &[Job], ui: &mut Ui, rundir: &RunDir) -> ! {
             stop_group(pgid);
         }
     }
-    if !jobs.is_empty() {
-        ui.print_summary(jobs, &rundir.pass_dir);
-    }
-    ui.show_cursor();
-    std::process::exit(130);
+    // Then the terminal: the board or the full-screen view holds it in raw
+    // mode, and the summary must land on a terminal that has been given back.
+    ui.interrupted(jobs)
 }
 
 struct Deadline {
@@ -238,6 +234,48 @@ fn launch(
     }
 }
 
+/// The next review to start, and whether it still needs planning: a retry
+/// first, then the queue. The queue is only touched when no retry waits. A
+/// review taken off it and not started is never started, and the pass would
+/// wait for it for ever.
+fn next_start(retries: &mut Vec<usize>, order: &mut VecDeque<usize>) -> Option<(usize, bool)> {
+    if retries.is_empty() {
+        order.pop_front().map(|idx| (idx, true))
+    } else {
+        Some((retries.remove(0), false))
+    }
+}
+
+/// Start a review this pass has not started yet before the others. False
+/// when the pass has no such review waiting.
+fn move_to_front(order: &mut VecDeque<usize>, jobs: &[Job], pr: u64) -> bool {
+    let Some(pos) = order.iter().position(|&idx| jobs[idx].pr == pr) else {
+        return false;
+    };
+    if let Some(idx) = order.remove(pos) {
+        order.push_front(idx);
+    }
+    true
+}
+
+/// Stop one running review because a person asked. It ends as a failure,
+/// like a review killed from outside, and the next pass reviews the PR from
+/// scratch. A reaped review has nothing left to stop, and its process group
+/// id may already belong to something else.
+fn stop_review(jobs: &mut [Job], deadlines: &mut [Option<Deadline>], pr: u64, ui: &mut Ui) {
+    let Some(idx) = jobs.iter().position(|j| j.pr == pr) else { return };
+    let job = &mut jobs[idx];
+    let pgid = job.pgid.filter(|_| job.state == JobState::Running && !job.reaped);
+    let Some(pgid) = pgid else {
+        ui.note(format!("note: PR #{pr} has no review running; nothing to stop"));
+        return;
+    };
+    job.stopped = true;
+    deadlines[idx] = None;
+    stop_group(pgid);
+    ui.note(format!("note: stopped the review of PR #{pr}"));
+}
+
 /// Whether a finished attempt is one the fallback should retry: the
 /// orchestrator itself failed (dash-p's exit 10 -- an outage, a usage limit,
 /// an is_error turn), there is a fallback to retry under, and this was the
@@ -246,7 +284,8 @@ fn launch(
 /// is judged by its exit status alone, with no dash-p behind it to have
 /// said what the status means.
 fn should_fall_back(job: &Job, state: JobState, code: Option<i32>, cfg: &Config) -> bool {
-    state == JobState::Failed
+    !job.stopped
+        && state == JobState::Failed
         && code == Some(10)
         && cfg.review_cmd.is_none()
         && matches!(cfg.fallback, Fallback::Spec(_))
@@ -284,7 +323,9 @@ pub fn run_pass(
     ui.begin_pass(total, cfg.jobs, &rundir.pass_dir);
 
     let mut running = 0usize;
-    let mut next = 0usize;
+    // The reviews not started yet, in the order they start. Queue order
+    // unless a person asks for one first.
+    let mut order: VecDeque<usize> = (0..total).collect();
     let mut finished = 0usize;
     // Reviews waiting to be retried under the fallback. They go ahead of the
     // queue -- a PR that has already had one attempt is closer to done than
@@ -295,16 +336,13 @@ pub fn run_pass(
     while finished < total {
         // Fill free slots in queue order -- the order the tests (and eyes)
         // expect the starts to happen.
-        while running < jobs_max && (!retries.is_empty() || next < total) {
-            let idx = if retries.is_empty() {
-                let idx = next;
-                next += 1;
+        while running < jobs_max {
+            let Some((idx, unplanned)) = next_start(&mut retries, &mut order) else { break };
+            // A retry is already planned: it is always a fresh, unpinned
+            // review.
+            if unplanned {
                 plan_job(&mut jobs[idx], cfg, ctx, rundir, ui);
-                idx
-            } else {
-                // Already planned: a retry is always a fresh, unpinned review.
-                retries.remove(0)
-            };
+            }
             if launch(idx, &mut jobs, &mut deadlines, cfg, ctx, rundir, dashp, tx, ui) {
                 running += 1;
             } else {
@@ -321,7 +359,7 @@ pub fn run_pass(
 
         // Ten frames a second on a terminal: the tick is what turns the
         // spinner now, and one turn a second is what a spinner looks like.
-        let wait = if ui.tty {
+        let wait = if ui.ticking() {
             Duration::from_millis(100)
         } else {
             // Event-driven: sleep to the nearest deadline, or just wait for
@@ -368,7 +406,15 @@ pub fn run_pass(
                 job.sid = job::summary_sid(job, meta.as_ref(), is_override);
             }
             Ok(Event::JobExited { idx, status, readback }) => {
-                let (state, code) = job::classify(status, jobs[idx].guard_tripped, is_override);
+                // A stopped review is a failure with no result, whatever the
+                // kill made the reviewer exit with: dash-p may answer TERM
+                // with 10, which would otherwise read as an outage and be
+                // retried, or with 20, which would read as a timeout.
+                let (state, code) = if jobs[idx].stopped {
+                    (JobState::Failed, None)
+                } else {
+                    job::classify(status, jobs[idx].guard_tripped, is_override)
+                };
                 if should_fall_back(&jobs[idx], state, code, cfg)
                     && let Fallback::Spec(fallback) = &cfg.fallback
                 {
@@ -388,7 +434,7 @@ pub fn run_pass(
                 // A failed built-in review leaves its reason in the envelope:
                 // claude's own usage-limit notice, an API error. Exit 10
                 // without it is a number the reader has to go and decode.
-                if job.state == JobState::Failed && !is_override {
+                if job.state == JobState::Failed && !is_override && !job.stopped {
                     job.error = report::read_agent_error(&rundir.stdout_path(job.pr));
                 }
                 // The slot and the deadline were released at JobReaped;
@@ -500,7 +546,7 @@ pub fn run_pass(
                 }
                 ui.note_transition(job);
             }
-            Ok(Event::Signal) => interrupt(&jobs, ui, rundir),
+            Ok(Event::Signal) => interrupt(&jobs, ui),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
@@ -508,14 +554,21 @@ pub fn run_pass(
         // With the board up the terminal is in raw mode, so ctrl-C is a key
         // rather than a signal. Read here, on this thread, after every wake:
         // the board must never own a reader thread (see src/board.rs).
-        if ui.poll_input().contains(&Action::Stop) {
-            interrupt(&jobs, ui, rundir);
+        for action in ui.poll_input() {
+            match action {
+                Action::Stop => interrupt(&jobs, ui),
+                Action::StopReview(pr) => stop_review(&mut jobs, &mut deadlines, pr, ui),
+                // Started next if this pass has it waiting; otherwise the
+                // loop takes it into the next pass.
+                Action::ReviewNow(pr) if !move_to_front(&mut order, &jobs, pr) => ui.request(pr),
+                _ => {}
+            }
         }
 
         // What each running review is doing, for the board. One stat per
         // running job per tick; nothing at all off a terminal, where no row
         // would show it.
-        if ui.tty {
+        if ui.ticking() {
             for job in jobs.iter_mut().filter(|j| j.state == JobState::Running && !j.reaped) {
                 job.activity.poll();
             }
@@ -547,4 +600,53 @@ pub fn run_pass(
 
 pub fn failures(jobs: &[Job]) -> usize {
     jobs.iter().filter(|j| j.state != JobState::Done).count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn jobs(prs: &[u64]) -> Vec<Job> {
+        prs.iter().map(|&n| Job::new(n)).collect()
+    }
+
+    #[test]
+    fn a_requested_review_starts_before_the_rest() {
+        let jobs = jobs(&[9, 8, 7]);
+        let mut order: VecDeque<usize> = (0..3).collect();
+        assert!(move_to_front(&mut order, &jobs, 7));
+        assert_eq!(order, VecDeque::from([2, 0, 1]));
+        // Already started, or never in this pass: the loop takes it.
+        order.pop_front();
+        assert!(!move_to_front(&mut order, &jobs, 7));
+        assert!(!move_to_front(&mut order, &jobs, 12));
+        assert_eq!(order, VecDeque::from([0, 1]), "the rest keep queue order");
+    }
+
+    #[test]
+    fn a_waiting_retry_takes_nothing_from_the_queue() {
+        let mut retries = vec![0];
+        let mut order: VecDeque<usize> = VecDeque::from([1, 2]);
+        assert_eq!(next_start(&mut retries, &mut order), Some((0, false)));
+        assert_eq!(order, VecDeque::from([1, 2]), "the queue is untouched");
+        assert_eq!(next_start(&mut retries, &mut order), Some((1, true)));
+        assert_eq!(next_start(&mut retries, &mut order), Some((2, true)));
+        assert_eq!(next_start(&mut retries, &mut order), None);
+    }
+
+    fn cfg() -> Config {
+        let Ok(crate::cli::Parsed::Run(cfg)) = crate::cli::parse(Vec::new(), &|_| None) else {
+            panic!("an empty command line parses");
+        };
+        Config { fallback: Fallback::Spec(crate::orchestrator::Orchestrator::parse("codex").unwrap()), ..*cfg }
+    }
+
+    #[test]
+    fn a_stopped_review_is_never_retried() {
+        let cfg = cfg();
+        let mut job = Job::new(9);
+        assert!(should_fall_back(&job, JobState::Failed, Some(10), &cfg), "an outage is retried");
+        job.stopped = true;
+        assert!(!should_fall_back(&job, JobState::Failed, Some(10), &cfg), "a person stopped it");
+    }
 }

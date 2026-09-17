@@ -19,12 +19,14 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// How many recent events a tail keeps. The details view shows fewer; the
-/// rest is slack for a burst between two draws.
-pub const KEEP: usize = 8;
-/// The most columns a summary of one event may take. The details line has
-/// an age and a tool name to fit as well.
-const WHAT_WIDTH: usize = 48;
+/// How many recent events a tail keeps. The inline board shows four; the
+/// full-screen view shows as many as its detail pane holds, and a review
+/// that was scrolled back through is worth more than a few bytes a line.
+pub const KEEP: usize = 200;
+/// The most columns a summary of one event may take. Every view cuts its
+/// lines to its own width, so this only bounds what a pasted essay in a
+/// command costs to keep.
+const WHAT_WIDTH: usize = 200;
 /// The most columns a tool's name may take. An MCP tool is named for its
 /// server and its method both, which runs to fifty columns and leaves the
 /// detail line no room for what the tool was given.
@@ -46,7 +48,7 @@ pub struct Event {
     pub at: Option<i64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Source {
     /// Nothing to follow, and the reason in words the details view shows.
     None(&'static str),
@@ -57,7 +59,7 @@ enum Source {
     Plain(PathBuf),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tail {
     source: Source,
     /// Start at the end of the file when it is first seen. A resumed
@@ -513,7 +515,7 @@ mod tests {
         let block = tool("Bash", serde_json::json!({"command": "echo \u{1b}[31mred\u{1b}[0m"}));
         let events = parse_transcript_line(&assistant(AT, block), 0);
         assert_eq!(events[0].what, "echo [31mred[0m");
-        let long = "x".repeat(200);
+        let long = "x".repeat(WHAT_WIDTH + 50);
         let block = tool("Bash", serde_json::json!({"command": long}));
         let events = parse_transcript_line(&assistant(AT, block), 0);
         assert_eq!(console::measure_text_width(&events[0].what), WHAT_WIDTH);

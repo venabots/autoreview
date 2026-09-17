@@ -30,8 +30,9 @@ cargo clippy --all-targets      # clean today; keep it clean
 - The test suite is bash 3.2 compatible because macOS ships 3.2. An empty
   array under `set -u` needs the `${arr[@]+"${arr[@]}"}` guard.
 - The suite runs the binaries through pipes, where the board never draws.
-  `tests/board.test.sh` is the exception: it gives autoreview a pty through
-  `tests/pty.py`, which answers the cursor query that `script(1)` does not.
+  `tests/board.test.sh` and `tests/tui.test.sh` are the exceptions: they give
+  autoreview a pty through `tests/pty.py`, which answers the cursor query that
+  `script(1)` does not.
 - The skills under `skills/` are the reviewers the binaries invoke by slash
   name. They are versioned with the binaries.
 - Design decisions live in `docs/decisions/`, one file each, with an index in
@@ -50,6 +51,9 @@ cargo clippy --all-targets      # clean today; keep it clean
   the one place a number links.
 - While the board is open the terminal is in raw mode. Print through
   `ui.note`; a bare `println!` lands inside the live area.
+- While `--tui` is up, fds 1 and 2 point at the run log and the view draws
+  through its own `/dev/tty` handle. Nothing may ask crossterm for the cursor
+  then: the query goes to the log and stalls for two seconds.
 - Read crossterm events on the main thread, through the board. A reader
   thread holds the lock the cursor query needs on every resize.
 - Progress goes to stderr and the report to stdout. Off a TTY, progress is one

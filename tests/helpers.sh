@@ -245,6 +245,11 @@ case "$sub" in
       *" $num "*) state="CLOSED" ;;
     esac
     case " $* " in
+      # `gh pr view N --web`: the full-screen view's o key. Recorded, never
+      # opened.
+      *" --web "*)
+        printf '%s\n' "view $*" >>"$SANDBOX/out/web"
+        ;;
       *" latestReviews "*)
         mystate=""
         for entry in ${FAKE_GH_MY_REVIEW:-}; do

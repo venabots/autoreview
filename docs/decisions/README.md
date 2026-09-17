@@ -52,3 +52,4 @@ comments and the commit history, not written at the time of the decision.
 - [0017](0017-a-review-says-why-it-did-not-approve.md) A review says why it did not approve
 - [0018](0018-rendering-defects-cap-at-low.md) Rendering defects cap at LOW
 - [0019](0019-exit-10-is-retried-under-another-orchestrator.md) Exit 10 is retried under another orchestrator
+- [0020](0020-the-tui-is-a-full-screen-view-over-the-same-engine.md) The TUI is a full-screen view over the same engine

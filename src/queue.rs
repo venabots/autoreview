@@ -30,6 +30,9 @@ pub struct Intake {
     pub joined: Vec<u64>,
     /// Actionable, but they have had their passes. Named once per run.
     pub capped: Vec<u64>,
+    /// Asked for by a person, and refused: finished for this run, or
+    /// outside a --pick.
+    pub refused: Vec<u64>,
 }
 
 pub struct Queue {
@@ -56,6 +59,9 @@ pub struct Queue {
     /// between this and `heads` is a push, which is the only thing that
     /// resets the cap.
     reviewed_at: std::collections::HashMap<u64, String>,
+    /// PRs a person asked to have reviewed now, in the order asked. Each
+    /// request is spent by the next intake.
+    requested: Vec<u64>,
 }
 
 impl Queue {
@@ -71,6 +77,7 @@ impl Queue {
             last_pass: std::collections::HashMap::new(),
             heads: std::collections::HashMap::new(),
             reviewed_at: std::collections::HashMap::new(),
+            requested: Vec::new(),
         }
     }
 
@@ -133,6 +140,28 @@ impl Queue {
         now.saturating_sub(last) < cooldown
     }
 
+    /// A person asked for this PR to be reviewed now. The next intake takes
+    /// it first, whatever the sweep says and however recently or often it
+    /// was reviewed: the rest and the cap exist to bound a loop nobody is
+    /// watching, and a key press is somebody watching. A finished PR, or one
+    /// outside a --pick, is still refused.
+    pub fn request(&mut self, pr: u64) {
+        if !self.requested.contains(&pr) {
+            self.requested.push(pr);
+        }
+    }
+
+    /// How long this PR still rests before it may be reviewed again, in
+    /// seconds. None when it is not resting, which is always the case under
+    /// --babysit.
+    pub fn rest_left(&self, pr: u64, now: u64) -> Option<u64> {
+        let (Some(cooldown), Some(&last)) = (self.cooldown, self.last_pass.get(&pr)) else {
+            return None;
+        };
+        let left = last.saturating_add(cooldown).saturating_sub(now);
+        (left > 0).then_some(left)
+    }
+
     pub fn passes(&self, pr: u64) -> u32 {
         self.passes.get(&pr).copied().unwrap_or(0)
     }
@@ -171,6 +200,16 @@ impl Queue {
     /// unattended, and for as long as the loop runs.
     pub fn next(&mut self, still_open: &[u64], actionable: &[u64], now: u64) -> Intake {
         let mut intake = Intake::default();
+        for pr in std::mem::take(&mut self.requested) {
+            if !self.eligible(pr) {
+                intake.refused.push(pr);
+                continue;
+            }
+            intake.queue.push(pr);
+            if !still_open.contains(&pr) {
+                intake.joined.push(pr);
+            }
+        }
         for &pr in actionable {
             if !self.eligible(pr) || intake.queue.contains(&pr) {
                 continue;
@@ -467,6 +506,62 @@ mod tests {
         b.record_pass(&[9], 0);
         heads(&mut b, &[(9, "c2")]);
         assert!(!b.could_review(9));
+    }
+
+    #[test]
+    fn a_requested_pr_goes_first_whatever_the_sweep_says() {
+        let mut q = sweep(3);
+        q.request(7);
+        let intake = q.next(&[9], &[9], 0);
+        assert_eq!(intake.queue, vec![7, 9]);
+        assert_eq!(intake.joined, vec![7], "a requested PR is watched from now on");
+    }
+
+    #[test]
+    fn a_request_skips_the_rest_and_the_cap_once() {
+        let mut q = watcher(1, 1800);
+        q.record_pass(&[9], 1000);
+        assert!(q.is_capped(9));
+        q.request(9);
+        assert_eq!(q.next(&[9], &[], 1100).queue, vec![9]);
+        // Spent: the next intake is the sweep's again.
+        assert!(q.next(&[9], &[9], 1200).queue.is_empty());
+    }
+
+    #[test]
+    fn a_request_cannot_bring_back_a_finished_or_unpicked_pr() {
+        let mut q = sweep(3);
+        q.mark_done(9);
+        q.request(9);
+        let intake = q.next(&[], &[], 0);
+        assert!(intake.queue.is_empty(), "approved is final");
+        assert_eq!(intake.refused, vec![9], "and the refusal is said");
+
+        let mut picked = Queue::new(3, Some(vec![9]));
+        picked.request(8);
+        let intake = picked.next(&[9], &[], 0);
+        assert!(intake.queue.is_empty(), "not picked");
+        assert_eq!(intake.refused, vec![8]);
+    }
+
+    #[test]
+    fn a_requested_pr_is_queued_once() {
+        let mut q = sweep(3);
+        q.request(9);
+        q.request(9);
+        assert_eq!(q.next(&[9], &[9], 0).queue, vec![9]);
+    }
+
+    #[test]
+    fn rest_left_counts_down_the_cooldown() {
+        let mut q = watcher(3, 1800);
+        q.record_pass(&[9], 1000);
+        assert_eq!(q.rest_left(9, 1100), Some(1700));
+        assert_eq!(q.rest_left(9, 2800), None, "rested a full interval");
+        assert_eq!(q.rest_left(12, 1100), None, "never reviewed");
+        let mut b = sweep(3);
+        b.record_pass(&[9], 1000);
+        assert_eq!(b.rest_left(9, 1100), None, "--babysit has no rest");
     }
 
     #[test]

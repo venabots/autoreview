@@ -61,6 +61,9 @@ assert_contains "the summary follows the board" "$out" "╭"
 # itself on a resize so ratatui never sees one, and nothing in a run has any
 # other reason to wipe the screen.
 assert_not_contains "a resize never wipes the screen" "$out" "$(printf '\033[2J')"
+# The inline board scrolls with the terminal; only --tui takes the alternate
+# screen, and leaving one the board never entered would move the cursor.
+assert_not_contains "the inline board never touches the alternate screen" "$out" $'\e[?1049'
 if tty_is_cooked; then
   ok "the terminal is given back cooked"
 else

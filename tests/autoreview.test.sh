@@ -229,6 +229,14 @@ else
   not_ok "the failed attempt's log is kept under its orchestrator" "pr-9.claude.log missing"
 fi
 
+# A retry waits for a free slot like any review, and takes nothing from the
+# queue while it waits. With one slot and three PRs, a pass that dropped the
+# PR behind the retry would never finish.
+out="$(FAKE_HARNESS_FAIL="9:claude" run_autoreview_bounded 30 --auto --all --jobs 1)"
+assert_equals "a retry under --jobs 1 lets the whole pass finish" "$(last_status)" "0"
+assert_contains "...the PR behind the retry is reviewed" "$(claude_calls)" "/auto-review 8"
+assert_contains "...and the one after it" "$(claude_calls)" "/auto-review 5"
+
 # Both down is still a failed run: the retry is one more chance, not a promise.
 out="$(FAKE_CLAUDE_FAIL="9" run_autoreview --auto)"
 assert_equals "a PR both orchestrators fail still fails the run" "$(last_status)" "1"
@@ -794,6 +802,15 @@ out="$(FAKE_GH_APPROVED="9 8" FAKE_GH_GRAPHQL_FAIL_AFTER=1 run_autoreview --auto
 assert_equals "an all-approved run still exits 0" "$(last_status)" "0"
 assert_contains "...and ends" "$out" "nothing left to babysit"
 assert_contains "...while admitting the last look failed" "$out" "could not refresh the PR list"
+
+# --- --tui off a terminal -------------------------------------------------
+# A pipe has no screen to take. The run says so once and prints its plain
+# lines, as a run without the flag would.
+out="$(run_autoreview --tui)"
+assert_contains "--tui off a terminal says there is none" "$out" \
+  "note: --tui needs a terminal; printing plain lines"
+assert_contains "...and prints the plain lines" "$out" "done    #9"
+assert_equals "...and exits 0" "$(last_status)" "0"
 
 # --- --watch never stops --------------------------------------------------
 # The three things that end a --babysit run must not end a watch run. Each of
