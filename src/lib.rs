@@ -33,5 +33,6 @@ pub mod stack;
 pub mod stats;
 pub mod status;
 pub mod tabs;
+pub mod tui;
 pub mod ui;
 pub mod why;
