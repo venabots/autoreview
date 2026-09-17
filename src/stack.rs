@@ -44,7 +44,7 @@ pub enum Why {
 
 impl StackedOn {
     /// The parenthesis after the PR number in the held line.
-    fn detail(&self) -> String {
+    pub fn detail(&self) -> String {
         match self.why {
             Why::Base => format!("based on #{}", self.pr),
             Why::Commits(n) => {

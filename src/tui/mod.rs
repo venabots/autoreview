@@ -7,7 +7,14 @@
 //! which is where a person wants to go back to.
 
 pub mod actions;
+mod detail;
 pub mod keys;
+mod layout;
+mod list;
 pub mod model;
+mod screen;
+mod terminal;
+mod text;
 
 pub use model::{Archived, Wait};
+pub use screen::{Header, Screen};

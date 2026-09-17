@@ -108,7 +108,7 @@ fn hyperlink(url: &str, text: &str) -> String {
 /// The RESULT cell, both modes. A reaped job's review already exited; only
 /// its verdict readback is still in flight, and an interrupt summary must
 /// not report it as a review that was cut short.
-fn result_label(job: &Job) -> String {
+pub(crate) fn result_label(job: &Job) -> String {
     match job.state {
         JobState::Done => "done".to_string(),
         JobState::Timeout => "timed out".to_string(),
@@ -720,7 +720,7 @@ impl Ui {
 /// What the summary owes about a review the fallback took over: which
 /// orchestrator gave up and how, and whether the stand-in finished the job.
 /// None for a review that ran on its first attempt.
-fn fallback_line(job: &Job) -> Option<String> {
+pub(crate) fn fallback_line(job: &Job) -> Option<String> {
     let first = job.first_attempt.as_ref()?;
     let to = job.orchestrator.label();
     // The harness's own words where it gave any. `error_lines` reports a
@@ -856,7 +856,7 @@ fn fit_str(line: &str, width: usize) -> String {
 ///
 /// The cut keeps every span's style up to the column it stops at, and ends
 /// in an ellipsis styled like the span it cut.
-fn fit(line: Line<'static>, width: usize) -> Line<'static> {
+pub(crate) fn fit(line: Line<'static>, width: usize) -> Line<'static> {
     if width == 0 {
         return Line::default();
     }
