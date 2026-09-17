@@ -234,6 +234,18 @@ fn launch(
     }
 }
 
+/// The next review to start, and whether it still needs planning: a retry
+/// first, then the queue. The queue is only touched when no retry waits. A
+/// review taken off it and not started is never started, and the pass would
+/// wait for it for ever.
+fn next_start(retries: &mut Vec<usize>, order: &mut VecDeque<usize>) -> Option<(usize, bool)> {
+    if retries.is_empty() {
+        order.pop_front().map(|idx| (idx, true))
+    } else {
+        Some((retries.remove(0), false))
+    }
+}
+
 /// Start a review this pass has not started yet before the others. False
 /// when the pass has no such review waiting.
 fn move_to_front(order: &mut VecDeque<usize>, jobs: &[Job], pr: u64) -> bool {
@@ -324,15 +336,13 @@ pub fn run_pass(
     while finished < total {
         // Fill free slots in queue order -- the order the tests (and eyes)
         // expect the starts to happen.
-        while running < jobs_max && (!retries.is_empty() || !order.is_empty()) {
-            let idx = match (retries.is_empty(), order.pop_front()) {
-                (true, Some(idx)) => {
-                    plan_job(&mut jobs[idx], cfg, ctx, rundir, ui);
-                    idx
-                }
-                // Already planned: a retry is always a fresh, unpinned review.
-                _ => retries.remove(0),
-            };
+        while running < jobs_max {
+            let Some((idx, unplanned)) = next_start(&mut retries, &mut order) else { break };
+            // A retry is already planned: it is always a fresh, unpinned
+            // review.
+            if unplanned {
+                plan_job(&mut jobs[idx], cfg, ctx, rundir, ui);
+            }
             if launch(idx, &mut jobs, &mut deadlines, cfg, ctx, rundir, dashp, tx, ui) {
                 running += 1;
             } else {
@@ -611,6 +621,17 @@ mod tests {
         assert!(!move_to_front(&mut order, &jobs, 7));
         assert!(!move_to_front(&mut order, &jobs, 12));
         assert_eq!(order, VecDeque::from([0, 1]), "the rest keep queue order");
+    }
+
+    #[test]
+    fn a_waiting_retry_takes_nothing_from_the_queue() {
+        let mut retries = vec![0];
+        let mut order: VecDeque<usize> = VecDeque::from([1, 2]);
+        assert_eq!(next_start(&mut retries, &mut order), Some((0, false)));
+        assert_eq!(order, VecDeque::from([1, 2]), "the queue is untouched");
+        assert_eq!(next_start(&mut retries, &mut order), Some((1, true)));
+        assert_eq!(next_start(&mut retries, &mut order), Some((2, true)));
+        assert_eq!(next_start(&mut retries, &mut order), None);
     }
 
     fn cfg() -> Config {

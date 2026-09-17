@@ -229,6 +229,14 @@ else
   not_ok "the failed attempt's log is kept under its orchestrator" "pr-9.claude.log missing"
 fi
 
+# A retry waits for a free slot like any review, and takes nothing from the
+# queue while it waits. With one slot and three PRs, a pass that dropped the
+# PR behind the retry would never finish.
+out="$(FAKE_HARNESS_FAIL="9:claude" run_autoreview_bounded 30 --auto --all --jobs 1)"
+assert_equals "a retry under --jobs 1 lets the whole pass finish" "$(last_status)" "0"
+assert_contains "...the PR behind the retry is reviewed" "$(claude_calls)" "/auto-review 8"
+assert_contains "...and the one after it" "$(claude_calls)" "/auto-review 5"
+
 # Both down is still a failed run: the retry is one more chance, not a promise.
 out="$(FAKE_CLAUDE_FAIL="9" run_autoreview --auto)"
 assert_equals "a PR both orchestrators fail still fails the run" "$(last_status)" "1"
