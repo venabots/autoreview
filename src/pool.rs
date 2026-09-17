@@ -17,7 +17,7 @@ use crate::board::Action;
 use crate::ui::Ui;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -241,6 +241,18 @@ fn launch(
     }
 }
 
+/// Start a review this pass has not started yet before the others. False
+/// when the pass has no such review waiting.
+fn move_to_front(order: &mut VecDeque<usize>, jobs: &[Job], pr: u64) -> bool {
+    let Some(pos) = order.iter().position(|&idx| jobs[idx].pr == pr) else {
+        return false;
+    };
+    if let Some(idx) = order.remove(pos) {
+        order.push_front(idx);
+    }
+    true
+}
+
 /// Stop one running review because a person asked. It ends as a failure,
 /// like a review killed from outside, and the next pass reviews the PR from
 /// scratch. A reaped review has nothing left to stop, and its process group
@@ -306,7 +318,9 @@ pub fn run_pass(
     ui.begin_pass(total, cfg.jobs, &rundir.pass_dir);
 
     let mut running = 0usize;
-    let mut next = 0usize;
+    // The reviews not started yet, in the order they start. Queue order
+    // unless a person asks for one first.
+    let mut order: VecDeque<usize> = (0..total).collect();
     let mut finished = 0usize;
     // Reviews waiting to be retried under the fallback. They go ahead of the
     // queue -- a PR that has already had one attempt is closer to done than
@@ -317,15 +331,14 @@ pub fn run_pass(
     while finished < total {
         // Fill free slots in queue order -- the order the tests (and eyes)
         // expect the starts to happen.
-        while running < jobs_max && (!retries.is_empty() || next < total) {
-            let idx = if retries.is_empty() {
-                let idx = next;
-                next += 1;
-                plan_job(&mut jobs[idx], cfg, ctx, rundir, ui);
-                idx
-            } else {
+        while running < jobs_max && (!retries.is_empty() || !order.is_empty()) {
+            let idx = match (retries.is_empty(), order.pop_front()) {
+                (true, Some(idx)) => {
+                    plan_job(&mut jobs[idx], cfg, ctx, rundir, ui);
+                    idx
+                }
                 // Already planned: a retry is always a fresh, unpinned review.
-                retries.remove(0)
+                _ => retries.remove(0),
             };
             if launch(idx, &mut jobs, &mut deadlines, cfg, ctx, rundir, dashp, tx, ui) {
                 running += 1;
@@ -542,6 +555,9 @@ pub fn run_pass(
             match action {
                 Action::Stop => interrupt(&jobs, ui, rundir),
                 Action::StopReview(pr) => stop_review(&mut jobs, &mut deadlines, pr, ui),
+                // Started next if this pass has it waiting; otherwise the
+                // loop takes it into the next pass.
+                Action::ReviewNow(pr) if !move_to_front(&mut order, &jobs, pr) => ui.request(pr),
                 _ => {}
             }
         }
@@ -586,6 +602,23 @@ pub fn failures(jobs: &[Job]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn jobs(prs: &[u64]) -> Vec<Job> {
+        prs.iter().map(|&n| Job::new(n)).collect()
+    }
+
+    #[test]
+    fn a_requested_review_starts_before_the_rest() {
+        let jobs = jobs(&[9, 8, 7]);
+        let mut order: VecDeque<usize> = (0..3).collect();
+        assert!(move_to_front(&mut order, &jobs, 7));
+        assert_eq!(order, VecDeque::from([2, 0, 1]));
+        // Already started, or never in this pass: the loop takes it.
+        order.pop_front();
+        assert!(!move_to_front(&mut order, &jobs, 7));
+        assert!(!move_to_front(&mut order, &jobs, 12));
+        assert_eq!(order, VecDeque::from([0, 1]), "the rest keep queue order");
+    }
 
     fn cfg() -> Config {
         let Ok(crate::cli::Parsed::Run(cfg)) = crate::cli::parse(Vec::new(), &|_| None) else {

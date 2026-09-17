@@ -254,6 +254,9 @@ pub struct Ui {
     /// The PRs on the board at the last draw, top to bottom: what a digit
     /// key names.
     live: Vec<u64>,
+    /// PRs a person asked to have reviewed now that the current pass could
+    /// not start, for the loop to put in the next one.
+    requests: Vec<u64>,
 }
 
 impl Ui {
@@ -272,6 +275,7 @@ impl Ui {
             total: 0,
             expanded: HashSet::new(),
             live: Vec::new(),
+            requests: Vec::new(),
         }
     }
 
@@ -281,6 +285,18 @@ impl Ui {
     /// sends the plain lines to a log still has rows to animate.
     pub fn ticking(&self) -> bool {
         self.tty
+    }
+
+    /// Keep a request for the next pass. Asked twice is asked once.
+    pub fn request(&mut self, pr: u64) {
+        if !self.requests.contains(&pr) {
+            self.requests.push(pr);
+        }
+    }
+
+    /// Every request kept since the last call, in the order asked.
+    pub fn take_requests(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.requests)
     }
 
     /// The "#9" a summary shows, clickable where the terminal allows it.
@@ -523,7 +539,7 @@ impl Ui {
                 }
             }
             Action::Collapse => self.expanded.clear(),
-            Action::Stop | Action::StopReview(_) => {}
+            Action::Stop | Action::StopReview(_) | Action::ReviewNow(_) => {}
         }
     }
 
@@ -1675,6 +1691,7 @@ mod tests {
             total: 0,
             expanded: HashSet::new(),
             live: Vec::new(),
+            requests: Vec::new(),
         }
     }
 

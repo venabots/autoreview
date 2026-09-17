@@ -44,6 +44,9 @@ pub enum Action {
     /// Stop one running review, by its PR number. The full-screen view asks
     /// for this after a second press; the inline board never does.
     StopReview(u64),
+    /// Review this PR next: first among the reviews this pass has not
+    /// started, or first in the next pass.
+    ReviewNow(u64),
 }
 
 /// The keys the board answers to. A pure function, so the table is testable
