@@ -324,7 +324,7 @@ pub fn run_pass(
 
         // Ten frames a second on a terminal: the tick is what turns the
         // spinner now, and one turn a second is what a spinner looks like.
-        let wait = if ui.tty {
+        let wait = if ui.ticking() {
             Duration::from_millis(100)
         } else {
             // Event-driven: sleep to the nearest deadline, or just wait for
@@ -518,7 +518,7 @@ pub fn run_pass(
         // What each running review is doing, for the board. One stat per
         // running job per tick; nothing at all off a terminal, where no row
         // would show it.
-        if ui.tty {
+        if ui.ticking() {
             for job in jobs.iter_mut().filter(|j| j.state == JobState::Running && !j.reaped) {
                 job.activity.poll();
             }

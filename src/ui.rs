@@ -275,6 +275,14 @@ impl Ui {
         }
     }
 
+    /// Whether the pass should tick: turn a spinner ten times a second and
+    /// follow each running review's activity. Not the same question as
+    /// `tty`, which is whether output is styled for a terminal. A view that
+    /// sends the plain lines to a log still has rows to animate.
+    pub fn ticking(&self) -> bool {
+        self.tty
+    }
+
     /// The "#9" a summary shows, clickable where the terminal allows it.
     fn pr_label(&self, pr: u64) -> String {
         let text = format!("#{pr}");
