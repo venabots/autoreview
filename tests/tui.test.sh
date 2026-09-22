@@ -149,14 +149,15 @@ assert_contains "q ends a babysit run" "$out" "autoreview-exit=130"
 # --- A quiet repo: the view opens anyway ----------------------------------
 # The sweep has nothing to review, which without --tui is a one-line exit.
 # The view opens on it instead: every open PR is there, saying why it is
-# being left alone.
+# being left alone, and R reviews one on the spot.
 seen_everything
-out="$(run_tui --key 3.0:q --)"
+out="$(run_tui --key 3.0:R --key 8.0:q --)"
 assert_contains "a quiet repo has nothing for the sweep" "$out" "no NEW or UPDATED PRs to review"
 assert_contains "...and the view opens all the same" "$out" $'\e[?1049h'
 assert_contains "...listing the PRs it is leaving alone" "$out" "seen"
 assert_contains "...and saying so in the footer" "$out" "nothing to review"
-assert_equals "and it reviews none of them" "$(reviews_of 9)" "0"
+assert_equals "R reviews one of them on the spot" "$(reviews_of 9)" "1"
+assert_equals "...and only that one" "$(reviews_of 8)" "0"
 assert_contains "the run exits 0 when q closes it" "$out" "autoreview-exit=0"
 check_cooked "the terminal is given back after a quiet run"
 

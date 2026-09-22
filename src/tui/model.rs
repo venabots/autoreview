@@ -214,18 +214,19 @@ impl Row<'_> {
         }
     }
 
-    /// Whether `R` may ask for this PR now. A queued review can always be
-    /// started first; anything else needs a run that looks again. Under a
-    /// run that looks again, a finished row is a PR the run has dropped --
-    /// approved, merged or closed -- because every PR it still watches is
-    /// listed as waiting.
+    /// Whether `R` may ask for this PR now. Only a review already under way
+    /// refuses, and, under a run that looks again, a finished row: there it
+    /// is a PR the run has dropped -- approved, merged or closed -- because
+    /// every PR such a run still watches is listed as waiting. A one-shot
+    /// run keeps its finished rows reviewable: asking again is the whole
+    /// point of the key.
     pub fn requestable(&self, looping: bool) -> Result<(), String> {
         match self.section {
             Section::Running => Err(format!("PR #{} is being reviewed now", self.pr)),
-            Section::Queued => Ok(()),
-            _ if !looping => Err("this run makes one pass; review-now needs --watch or --babysit".into()),
-            Section::Finished => Err(format!("PR #{} is finished for this run", self.pr)),
-            Section::Waiting => Ok(()),
+            Section::Finished if looping => {
+                Err(format!("PR #{} is finished for this run", self.pr))
+            }
+            _ => Ok(()),
         }
     }
 }
@@ -377,7 +378,7 @@ mod tests {
         assert!(row.resumable().unwrap_err().contains("no finished review"));
         assert!(row.stoppable().is_err());
         assert!(row.requestable(true).is_ok());
-        assert!(row.requestable(false).unwrap_err().contains("--watch or --babysit"));
+        assert!(row.requestable(false).is_ok());
 
         assert!(one(None, Some(&done), Section::Finished).resumable().unwrap_err().contains("no session"));
         assert!(one(None, Some(&resumable), Section::Finished).resumable().is_ok());
@@ -387,6 +388,10 @@ mod tests {
 
         let row = one(Some(&queued), None, Section::Queued);
         assert!(row.requestable(false).is_ok(), "a queued review can start first");
+
+        // A one-shot run reviews a PR again on request; a looping run has
+        // dropped what it lists as finished.
+        assert!(one(None, Some(&done), Section::Finished).requestable(false).is_ok());
 
         let row = one(None, Some(&approved), Section::Finished);
         assert!(row.requestable(true).unwrap_err().contains("finished for this run"));

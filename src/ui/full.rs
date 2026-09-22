@@ -178,17 +178,27 @@ impl Ui {
         done.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     }
 
-    /// The run is over. With the view up it stays, saying why, until `q`;
-    /// without it this returns at once.
-    pub fn hold(&mut self, why: &str, rx: &Receiver<pool::Event>) {
-        let Some(screen) = &mut self.screen else { return };
-        screen.set_ended(why);
+    /// The run has nothing left of its own to do. With the view up it
+    /// stays, saying why, until `q` -- or until a person asks for a PR,
+    /// which is handed back so the run can review it and carry on. Without
+    /// the view this returns at once, asking for nothing.
+    pub fn hold(&mut self, why: &str, rx: &Receiver<pool::Event>) -> Vec<u64> {
+        let Some(screen) = &mut self.screen else { return Vec::new() };
+        screen.set_ended(Some(why));
         loop {
             if self.tick_idle().contains(&Action::Stop) {
-                return;
+                return Vec::new();
             }
             if let Ok(pool::Event::Signal) = rx.try_recv() {
-                return;
+                return Vec::new();
+            }
+            if !self.requests.is_empty() {
+                // The run is alive again: the footer must stop saying it
+                // ended, and the rows must take keys again.
+                if let Some(screen) = &mut self.screen {
+                    screen.set_ended(None);
+                }
+                return self.take_requests();
             }
             std::thread::sleep(TICK);
         }
@@ -282,6 +292,6 @@ mod tests {
         assert_eq!(ui.wait(Duration::from_millis(30), &rx, true), Woke::Elapsed);
         assert!(started.elapsed() >= Duration::from_millis(30));
         assert_eq!(ui.while_busy("working", &rx, || 42), 42);
-        ui.hold("done", &rx);
+        assert!(ui.hold("done", &rx).is_empty(), "without the view there is nobody to ask");
     }
 }

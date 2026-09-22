@@ -26,8 +26,6 @@ pub struct Context<'a> {
     pub review: Option<&'a [String]>,
     /// When the loop looks for work again, while it is waiting.
     pub next_check: Option<i64>,
-    /// Whether `R` would do anything, so the pane only offers it then.
-    pub can_request: bool,
 }
 
 pub fn lines(row: &Row, ctx: &Context) -> Vec<Line<'static>> {
@@ -140,19 +138,15 @@ fn wait_reason(wait: Wait, ctx: &Context) -> String {
             "resting after its review; it may be reviewed again in {}",
             fmt_dur((until as i64).saturating_sub(ctx.now).max(0) as u64)
         ),
-        Wait::Seen => "nothing has happened on it since you last engaged".into(),
         Wait::Quiet => format!("nothing new since its last review{next}"),
         Wait::Next => format!("reviewed at the next check{next}"),
+        Wait::Seen => "nothing has happened on it since you last engaged".into(),
     }
 }
 
 fn waiting(wait: Option<Wait>, ctx: &Context) -> Vec<Line<'static>> {
     let Some(wait) = wait else { return Vec::new() };
-    let mut out = vec![Line::from(wait_reason(wait, ctx)).yellow()];
-    if ctx.can_request {
-        out.push(Line::from("R reviews it now").dark_gray());
-    }
-    out
+    vec![Line::from(wait_reason(wait, ctx)).yellow(), Line::from("R reviews it now").dark_gray()]
 }
 
 fn result_style(job: &Job) -> Style {
@@ -255,7 +249,7 @@ mod tests {
     }
 
     fn ctx<'a>(review: Option<&'a [String]>) -> Context<'a> {
-        Context { now: 1_000, repo_root: Path::new("/src/app"), review, next_check: Some(1_090), can_request: true }
+        Context { now: 1_000, repo_root: Path::new("/src/app"), review, next_check: Some(1_090) }
     }
 
     fn reviewed() -> Job {
@@ -328,10 +322,11 @@ mod tests {
         assert!(out.contains("held until its checks pass (checks failing)"), "{out}");
         assert!(out.contains("R reviews it now"), "{out}");
         assert!(out.contains("no review has finished for this PR"), "{out}");
-        let ended = Context { can_request: false, ..ctx(None) };
-        let out = draw(&[], &[(9, Wait::Next)], &[], &ended);
+        let out = draw(&[], &[(9, Wait::Next)], &[], &ctx(None));
         assert!(out.contains("reviewed at the next check"), "{out}");
-        assert!(!out.contains("R reviews it now"), "nothing would review it: {out}");
+        let out = draw(&[], &[(9, Wait::Seen)], &[], &ctx(None));
+        assert!(out.contains("nothing has happened on it since you last engaged"), "{out}");
+        assert!(out.contains("R reviews it now"), "{out}");
     }
 
     #[test]
