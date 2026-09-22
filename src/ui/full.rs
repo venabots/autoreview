@@ -29,6 +29,9 @@ pub enum Woke {
     Elapsed,
     /// A person asked for a review now.
     Requested,
+    /// A person asked the run to start or stop looking for work. The loop
+    /// has to decide what it is doing again before it waits any longer.
+    Changed,
 }
 
 /// The newest review of each PR, first seen first. A review in the pass in
@@ -85,6 +88,24 @@ impl Ui {
         }
     }
 
+    /// Whether a person asked the run to start or stop looking for work,
+    /// taken once. The loop asks where it can act on the answer.
+    pub fn take_watch_toggle(&mut self) -> Option<bool> {
+        self.watch_toggle.take()
+    }
+
+    /// Whether a toggle is waiting to be acted on, without taking it.
+    pub fn watch_toggle_pending(&self) -> bool {
+        self.watch_toggle.is_some()
+    }
+
+    /// What the run does now, in the header's words.
+    pub fn mode(&mut self, mode: &str, looping: bool) {
+        if let Some(screen) = &mut self.screen {
+            screen.set_mode(mode, looping);
+        }
+    }
+
     /// What the latest PR list said about each PR: titles and authors.
     pub fn know(&mut self, info: &HashMap<u64, PrInfo>) {
         if let Some(screen) = &mut self.screen {
@@ -102,6 +123,7 @@ impl Ui {
         for action in actions {
             match action {
                 Action::ReviewNow(pr) => self.request(pr),
+                Action::Watch(on) => self.watch_toggle = Some(on),
                 other => out.push(other),
             }
         }
@@ -144,6 +166,9 @@ impl Ui {
                 }
             }
             self.idle_step(rx);
+            if self.watch_toggle.is_some() {
+                break Woke::Changed;
+            }
             if wake_on_request && self.requests.len() > asked {
                 break Woke::Requested;
             }
@@ -192,9 +217,9 @@ impl Ui {
             if let Ok(pool::Event::Signal) = rx.try_recv() {
                 return Vec::new();
             }
-            if !self.requests.is_empty() {
-                // The run is alive again: the footer must stop saying it
-                // ended, and the rows must take keys again.
+            // Either is the run coming back to life: the footer must stop
+            // saying it ended, and the rows must take keys again.
+            if !self.requests.is_empty() || self.watch_toggle.is_some() {
                 if let Some(screen) = &mut self.screen {
                     screen.set_ended(None);
                 }

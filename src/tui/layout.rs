@@ -64,6 +64,7 @@ const HINTS: &[(&str, &str)] = &[
     ("r", "resume"),
     ("o", "open"),
     ("R", "review now"),
+    ("w", "watch"),
     ("x", "stop"),
     ("l", "log"),
     ("^d/^u", "scroll"),

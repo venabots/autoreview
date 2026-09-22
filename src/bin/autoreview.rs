@@ -14,6 +14,7 @@
 
 use autoreview::ci::Ci;
 use autoreview::cli::Config;
+use autoreview::interval::Interval;
 use autoreview::queue::Queue;
 use autoreview::rundir::RunDir;
 use autoreview::select::CiPolicy;
@@ -268,21 +269,59 @@ fn waiting_list(
     out
 }
 
-/// What the full-screen view's header says about the run.
-fn screen_header(cfg: &Config, ctx: &repo::RepoContext, rundir: &RunDir) -> tui::Header {
-    let mode = match (&cfg.watch, &cfg.babysit) {
+/// What the run does now, in the words the view's header uses.
+fn mode_line(watch: Option<&Interval>, babysit: Option<&Interval>) -> String {
+    match (watch, babysit) {
         (Some(w), Some(b)) => format!("watching every {} · a reviewed PR rests {}", w.normalized, b.normalized),
         (Some(w), None) => format!("watching every {}", w.normalized),
         (None, Some(b)) => format!("babysitting every {}", b.normalized),
         (None, None) => "one pass".to_string(),
-    };
+    }
+}
+
+/// What the full-screen view's header says about the run.
+fn screen_header(cfg: &Config, ctx: &repo::RepoContext, rundir: &RunDir) -> tui::Header {
     tui::Header {
         repo: format!("{}/{}", ctx.owner, ctx.name),
-        mode,
+        mode: mode_line(cfg.watch.as_ref(), cfg.babysit.as_ref()),
         repo_root: ctx.repo_root.clone(),
         log: rundir.root.join("autoreview.log"),
         looping: cfg.watch.is_some() || cfg.babysit.is_some(),
     }
+}
+
+/// Start or stop the run's own looking for work, which is what the view's
+/// `w` asks for. Turning it on is a watch run: poll on the watch interval,
+/// and rest each PR for the babysit one so a still-actionable PR is not
+/// reviewed on every poll. Turning it off leaves the run with the pass it
+/// is in and nothing after it.
+///
+/// A --babysit run that is turned off and on again comes back watching. The
+/// key is one question -- keep looking for work? -- and watching is the
+/// answer that suits somebody sitting in front of a screen.
+fn set_watching(
+    on: bool,
+    cfg: &mut Config,
+    watch: &mut Option<Interval>,
+    tracker: &mut Queue,
+    ui: &mut ui::Ui,
+) {
+    if on {
+        let rest = cfg.babysit.clone().unwrap_or_else(|| cfg.rest_default.clone());
+        *watch = Some(cfg.watch_default.clone());
+        cfg.babysit = Some(rest.clone());
+        tracker.set_cooldown(Some(rest.secs));
+        println!(
+            "\nwatching: looking for work every {}, and resting each PR {} after a review",
+            cfg.watch_default.normalized, rest.normalized
+        );
+    } else {
+        *watch = None;
+        cfg.babysit = None;
+        tracker.set_cooldown(None);
+        println!("\nno longer looking for work; the reviews running will finish");
+    }
+    ui.mode(&mode_line(watch.as_ref(), cfg.babysit.as_ref()), on);
 }
 
 /// The end of a run: the terminal back, and the run's summary. Without the
@@ -496,7 +535,8 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // A watch run polls far more often than a PR can usefully be reviewed, so
     // the queue rests each PR for the babysit interval instead of the loop
     // sleeping it. Both are set whenever --watch is.
-    let watch = cfg.watch.clone();
+    // Not fixed for the run: the view's `w` turns this on and off.
+    let mut watch = cfg.watch.clone();
     // --watch always carries a babysit interval (src/cli.rs sets one). If that
     // ever stopped being true, watch mode falls back to its own interval for
     // the cooldown, and the loop guard below takes the same fallback.
@@ -574,6 +614,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         let failures = pool::failures(&jobs);
         let total = jobs.len();
         ui.archive(jobs);
+        // Asked for while the pass ran, and answered here, where what the
+        // run does next is decided.
+        if let Some(on) = ui.take_watch_toggle() {
+            set_watching(on, &mut cfg, &mut watch, &mut tracker, &mut ui);
+        }
 
         // A run with no interval at all does one pass and stops. --watch
         // always has one, and falls back to its own poll interval if that
@@ -589,6 +634,12 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     // re-checked in the session the last review ran in.
                     cfg.continue_sessions = true;
                     queue = next;
+                    continue;
+                }
+                // Nothing more to review, but `w` may have asked the run to
+                // keep looking: the loop decides again with nothing queued.
+                None if ui.watch_toggle_pending() => {
+                    queue = Vec::new();
                     continue;
                 }
                 None => break (failures, total),
@@ -769,6 +820,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     waiting_on(&watching)
                 );
                 last_woke = ui.wait(Duration::from_secs(poll.secs), &rx, true);
+                if last_woke == Woke::Changed {
+                    // The run is no longer the run this loop was deciding
+                    // for. Leave with nothing queued and start again.
+                    break Some(Vec::new());
+                }
                 already_waited = true;
                 continue;
             }
@@ -809,6 +865,9 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 still_open(&watching, held.len())
             );
             last_woke = ui.wait(Duration::from_secs(babysit.secs), &rx, true);
+            if last_woke == Woke::Changed {
+                break Some(Vec::new());
+            }
             already_waited = true;
         };
 
@@ -826,6 +885,10 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             match held_for_more(&mut ui, &ended, &mut tracker, &mut watching, &cfg, &rx) {
                 Some(next) => {
                     queue = next;
+                    continue;
+                }
+                None if ui.watch_toggle_pending() => {
+                    queue = Vec::new();
                     continue;
                 }
                 None => break (failures, total),
@@ -849,8 +912,12 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             let until = std::time::Instant::now() + Duration::from_secs(babysit.secs);
             loop {
                 let left = until.saturating_duration_since(std::time::Instant::now());
-                if ui.wait(left, &rx, true) == Woke::Elapsed {
-                    break;
+                match ui.wait(left, &rx, true) {
+                    Woke::Elapsed => break,
+                    // `w` changed what the run is; the outer loop decides
+                    // again with what is already queued.
+                    Woke::Changed => break,
+                    Woke::Requested => {}
                 }
                 // A person asked for a PR during the wait. That PR is
                 // reviewed now, on its own: the rest keep their interval,

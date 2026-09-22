@@ -150,6 +150,13 @@ impl Screen {
         self.busy = what.map(String::from);
     }
 
+    /// What the run does now, for the header, and whether it looks for work
+    /// again after a pass. Both change when `w` is pressed.
+    pub fn set_mode(&mut self, mode: &str, looping: bool) {
+        self.header.mode = mode.to_string();
+        self.header.looping = looping;
+    }
+
     /// The run has nothing left to do; the screen stays, saying so, until a
     /// key ends it or asks for a review. None again once one does.
     pub fn set_ended(&mut self, why: Option<&str>) {
@@ -400,6 +407,17 @@ impl Screen {
                 Some((_, Err(why))) => self.flash(why),
                 None => {}
             },
+            // The run's own looking for work, turned on or off. What it is
+            // now comes from the engine, which says so through set_mode.
+            Intent::Watch => {
+                let on = !self.header.looping;
+                self.flash(if on {
+                    "watching: the run will look for work until you press w again"
+                } else {
+                    "no longer looking for work; the reviews running will finish"
+                });
+                return vec![Action::Watch(on)];
+            }
             Intent::ReviewNow => match picked.map(|p| (p.pr, p.request)) {
                 Some((pr, Ok(()))) => {
                     self.flash(format!("PR #{pr} is reviewed next"));
@@ -586,6 +604,20 @@ mod tests {
         let mut busy = Screen::new(None, header(true));
         frame(&mut busy, &[job(9, JobState::Running)], &[], 120);
         assert_eq!(busy.press(Intent::Interrupt, t0), vec![Action::Stop]);
+    }
+
+    #[test]
+    fn w_turns_the_looking_for_work_on_and_off() {
+        let mut screen = Screen::new(None, header(false));
+        frame(&mut screen, &[], &[], 120);
+        assert_eq!(screen.press(Intent::Watch, Instant::now()), vec![Action::Watch(true)]);
+        assert!(screen.message.as_ref().unwrap().0.contains("look for work"));
+        // The engine says what it did; the header follows it, not the key.
+        screen.set_mode("watching every 2m", true);
+        let out = frame(&mut screen, &[], &[], 120);
+        assert!(out.contains("watching every 2m"), "{out}");
+        assert_eq!(screen.press(Intent::Watch, Instant::now()), vec![Action::Watch(false)]);
+        assert!(screen.message.as_ref().unwrap().0.contains("no longer looking"));
     }
 
     #[test]

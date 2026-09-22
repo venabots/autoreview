@@ -140,6 +140,13 @@ impl Queue {
         now.saturating_sub(last) < cooldown
     }
 
+    /// Start or stop resting each PR after a review: the full-screen view's
+    /// `w` turns watching on and off while the run is going, and the rest is
+    /// what keeps a watch run from reviewing the same PR every poll.
+    pub fn set_cooldown(&mut self, secs: Option<u64>) {
+        self.cooldown = secs;
+    }
+
     /// A person asked for this PR to be reviewed now. The next intake takes
     /// it first, whatever the sweep says and however recently or often it
     /// was reviewed: the rest and the cap exist to bound a loop nobody is
@@ -550,6 +557,22 @@ mod tests {
         q.request(9);
         q.request(9);
         assert_eq!(q.next(&[9], &[9], 0).queue, vec![9]);
+    }
+
+    #[test]
+    fn the_rest_can_be_turned_on_and_off_mid_run() {
+        // What `w` does: a sweep that starts watching rests its PRs, and one
+        // that stops reviews on whatever the sweep says again.
+        let mut q = sweep(3);
+        q.record_pass(&[9], 1000);
+        assert_eq!(q.next(&[9], &[9], 1100).queue, vec![9], "no rest without a cooldown");
+        q.set_cooldown(Some(1800));
+        q.record_pass(&[9], 1100);
+        assert!(q.next(&[9], &[9], 1200).queue.is_empty(), "resting now");
+        assert_eq!(q.rest_left(9, 1200), Some(1700));
+        q.set_cooldown(None);
+        assert_eq!(q.next(&[9], &[9], 1300).queue, vec![9]);
+        assert_eq!(q.rest_left(9, 1300), None);
     }
 
     #[test]

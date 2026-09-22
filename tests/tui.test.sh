@@ -146,6 +146,18 @@ assert_equals "R reviews the asked-for PR at once" "$(reviews_of 9)" "2"
 assert_equals "...and the rest keep their interval" "$(reviews_of 8)" "1"
 assert_contains "q ends a babysit run" "$out" "autoreview-exit=130"
 
+# --- w turns the looking for work on and off -------------------------------
+# A one-shot run starts watching when w is pressed, and stops when it is
+# pressed again, which leaves it waiting for q like any run with nothing
+# left to do.
+out="$(run_tui --key 3.0:w --key 6.0:w --key 8.0:q --)"
+assert_contains "w starts the run watching" "$(run_log)" "watching: looking for work every 2m"
+assert_contains "...and it polls" "$(run_log)" "next check in 2m"
+assert_contains "...and the view says so" "$out" "watching"
+assert_contains "w again stops it" "$(run_log)" "no longer looking for work"
+assert_contains "...leaving the run waiting for q" "$out" "autoreview-exit=0"
+check_cooked "the terminal is given back after a toggled run"
+
 # --- A quiet repo: the view opens anyway ----------------------------------
 # The sweep has nothing to review, which without --tui is a one-line exit.
 # The view opens on it instead: every open PR is there, saying why it is

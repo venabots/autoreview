@@ -15,6 +15,7 @@
 //! says and how wide it may be; the board decides where it goes.
 
 use crate::board::{self, Action, Board};
+use crate::tui::Screen;
 use crate::job::{Job, JobState};
 use crate::report::{Panelist, Trailer};
 use crate::why;
@@ -274,6 +275,9 @@ pub struct Ui {
     /// PRs a person asked to have reviewed now that the current pass could
     /// not start, for the loop to put in the next one.
     requests: Vec<u64>,
+    /// Whether a person asked the run to start or stop looking for work,
+    /// waiting for the loop to reach a point where it can.
+    watch_toggle: Option<bool>,
     /// The full-screen view, while it is up.
     screen: Option<crate::tui::Screen>,
     /// The run directory, once the full-screen view has opened. The summary
@@ -306,6 +310,7 @@ impl Ui {
             expanded: HashSet::new(),
             live: Vec::new(),
             requests: Vec::new(),
+            watch_toggle: None,
             screen: None,
             run_root: None,
             archive: Vec::new(),
@@ -546,8 +551,20 @@ impl Ui {
     /// back for the pass to act on. Nothing off a TTY: there is no board to
     /// press a key at.
     pub fn poll_input(&mut self) -> Vec<Action> {
-        if let Some(screen) = &mut self.screen {
-            return screen.events();
+        if self.screen.is_some() {
+            // The watch key is the loop's, not the pass's: kept here until
+            // the loop reaches a point where it can change what it does.
+            let actions = self.screen.as_mut().map(Screen::events).unwrap_or_default();
+            return actions
+                .into_iter()
+                .filter(|action| match action {
+                    Action::Watch(on) => {
+                        self.watch_toggle = Some(*on);
+                        false
+                    }
+                    _ => true,
+                })
+                .collect();
         }
         let Some(board) = &self.board else {
             return Vec::new();
@@ -585,7 +602,7 @@ impl Ui {
                 }
             }
             Action::Collapse => self.expanded.clear(),
-            Action::Stop | Action::StopReview(_) | Action::ReviewNow(_) => {}
+            Action::Stop | Action::StopReview(_) | Action::ReviewNow(_) | Action::Watch(_) => {}
         }
     }
 
@@ -1739,6 +1756,7 @@ mod tests {
             expanded: HashSet::new(),
             live: Vec::new(),
             requests: Vec::new(),
+            watch_toggle: None,
             screen: None,
             run_root: None,
             archive: Vec::new(),
