@@ -57,11 +57,18 @@ as they were.
 - **A stopped review is a failure.** It ends with the outcome "stopped", the
   fallback never retries it, the run exits 1, and the next pass reviews the
   PR from scratch.
+- **The view opens whenever there is a terminal.** A run with nothing to
+  review used to print one line and exit; asking for a screen and getting
+  that is the wrong shape. The list holds every open PR, not only the ones
+  the run is responsible for, each saying why it is being left alone. A
+  quiet repo is the state the view is most worth opening in.
 - **`R` asks for a review now.** A queued review starts next. Any other PR
   goes first in the next intake, past the rest, the cap and the sweep's own
   view: those bound a loop nobody watches, and a key press is somebody
-  watching. A PR the run has finished with, or one outside a `--pick`, is
-  still refused, and the refusal is said.
+  watching. A one-shot run whose pass has ended starts another, so one
+  screen can work through a repo by hand. Only a review already running
+  refuses, and, under a run that looks again, a PR it has dropped. A request
+  the queue refuses is said.
 - **A request wakes the loop's wait, and brings only itself.** When
   `--babysit` waits out its interval before a pass, a request runs a pass of
   that PR alone; the others keep their interval, because it is what gives
@@ -91,3 +98,8 @@ as they were.
   count wrapped lines. An upgrade of ratatui has to check it still exists.
 - The picker, the CI wait and the startup lines all run before the view
   opens, on the normal screen, and stay above the summary when it closes.
+  That includes the sweep's own "no NEW or UPDATED PRs to review", which a
+  quiet run still prints before the screen takes over.
+- A `--tui` run with nothing to review still makes a run directory and
+  stages its skills, because `R` may ask for a review at any moment. Without
+  the flag such a run still exits before either.

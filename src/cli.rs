@@ -131,16 +131,17 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
                       again on its next poll, and so does the refresh between
                       --babysit passes. A PR with no checks at all is never
                       held.
-  --tui               Show the run full screen: every PR this run is
-                      responsible for on the left (running, queued, waiting,
-                      finished), and on the right what the selected review
-                      is doing or what its last review found. Keys: j/k
-                      move, r resumes the review in a new terminal tab, o
-                      opens the PR, x x stops a running review, R reviews a
-                      PR now (--watch or --babysit), l shows the run log,
-                      q quits. While it is up the plain lines go to
-                      autoreview.log in the run directory. Off a terminal
-                      the run prints its plain lines as ever.
+  --tui               Show the run full screen: every open PR on the left
+                      (running, queued, waiting, finished), and on the right
+                      what the selected review is doing or what its last
+                      review found. A PR the sweep is leaving alone is
+                      listed too, saying why, so the screen opens even when
+                      there is nothing to review. Keys: j/k move, r resumes
+                      the review in a new terminal tab, o opens the PR, x x
+                      stops a running review, R reviews the selected PR now,
+                      l shows the run log, q quits. While it is up the plain
+                      lines go to autoreview.log in the run directory. Off a
+                      terminal the run prints its plain lines as ever.
   --help, -h          Show this help.
   --version, -V       Show the version.
 
