@@ -150,9 +150,10 @@ impl Screen {
         self.busy = what.map(String::from);
     }
 
-    /// The run has nothing left to do; the screen stays until `q`.
-    pub fn set_ended(&mut self, why: &str) {
-        self.ended = Some(why.to_string());
+    /// The run has nothing left to do; the screen stays, saying so, until a
+    /// key ends it or asks for a review. None again once one does.
+    pub fn set_ended(&mut self, why: Option<&str>) {
+        self.ended = why.map(String::from);
     }
 
     /// A line for the footer, until the next one or a few seconds pass.
@@ -261,15 +262,11 @@ impl Screen {
     }
 
     fn pick(&self, row: &Row) -> Picked {
-        let request = match &self.ended {
-            Some(_) => Err("this run has ended; nothing more will be reviewed".to_string()),
-            None => row.requestable(self.header.looping),
-        };
         Picked {
             pr: row.pr,
             resume: row.resumable().and_then(|r| actions::resume_line(r.job, &self.header.repo_root)),
             stop: row.stoppable(),
-            request,
+            request: row.requestable(self.header.looping),
         }
     }
 
@@ -285,7 +282,6 @@ impl Screen {
             repo_root: &self.header.repo_root,
             review: self.review.as_ref().and_then(|(_, text)| text.as_deref()),
             next_check: self.next_check,
-            can_request: self.header.looping && self.ended.is_none(),
         };
         detail::lines(row, &ctx)
     }
@@ -593,33 +589,38 @@ mod tests {
     }
 
     #[test]
-    fn review_now_needs_a_run_that_loops() {
+    fn what_review_now_takes() {
+        // A looping run has dropped what it lists as finished.
         let mut screen = Screen::new(None, header(true));
         frame(&mut screen, &[], &[done(7)], 120);
-        // Not waiting under a loop: the run is finished with it.
         assert!(screen.press(Intent::ReviewNow, Instant::now()).is_empty());
+        assert!(screen.message.as_ref().unwrap().0.contains("finished for this run"));
+
         let mut waiting = Screen::new(None, header(true));
         waiting.set_waiting(vec![(5, Wait::Quiet)]);
         frame(&mut waiting, &[], &[], 120);
         assert_eq!(waiting.press(Intent::ReviewNow, Instant::now()), vec![Action::ReviewNow(5)]);
+
+        // A one-shot run reviews a PR it has already reviewed, on request.
         let mut once = Screen::new(None, header(false));
-        once.set_waiting(vec![(5, Wait::Quiet)]);
-        frame(&mut once, &[], &[], 120);
-        assert!(once.press(Intent::ReviewNow, Instant::now()).is_empty());
-        assert!(once.message.as_ref().unwrap().0.contains("--watch or --babysit"));
+        frame(&mut once, &[], &[done(7)], 120);
+        assert_eq!(once.press(Intent::ReviewNow, Instant::now()), vec![Action::ReviewNow(7)]);
     }
 
     #[test]
     fn an_ended_run_says_so_and_quits_at_once() {
         let mut screen = Screen::new(None, header(true));
-        screen.set_ended("nothing left to babysit");
+        screen.set_ended(Some("nothing left to babysit"));
         screen.set_waiting(vec![(5, Wait::Quiet)]);
         let out = frame(&mut screen, &[], &[done(7)], 120);
         assert!(out.contains("nothing left to babysit · q quits"), "{out}");
-        // Nothing reads a request any more, so none is taken.
-        assert!(screen.press(Intent::ReviewNow, Instant::now()).is_empty());
-        assert!(screen.message.as_ref().unwrap().0.contains("this run has ended"));
         assert_eq!(screen.press(Intent::Quit, Instant::now()), vec![Action::Stop]);
+        // A run waiting for q still takes a request: it is what starts
+        // another pass.
+        assert_eq!(screen.press(Intent::ReviewNow, Instant::now()), vec![Action::ReviewNow(5)]);
+        screen.set_ended(None);
+        let out = frame(&mut screen, &[], &[done(7)], 120);
+        assert!(!out.contains("q quits"), "{out}");
     }
 
     #[test]

@@ -227,16 +227,21 @@ fn drop_finished(prs: &[u64], tracker: &mut Queue) -> Vec<u64> {
     open
 }
 
-/// What the full-screen view lists as waiting: every PR this run is
-/// responsible for that is not in a pass right now, and why. The next pass's
-/// PRs come first; then the ones the sweep holds; then the ones it merely
-/// left alone, capped, resting or quiet.
+/// What the full-screen view lists as waiting: every open PR that is not in
+/// a pass right now, and why it is not. The next pass's PRs come first; then
+/// the ones the sweep holds; then the ones it merely left alone, capped,
+/// resting or quiet; and last the ones it has nothing to do about at all.
+///
+/// The last group is what makes the view worth opening on a quiet repo. The
+/// run is not responsible for a PR it has seen, but a person looking at the
+/// list can still ask for it.
 fn waiting_list(
     watching: &[u64],
     held: &[(u64, Ci)],
     stacked: &[(u64, StackedOn)],
     tracker: &Queue,
     queue: &[u64],
+    info: &HashMap<u64, prlist::PrInfo>,
     now: u64,
 ) -> Vec<(u64, Wait)> {
     let next = queue.iter().map(|&pr| (pr, Wait::Next));
@@ -250,9 +255,13 @@ fn waiting_list(
         };
         (pr, wait)
     });
+    // In PR order, newest first, like the list itself.
+    let mut open: Vec<u64> = info.keys().copied().collect();
+    open.sort_unstable_by(|a, b| b.cmp(a));
+    let seen = open.into_iter().map(|pr| (pr, Wait::Seen));
     let mut out: Vec<(u64, Wait)> = Vec::new();
-    for (pr, wait) in next.chain(held).chain(stacked).chain(watched) {
-        if !out.iter().any(|(seen, _)| *seen == pr) {
+    for (pr, wait) in next.chain(held).chain(stacked).chain(watched).chain(seen) {
+        if !out.iter().any(|(listed, _)| *listed == pr) {
             out.push((pr, wait));
         }
     }
@@ -276,14 +285,43 @@ fn screen_header(cfg: &Config, ctx: &repo::RepoContext, rundir: &RunDir) -> tui:
     }
 }
 
-/// The end of a run. The full-screen view stays up, saying why, until `q`;
-/// then the terminal is given back with the run's summary. Without the view
-/// this only puts the cursor back.
-fn close(ui: &mut ui::Ui, ended: &str, rx: &Receiver<pool::Event>) {
-    ui.hold(ended, rx);
+/// The end of a run: the terminal back, and the run's summary. Without the
+/// view this only puts the cursor back.
+fn close(ui: &mut ui::Ui) {
     ui.shutdown();
     ui.print_final(&[]);
     ui.show_cursor();
+}
+
+/// The run has nothing left of its own to do. With the view up it stays,
+/// saying why, until `q` -- or until a person asks for a PR, and then the
+/// run has another pass to make. None ends the run.
+///
+/// A request the queue refuses leaves the view up: the person is still
+/// looking at it, and the run has no more reason to end than before.
+fn held_for_more(
+    ui: &mut ui::Ui,
+    ended: &str,
+    tracker: &mut Queue,
+    watching: &mut Vec<u64>,
+    cfg: &Config,
+    rx: &Receiver<pool::Event>,
+) -> Option<Vec<u64>> {
+    loop {
+        let asked = ui.hold(ended, rx);
+        if asked.is_empty() {
+            return None;
+        }
+        for pr in asked {
+            tracker.request(pr);
+        }
+        let intake = tracker.next(watching, &[], now_secs());
+        watching.extend(intake.joined.iter().copied());
+        report_intake(&intake, cfg, ui);
+        if !intake.queue.is_empty() {
+            return Some(intake.queue);
+        }
+    }
 }
 
 /// True when no PR on the watch list could ever be reviewed again: the list
@@ -408,7 +446,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // reviews them as their checks pass. Exiting here would leave every PR
     // opened in the last half hour unreviewed until the next cron run.
     let babysitting_held = cfg.babysit.is_some() && !held_at_start.is_empty();
-    if numbers.is_empty() && !sweeping && !babysitting_held {
+    // --tui asks for a screen, and a repo with nothing to review is the
+    // quiet morning it is most worth looking at: the PRs are all there,
+    // each saying why it is being left alone, and R reviews any of them.
+    let screening = cfg.tui && ui::on_a_terminal();
+    if numbers.is_empty() && !sweeping && !babysitting_held && !screening {
         return Ok(0);
     }
     let mut rundir = RunDir::new(cfg.log_dir.clone())?;
@@ -490,7 +532,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // view. Only the view reads it.
     let mut stacked: Vec<(u64, StackedOn)> = stacked_at_start.clone();
     ui.know(&info);
-    ui.waiting(waiting_list(&[], &held, &stacked, &tracker, &queue, now_secs()));
+    ui.waiting(waiting_list(&[], &held, &stacked, &tracker, &queue, &info, now_secs()));
     // Why the run ended, for the view to say while it waits for `q`.
     let mut ended = String::from("the pass is done");
     let mut pass = 1u32;
@@ -538,11 +580,23 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         // ever stopped being true -- the same fallback the queue takes, so
         // the two cannot disagree about whether the loop continues.
         let Some(babysit) = cfg.babysit.clone().or_else(|| watch.clone()) else {
-            break (failures, total);
+            // A one-shot run has no next pass of its own. With the view up
+            // it stays, and R is what gives it another.
+            ended = if total == 0 { "nothing to review".into() } else { "the pass is done".into() };
+            match held_for_more(&mut ui, &ended, &mut tracker, &mut watching, &cfg, &rx) {
+                Some(next) => {
+                    // Like a babysit pass: a PR reviewed again is
+                    // re-checked in the session the last review ran in.
+                    cfg.continue_sessions = true;
+                    queue = next;
+                    continue;
+                }
+                None => break (failures, total),
+            }
         };
         // The PRs just reviewed are waiting again, not finished, until the
         // look below says otherwise.
-        ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &[], now_secs()));
+        ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &[], &info, now_secs()));
         // How often to look for new work. Under --watch that is its own
         // interval; under --babysit the one interval does both jobs.
         let poll = watch.clone().unwrap_or_else(|| babysit.clone());
@@ -689,7 +743,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             held_announced.retain(|(pr, _)| !intake.queue.contains(pr));
             report_intake(&intake, &cfg, &mut ui);
             ui.know(&info);
-            ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &intake.queue, now_secs()));
+            ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &intake.queue, &info, now_secs()));
             if !intake.queue.is_empty() {
                 break Some(intake.queue);
             }
@@ -763,10 +817,19 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             // first is a clean end; the second is not, and a cron wrapper has
             // to be able to tell them apart.
             if refresh_failures >= 3 {
-                close(&mut ui, &ended, &rx);
+                // Nothing here is worth another pass: the list itself is
+                // what failed. The view says so and waits for q.
+                ui.hold(&ended, &rx);
+                close(&mut ui);
                 return Ok(1);
             }
-            break (failures, total);
+            match held_for_more(&mut ui, &ended, &mut tracker, &mut watching, &cfg, &rx) {
+                Some(next) => {
+                    queue = next;
+                    continue;
+                }
+                None => break (failures, total),
+            }
         };
         queue = next;
         // The interval is what gives the author time to answer, so it is
@@ -805,7 +868,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             }
         }
     };
-    close(&mut ui, &ended, &rx);
+    close(&mut ui);
 
     // Exit nonzero when any review in the final pass did not complete
     // cleanly, so a cron job or a CI step can tell a finished sweep from a

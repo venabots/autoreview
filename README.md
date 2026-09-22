@@ -476,9 +476,13 @@ failed too.
 
 ### The full-screen view
 
-`--tui` draws the run full screen instead of the inline board. Every PR the run
-is responsible for is on the left, one row each, under a heading for its
-state. The selected PR's details are on the right.
+`--tui` draws the run full screen instead of the inline board. Every open PR is
+on the left, one row each, under a heading for its state. The selected PR's
+details are on the right.
+
+The screen opens whenever there is a terminal, including on a repo with
+nothing to review: the PRs are all there, each saying why it is being left
+alone, and `R` reviews any of them on the spot.
 
 ```
 autoreview · acme/widgets · watching every 2m · a reviewed PR rests 30m · log …
@@ -499,7 +503,7 @@ FINISHED 1                                │ ACTIVITY
 | -------- | ----------------------------------------------------------------------------------------------- |
 | RUNNING  | reviews in progress, with the transcript activity the inline board follows                      |
 | QUEUED   | reviews this pass has not started yet                                                           |
-| WAITING  | PRs due at the next pass, held for their checks or the PR underneath, resting, capped, or quiet |
+| WAITING  | PRs due at the next pass, held for their checks or the PR underneath, resting, capped, quiet, or seen |
 | FINISHED | PRs the run is done with, newest first                                                          |
 
 A PR has one row, whatever has happened to it. The row keeps the PR's newest
@@ -514,7 +518,7 @@ still shows its verdict, its "not approved yet" block and the review text.
 | `r`               | open the selected review in a new herdr, cmux or Ghostty tab  |
 | `o`               | open the PR in the browser                                    |
 | `x` `x`           | stop the selected running review                              |
-| `R`               | review the selected PR now (`--watch` or `--babysit`)         |
+| `R`               | review the selected PR now                                    |
 | `l`               | show the run log in the right pane; `esc` puts it away        |
 | `q`               | quit; a second `q` when reviews are running, which stops them |
 
@@ -522,10 +526,12 @@ still shows its verdict, its "not approved yet" block and the review text.
 `codex resume <session>` for a review codex drove. It refuses a review that
 is still running. `x` ends a review as a failure, reported as "stopped"; the
 fallback does not retry it, and the next pass reviews that PR from scratch.
-`R` reviews a waiting PR now, whatever the rest, the cap or the sweep say. It
-wakes the run and reviews that PR on its own; under `--babysit` the other PRs
-keep their interval. A PR the run has finished with is refused, and so is
-anything once the run has ended.
+`R` reviews the selected PR now, whatever the rest, the cap or the sweep say.
+It wakes the run and reviews that PR on its own; under `--babysit` the other
+PRs keep their interval. A one-shot run that has finished its pass starts
+another for it, so one screen can work through a repo by hand. Only a review
+already running refuses, and, under a run that looks again, a PR it has
+dropped as approved or closed.
 
 While the view is up, everything the run would have printed goes to
 `autoreview.log` in the run directory, byte for byte, and `l` shows it. A run
