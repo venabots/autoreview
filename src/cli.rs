@@ -15,7 +15,7 @@ Usage: autoreview [--pick] [--watch[=MINUTES]] [--babysit[=MINUTES]]
                   [--orchestrator SPEC] [--fallback SPEC|none]
                   [--timeout SECONDS] [--budget USD] [--log-dir DIR]
                   [--skills DIR|installed] [--all] [--dependabot]
-                  [--stacked] [--skip-wait-for-ci] [--help]
+                  [--stacked] [--skip-wait-for-ci] [--tui] [--help]
        autoreview stats [--import] [--since WHEN] [--repo NAME] [--json]
                   (how each model has done; `autoreview stats --help`)
 
@@ -29,14 +29,15 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
   --auto, -A          Accepted and ignored: it is the default now.
   --watch[=MIN], -w   Stay on: poll every MIN minutes for new PRs and never
                       stop (default 2, or $AUTOREVIEW_WATCH_INTERVAL). Only
-                      ctrl-C ends it. Nothing to review is not a reason to
-                      exit, an idle stretch is not a reason to exit, and a
-                      failed refresh is retried rather than counted. With
-                      --pick there is nothing to pick from if the first fetch
-                      fails, so that one case still exits. A PR that
-                      goes quiet and then becomes actionable again was pushed
-                      to, so it gets a fresh set of passes. Use this to leave
-                      a terminal reviewing all day; use --babysit for cron.
+                      ctrl-C ends it, or q under --tui. Nothing to review is
+                      not a reason to exit, an idle stretch is not a reason
+                      to exit, and a failed refresh is retried rather than
+                      counted. With --pick there is nothing to pick from if
+                      the first fetch fails, so that one case still exits. A
+                      PR that goes quiet and then becomes actionable again
+                      was pushed to, so it gets a fresh set of passes. Use
+                      this to leave a terminal reviewing all day; use
+                      --babysit for cron.
   --babysit[=MIN], -b Re-run the pass every MIN minutes (default 30, or
                       $AUTOREVIEW_BABYSIT_INTERVAL), dropping PRs as they are
                       approved or closed and picking up PRs opened or updated
@@ -130,6 +131,16 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
                       again on its next poll, and so does the refresh between
                       --babysit passes. A PR with no checks at all is never
                       held.
+  --tui               Show the run full screen: every PR this run is
+                      responsible for on the left (running, queued, waiting,
+                      finished), and on the right what the selected review
+                      is doing or what its last review found. Keys: j/k
+                      move, r resumes the review in a new terminal tab, o
+                      opens the PR, x x stops a running review, R reviews a
+                      PR now (--watch or --babysit), l shows the run log,
+                      q quits. While it is up the plain lines go to
+                      autoreview.log in the run directory. Off a terminal
+                      the run prints its plain lines as ever.
   --help, -h          Show this help.
   --version, -V       Show the version.
 
@@ -238,6 +249,9 @@ pub struct Config {
     /// Printed to stderr before the run starts, e.g. the silent-fallback
     /// warning when an unattended run ignores $AUTOREVIEW_CMD.
     pub startup_notes: Vec<String>,
+    /// Show the run full screen. Whether there is a terminal to show it on
+    /// is decided when the run starts, not here.
+    pub tui: bool,
 }
 
 impl Config {
@@ -409,6 +423,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     let mut include_dependabot = false;
     let mut include_stacked = false;
     let mut skip_wait_for_ci = false;
+    let mut tui = false;
 
     let mut jobs_raw = env_nonempty(env, "AUTOREVIEW_JOBS").unwrap_or_else(|| "2".into());
     let ci_wait_raw = env_nonempty(env, "AUTOREVIEW_CI_WAIT").unwrap_or_else(|| "30".into());
@@ -446,6 +461,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             "--dependabot" | "-d" => include_dependabot = true,
             "--stacked" | "-s" => include_stacked = true,
             "--skip-wait-for-ci" => skip_wait_for_ci = true,
+            "--tui" => tui = true,
             "--help" | "-h" => return Ok(Parsed::Help),
             "--version" | "-V" => return Ok(Parsed::Version),
             "--focus" => {
@@ -654,6 +670,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         orchestrator,
         fallback,
         startup_notes,
+        tui,
     })))
 }
 
