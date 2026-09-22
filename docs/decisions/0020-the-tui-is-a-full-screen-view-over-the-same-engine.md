@@ -75,6 +75,14 @@ as they were.
   their authors time to answer. The waits after a failure do not wake: a key
   press there would repeat the call that just failed. A wake a request
   caused is not an idle check.
+- **`w` starts and stops the run's own looking for work.** The mode was a
+  startup choice, and a screen is where a person changes their mind: they
+  open one pass, see a PR worth watching for, and want the run to stay. The
+  key asks one question -- keep looking for work? -- so a `--babysit` run
+  turned off and on comes back watching, which is the answer that suits
+  somebody sitting in front of it. The toggle is applied only where the loop
+  decides what it does next, never mid-pass, and a wait it interrupts leaves
+  the loop to decide again with nothing queued.
 - **The loop keeps the view drawn while it waits.** Its sleeps and its `gh`
   calls run in tenths of a second, drawing and reading keys; the calls run on
   a scoped thread.
@@ -103,3 +111,6 @@ as they were.
 - A `--tui` run with nothing to review still makes a run directory and
   stages its skills, because `R` may ask for a review at any moment. Without
   the flag such a run still exits before either.
+- The intervals `w` turns on are resolved when the flags are parsed, and
+  leniently: a bad `$AUTOREVIEW_WATCH_INTERVAL` still refuses a `--watch`
+  run, but it must not refuse a run that only might become one.

@@ -484,6 +484,10 @@ The screen opens whenever there is a terminal, including on a repo with
 nothing to review: the PRs are all there, each saying why it is being left
 alone, and `R` reviews any of them on the spot.
 
+`--tui` is a view, not a mode: on its own it makes one pass and then waits.
+`w` is what turns a run into a watching one, so `autoreview --tui` and
+`autoreview --tui --watch=2` differ only in where you decide.
+
 ```
 autoreview · acme/widgets · watching every 2m · a reviewed PR rests 30m · log …
 RUNNING 1                                 │ #9 Add retry logic
@@ -519,6 +523,7 @@ still shows its verdict, its "not approved yet" block and the review text.
 | `o`               | open the PR in the browser                                    |
 | `x` `x`           | stop the selected running review                              |
 | `R`               | review the selected PR now                                    |
+| `w`               | start or stop looking for work, as `--watch` does             |
 | `l`               | show the run log in the right pane; `esc` puts it away        |
 | `q`               | quit; a second `q` when reviews are running, which stops them |
 
@@ -526,6 +531,13 @@ still shows its verdict, its "not approved yet" block and the review text.
 `codex resume <session>` for a review codex drove. It refuses a review that
 is still running. `x` ends a review as a failure, reported as "stopped"; the
 fallback does not retry it, and the next pass reviews that PR from scratch.
+`w` starts the run looking for work on its own, on the `--watch` interval
+(`$AUTOREVIEW_WATCH_INTERVAL`, default 2m), resting each reviewed PR for the
+`--babysit` one (default 30m). `w` again stops it: the reviews running finish
+and the screen waits for `q`. A `--babysit` run turned off and on again comes
+back watching, because the key asks one question -- keep looking for work? --
+and watching is the answer that suits somebody at a screen.
+
 `R` reviews the selected PR now, whatever the rest, the cap or the sweep say.
 It wakes the run and reviews that PR on its own; under `--babysit` the other
 PRs keep their interval. A one-shot run that has finished its pass starts
