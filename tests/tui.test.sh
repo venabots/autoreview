@@ -59,6 +59,15 @@ check_cooked() {
   fi
 }
 
+# Every open PR seen: nothing for the sweep to do, which is the state the
+# view is most worth opening in. Changes the fixture for good, so the cases
+# that need actionable PRs come first.
+seen_everything() {
+  jq '.data.repository.pullRequests.nodes |= map(.comments = {"nodes":[{"author":{"login":"me"},"updatedAt":"2026-08-20T10:00:00Z"}]})' \
+    "$SANDBOX/fixtures/prs.json" >"$SANDBOX/fixtures/prs.next"
+  mv "$SANDBOX/fixtures/prs.next" "$SANDBOX/fixtures/prs.json"
+}
+
 # How many reviews of PR $1 the fake dash-p was asked for.
 reviews_of() {
   grep -cE -- "-- (/auto-review|/recheck-pr) $1\$" "$CLAUDE_LOG" 2>/dev/null || true
@@ -136,5 +145,19 @@ assert_contains "the next pass's PRs are listed as waiting for it" "$out" "next 
 assert_equals "R reviews the asked-for PR at once" "$(reviews_of 9)" "2"
 assert_equals "...and the rest keep their interval" "$(reviews_of 8)" "1"
 assert_contains "q ends a babysit run" "$out" "autoreview-exit=130"
+
+# --- A quiet repo: the view opens anyway ----------------------------------
+# The sweep has nothing to review, which without --tui is a one-line exit.
+# The view opens on it instead: every open PR is there, saying why it is
+# being left alone.
+seen_everything
+out="$(run_tui --key 3.0:q --)"
+assert_contains "a quiet repo has nothing for the sweep" "$out" "no NEW or UPDATED PRs to review"
+assert_contains "...and the view opens all the same" "$out" $'\e[?1049h'
+assert_contains "...listing the PRs it is leaving alone" "$out" "seen"
+assert_contains "...and saying so in the footer" "$out" "nothing to review"
+assert_equals "and it reviews none of them" "$(reviews_of 9)" "0"
+assert_contains "the run exits 0 when q closes it" "$out" "autoreview-exit=0"
+check_cooked "the terminal is given back after a quiet run"
 
 finish

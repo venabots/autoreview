@@ -38,6 +38,9 @@ pub enum Wait {
     /// The next pass reviews it; under --babysit that pass waits out the
     /// interval first.
     Next,
+    /// The sweep has nothing to do about it: you have seen everything on it
+    /// since its last change. `R` reviews it anyway.
+    Seen,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

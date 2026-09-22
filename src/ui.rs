@@ -59,6 +59,12 @@ pub fn spinner_ticks() -> Vec<&'static str> {
     SPINNER_FRAMES.iter().copied().chain([" "]).collect()
 }
 
+/// Whether output has a terminal to draw on. Asked before the Ui exists, by
+/// a run deciding whether it has a screen to open.
+pub fn on_a_terminal() -> bool {
+    std::io::stdout().is_terminal()
+}
+
 pub fn fmt_dur(s: u64) -> String {
     if s >= 3600 {
         format!("{}h{:02}m", s / 3600, (s % 3600) / 60)
@@ -284,7 +290,7 @@ pub struct Ui {
 
 impl Ui {
     pub fn new(pr_url_base: String) -> Ui {
-        let tty = std::io::stdout().is_terminal();
+        let tty = on_a_terminal();
         // Piped output must stay greppable, and a reader who set $NO_COLOR (or
         // is on TERM=dumb) asked for text, not escape sequences -- which is
         // exactly what console::colors_enabled already answers.

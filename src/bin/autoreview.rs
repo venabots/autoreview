@@ -227,16 +227,21 @@ fn drop_finished(prs: &[u64], tracker: &mut Queue) -> Vec<u64> {
     open
 }
 
-/// What the full-screen view lists as waiting: every PR this run is
-/// responsible for that is not in a pass right now, and why. The next pass's
-/// PRs come first; then the ones the sweep holds; then the ones it merely
-/// left alone, capped, resting or quiet.
+/// What the full-screen view lists as waiting: every open PR that is not in
+/// a pass right now, and why it is not. The next pass's PRs come first; then
+/// the ones the sweep holds; then the ones it merely left alone, capped,
+/// resting or quiet; and last the ones it has nothing to do about at all.
+///
+/// The last group is what makes the view worth opening on a quiet repo. The
+/// run is not responsible for a PR it has seen, but a person looking at the
+/// list can still ask for it.
 fn waiting_list(
     watching: &[u64],
     held: &[(u64, Ci)],
     stacked: &[(u64, StackedOn)],
     tracker: &Queue,
     queue: &[u64],
+    info: &HashMap<u64, prlist::PrInfo>,
     now: u64,
 ) -> Vec<(u64, Wait)> {
     let next = queue.iter().map(|&pr| (pr, Wait::Next));
@@ -250,9 +255,13 @@ fn waiting_list(
         };
         (pr, wait)
     });
+    // In PR order, newest first, like the list itself.
+    let mut open: Vec<u64> = info.keys().copied().collect();
+    open.sort_unstable_by(|a, b| b.cmp(a));
+    let seen = open.into_iter().map(|pr| (pr, Wait::Seen));
     let mut out: Vec<(u64, Wait)> = Vec::new();
-    for (pr, wait) in next.chain(held).chain(stacked).chain(watched) {
-        if !out.iter().any(|(seen, _)| *seen == pr) {
+    for (pr, wait) in next.chain(held).chain(stacked).chain(watched).chain(seen) {
+        if !out.iter().any(|(listed, _)| *listed == pr) {
             out.push((pr, wait));
         }
     }
@@ -408,7 +417,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // reviews them as their checks pass. Exiting here would leave every PR
     // opened in the last half hour unreviewed until the next cron run.
     let babysitting_held = cfg.babysit.is_some() && !held_at_start.is_empty();
-    if numbers.is_empty() && !sweeping && !babysitting_held {
+    // --tui asks for a screen, and a repo with nothing to review is the
+    // quiet morning it is most worth looking at: the PRs are all there,
+    // each saying why it is being left alone, and R reviews any of them.
+    let screening = cfg.tui && ui::on_a_terminal();
+    if numbers.is_empty() && !sweeping && !babysitting_held && !screening {
         return Ok(0);
     }
     let mut rundir = RunDir::new(cfg.log_dir.clone())?;
@@ -490,7 +503,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // view. Only the view reads it.
     let mut stacked: Vec<(u64, StackedOn)> = stacked_at_start.clone();
     ui.know(&info);
-    ui.waiting(waiting_list(&[], &held, &stacked, &tracker, &queue, now_secs()));
+    ui.waiting(waiting_list(&[], &held, &stacked, &tracker, &queue, &info, now_secs()));
     // Why the run ended, for the view to say while it waits for `q`.
     let mut ended = String::from("the pass is done");
     let mut pass = 1u32;
@@ -538,11 +551,14 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         // ever stopped being true -- the same fallback the queue takes, so
         // the two cannot disagree about whether the loop continues.
         let Some(babysit) = cfg.babysit.clone().or_else(|| watch.clone()) else {
+            // What the view says while it waits for q: a run that reviewed
+            // nothing is not a pass that is done.
+            ended = if total == 0 { "nothing to review".into() } else { "the pass is done".into() };
             break (failures, total);
         };
         // The PRs just reviewed are waiting again, not finished, until the
         // look below says otherwise.
-        ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &[], now_secs()));
+        ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &[], &info, now_secs()));
         // How often to look for new work. Under --watch that is its own
         // interval; under --babysit the one interval does both jobs.
         let poll = watch.clone().unwrap_or_else(|| babysit.clone());
@@ -689,7 +705,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             held_announced.retain(|(pr, _)| !intake.queue.contains(pr));
             report_intake(&intake, &cfg, &mut ui);
             ui.know(&info);
-            ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &intake.queue, now_secs()));
+            ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &intake.queue, &info, now_secs()));
             if !intake.queue.is_empty() {
                 break Some(intake.queue);
             }

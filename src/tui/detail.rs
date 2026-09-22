@@ -140,6 +140,7 @@ fn wait_reason(wait: Wait, ctx: &Context) -> String {
             "resting after its review; it may be reviewed again in {}",
             fmt_dur((until as i64).saturating_sub(ctx.now).max(0) as u64)
         ),
+        Wait::Seen => "nothing has happened on it since you last engaged".into(),
         Wait::Quiet => format!("nothing new since its last review{next}"),
         Wait::Next => format!("reviewed at the next check{next}"),
     }
