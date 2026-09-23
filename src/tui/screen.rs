@@ -516,10 +516,12 @@ mod tests {
         let archive = vec![done(7)];
         let out = frame(&mut screen, &jobs, &archive, 120);
         assert!(out.starts_with("autoreview · acme/app · watching every 2m"), "{out}");
-        assert!(out.contains("RUNNING 1"), "{out}");
-        assert!(out.contains("#9"), "{out}");
-        assert!(out.contains("QUEUED 1"), "{out}");
-        assert!(out.contains("FINISHED 1"), "{out}");
+        // Two lines a row, most pressing first, and no headings.
+        assert!(out.contains("#9 · reviewing 0s"), "{out}");
+        assert!(out.contains("@alice Change 9"), "{out}");
+        assert!(out.contains("#8 · queued"), "{out}");
+        assert!(out.contains("#7 · approved"), "{out}");
+        assert!(!out.contains("RUNNING") && !out.contains("FINISHED"), "{out}");
         // The first row is selected, and the detail pane is about it.
         assert!(out.contains("#9 Change 9"), "{out}");
         assert!(out.contains("reviewing 0s · claude"), "{out}");
@@ -562,7 +564,7 @@ mod tests {
         let mut screen = Screen::new(None, header(true));
         let archive = vec![done(7)];
         let out = frame(&mut screen, &[], &archive, 60);
-        assert!(out.contains("FINISHED 1") && out.contains("LAST REVIEW"), "{out}");
+        assert!(out.contains("#7 · approved") && out.contains("LAST REVIEW"), "{out}");
     }
 
     #[test]
@@ -648,7 +650,10 @@ mod tests {
         assert!(out.contains("nothing left to babysit · q quits"), "{out}");
         assert_eq!(screen.press(Intent::Quit, Instant::now()), vec![Action::Stop]);
         // A run waiting for q still takes a request: it is what starts
-        // another pass.
+        // another pass. #7 is reviewed and above #5, which is only quiet,
+        // and a key acts on the frame the person saw -- so move, draw, ask.
+        screen.press(Intent::Down, Instant::now());
+        frame(&mut screen, &[], &[done(7)], 120);
         assert_eq!(screen.press(Intent::ReviewNow, Instant::now()), vec![Action::ReviewNow(5)]);
         screen.set_ended(None);
         let out = frame(&mut screen, &[], &[done(7)], 120);

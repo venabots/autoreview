@@ -10,7 +10,7 @@
 
 use crate::ci::Ci;
 use crate::job::{Job, JobState};
-use crate::prlist::PrInfo;
+use crate::prlist::{Decision, PrInfo};
 use crate::stack::StackedOn;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -41,6 +41,25 @@ pub enum Wait {
     /// The sweep has nothing to do about it: you have seen everything on it
     /// since its last change. `R` reviews it anyway.
     Seen,
+    /// Approved already, by somebody. The sweep leaves those alone.
+    Approved,
+}
+
+impl Wait {
+    /// Where it sits in the list, among the PRs that are waiting. What the
+    /// run will do soonest comes first, and what it will never do last.
+    fn rank(self) -> u8 {
+        match self {
+            Wait::Next => 0,
+            Wait::Checks(_) => 1,
+            Wait::Stacked(_) => 2,
+            Wait::Resting { .. } => 3,
+            Wait::Capped => 4,
+            Wait::Quiet => 6,
+            Wait::Seen => 7,
+            Wait::Approved => 8,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -74,6 +93,9 @@ pub struct Row<'a> {
     pub section: Section,
     pub title: &'a str,
     pub author: &'a str,
+    /// What the PR's reviews add up to, whatever this run has done about
+    /// it: the icon at the head of its row.
+    pub decision: Decision,
     /// The review this pass has running or waiting to start.
     pub live: Option<&'a Job>,
     /// The newest review of this PR that finished in this run.
@@ -119,6 +141,7 @@ pub fn rows<'a>(src: &Sources<'a>) -> Vec<Row<'a>> {
         Row {
             pr,
             section,
+            decision: known.map_or(Decision::None, |i| i.decision),
             title: known.map(|i| i.title.as_str()).or(job.map(|j| j.title.as_str())).unwrap_or(""),
             author: known.map(|i| i.author.as_str()).or(job.map(|j| j.author.as_str())).unwrap_or(""),
             live,
@@ -136,7 +159,16 @@ pub fn rows<'a>(src: &Sources<'a>) -> Vec<Row<'a>> {
         out.push(listed);
     }
     for &(pr, wait) in src.waiting {
-        if !out.iter().any(|r| r.pr == pr) {
+        if out.iter().any(|r| r.pr == pr) {
+            continue;
+        }
+        // A PR this run has reviewed, with nothing left for the sweep to
+        // do about it, is one the run is finished with -- not one it is
+        // waiting on. The ones it is still waiting on say what for.
+        let done = matches!(wait, Wait::Seen | Wait::Approved) && last.contains_key(&pr);
+        if done {
+            out.push(row(pr, Section::Finished, None, None));
+        } else {
             out.push(row(pr, Section::Waiting, None, Some(wait)));
         }
     }
@@ -145,11 +177,15 @@ pub fn rows<'a>(src: &Sources<'a>) -> Vec<Row<'a>> {
     for pr in rest {
         out.push(row(pr, Section::Finished, None, None));
     }
-    // Stable, so running and queued keep the pass's order and waiting keeps
-    // the loop's. Finished is newest first.
+    // One order, most pressing first, because the list has no headings to
+    // separate the groups: what is running, then what is about to run, then
+    // what is waiting and how soon, then what this run has already done,
+    // and last the PRs it has nothing to do about. Stable, so running and
+    // queued keep the pass's order and the rest keep the sweep's.
     out.sort_by(|a, b| {
-        a.section.cmp(&b.section).then_with(|| match a.section {
-            Section::Finished => {
+        priority(a).cmp(&priority(b)).then_with(|| match (a.section, b.section) {
+            // Newest review first among the ones this run finished.
+            (Section::Finished, Section::Finished) => {
                 let end = |r: &Row| r.last.map_or(0, |l| ended(l.job));
                 end(b).cmp(&end(a))
             }
@@ -157,6 +193,20 @@ pub fn rows<'a>(src: &Sources<'a>) -> Vec<Row<'a>> {
         })
     });
     out
+}
+
+/// Where a row sits in the list. A reviewed PR comes above the ones nobody
+/// has touched: its review is the thing a person came to look at.
+fn priority(row: &Row) -> u8 {
+    match (row.section, row.wait) {
+        (Section::Running, _) => 0,
+        (Section::Queued, _) => 1,
+        (Section::Waiting, Some(wait)) => 2 + wait.rank(),
+        (Section::Waiting, None) => 2 + Wait::Quiet.rank(),
+        // Between a waiting PR that is resting or capped and one nobody has
+        // touched: see `Wait::rank`.
+        (Section::Finished, _) => 2 + 5,
+    }
 }
 
 /// The row the selection is on: the selected PR's, or the first when that
@@ -253,6 +303,7 @@ mod tests {
 
     fn info(title: &str) -> PrInfo {
         PrInfo {
+            decision: Decision::None,
             title: title.into(),
             author: "alice".into(),
             engage: crate::prlist::Engagement::New,
@@ -263,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn sections_run_top_to_bottom_one_row_per_pr() {
+    fn rows_run_most_pressing_first_one_row_per_pr() {
         let archive = vec![archived(job(5, JobState::Done, 100), "/p1"), archived(job(6, JobState::Failed, 200), "/p1")];
         let jobs = vec![job(9, JobState::Running, 300), job(8, JobState::Queued, 0), job(7, JobState::Done, 250)];
         let waiting = vec![(4, Wait::Checks(Ci::Failing)), (5, Wait::Quiet)];
@@ -275,14 +326,32 @@ mod tests {
             vec![
                 (9, Section::Running),
                 (8, Section::Queued),
+                // Held for its checks: the run will get to it.
                 (4, Section::Waiting),
-                (5, Section::Waiting),
-                // Newest first: #7 ended at 260, #6 at 210.
+                // Reviewed in this run, newest first: #7 ended at 260, #6
+                // at 210. Above #5, which nothing has happened on.
                 (7, Section::Finished),
                 (6, Section::Finished),
-            ]
+                (5, Section::Waiting),
+            ],
+            "most pressing first, and no headings to group them"
         );
         assert_eq!(counts(&rows), [1, 1, 2, 2]);
+    }
+
+    #[test]
+    fn a_reviewed_pr_with_nothing_pending_reads_as_finished() {
+        let archive = vec![archived(job(5, JobState::Done, 100), "/p1")];
+        let info = HashMap::new();
+        // Nothing for the sweep to do about it, and this run reviewed it.
+        let src = Sources { jobs: &[], pass_dir: Path::new("/p2"), archive: &archive, waiting: &[(5, Wait::Seen)], info: &info };
+        assert_eq!(prs(&rows(&src)), vec![(5, Section::Finished)]);
+        // Waiting on something, so it says what.
+        let src = Sources { waiting: &[(5, Wait::Resting { until: 900 })], ..Sources { jobs: &[], pass_dir: Path::new("/p2"), archive: &archive, waiting: &[], info: &info } };
+        assert_eq!(prs(&rows(&src)), vec![(5, Section::Waiting)]);
+        // Never reviewed here: seen is what it is.
+        let src = Sources { jobs: &[], pass_dir: Path::new("/p2"), archive: &[], waiting: &[(5, Wait::Seen)], info: &info };
+        assert_eq!(prs(&rows(&src)), vec![(5, Section::Waiting)]);
     }
 
     #[test]
@@ -354,7 +423,7 @@ mod tests {
 
     fn one<'a>(live: Option<&'a Job>, last: Option<&'a Job>, section: Section) -> Row<'a> {
         let last = last.map(|job| Review { job, pass_dir: Path::new("/p") });
-        Row { pr: 9, section, title: "", author: "", live, last, wait: None }
+        Row { pr: 9, section, decision: Decision::None, title: "", author: "", live, last, wait: None }
     }
 
     #[test]

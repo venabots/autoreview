@@ -27,7 +27,7 @@ pub fn areas(size: Rect) -> Areas {
         height: size.height.saturating_sub(2),
     };
     if size.width >= SIDE_BY_SIDE {
-        let list_width = (size.width * 2 / 5).clamp(40, 64);
+        let list_width = (size.width * 3 / 10).clamp(30, 44);
         Areas {
             header,
             list: Rect { width: list_width, ..body },
@@ -110,8 +110,8 @@ mod tests {
     fn wide_terminals_put_the_panes_side_by_side() {
         let a = areas(Rect::new(0, 0, 120, 40));
         assert_eq!((a.header.y, a.footer.y), (0, 39));
-        assert_eq!((a.list.x, a.list.width, a.list.height), (0, 48, 38));
-        assert_eq!((a.detail.x, a.detail.width), (48, 72));
+        assert_eq!((a.list.x, a.list.width, a.list.height), (0, 36, 38));
+        assert_eq!((a.detail.x, a.detail.width), (36, 84));
     }
 
     #[test]

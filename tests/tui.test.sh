@@ -79,7 +79,7 @@ out="$(FAKE_CLAUDE_TRAILER=9 run_tui --key 3.0:j --key 4.0:q --)"
 assert_contains "a one-pass run exits 0" "$out" "autoreview-exit=0"
 assert_contains "the view opens on the alternate screen" "$out" $'\e[?1049h'
 assert_contains "...and leaves it" "$out" $'\e[?1049l'
-assert_contains "the list has a finished section" "$out" "FINISHED"
+assert_contains "a row says what the run did about the PR" "$out" "no verdict"
 assert_contains "the detail pane shows the last review" "$out" "LAST"
 assert_contains "...and why it is not approved yet" "$out" "retried"
 assert_contains "...and how to reopen it" "$out" "--resume"
@@ -129,7 +129,7 @@ fi
 # After the first pass both PRs rest for the babysit interval. The first row
 # is a resting PR; R wakes the run and reviews it again at once.
 out="$(run_tui --key 3.0:R --key 7.0:q -- --watch=1)"
-assert_contains "a reviewed PR waits under a watch run" "$out" "WAITING"
+assert_contains "a reviewed PR rests under a watch run" "$out" "· rest"
 assert_contains "...resting" "$out" "resting after its review"
 assert_equals "R reviews it again at once" "$(reviews_of 9)" "2"
 assert_equals "...and only it" "$(reviews_of 8)" "1"
