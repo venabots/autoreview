@@ -61,11 +61,17 @@ impl Opts<'_> {
     }
 }
 
-/// The chosen PR numbers, plus what the board needs to say about every PR it
-/// saw -- the tab fan-out ignores the second half. No numbers means nothing
-/// to do; the second half still says what was seen, because a loop that
-/// held every PR for its checks needs to know which ones it is waiting on.
-pub type Selection = (Vec<u64>, HashMap<u64, prlist::PrInfo>);
+/// The chosen PR numbers, and what every open PR looks like -- the tab
+/// fan-out uses only the numbers. No numbers means nothing to do; the rest
+/// still says what was seen, because a loop that held every PR for its
+/// checks needs to know which ones it is waiting on, and the full-screen
+/// view lists them all.
+pub struct Selection {
+    pub numbers: Vec<u64>,
+    pub info: HashMap<u64, prlist::PrInfo>,
+    /// Every open PR, most actionable first: the order the view lists in.
+    pub ranked: Vec<u64>,
+}
 
 fn mark_resumable(rows: &mut [prlist::Row], ctx: &RepoContext) {
     // Marking costs one hash and one glob per PR, so skip the whole loop when
@@ -95,9 +101,14 @@ pub fn run(ctx: &RepoContext, opts: &Opts, status: &Status) -> Result<Selection>
     if empty {
         status.clear();
     }
+    // Every open PR, ranked, before the sweep's own filters: what the
+    // full-screen view lists. Worked out here so one query serves both.
+    let seen = prlist::build_rows(&found.shown, &ctx.me, now_epoch());
+    let shown: HashMap<u64, prlist::PrInfo> = seen.iter().map(|r| (r.number, r.info())).collect();
+    let ranked: Vec<u64> = seen.iter().map(|r| r.number).collect();
     let Some(prs) = prlist::explain_if_empty(found.prs, opts.include_approved, opts.include_dependabot)
     else {
-        return Ok((Vec::new(), HashMap::new()));
+        return Ok(Selection { numbers: Vec::new(), info: shown, ranked });
     };
     // The sweep alone waits. A pick is a person choosing, and the picker
     // shows the checks in a column so they choose knowing.
@@ -113,12 +124,7 @@ pub fn run(ctx: &RepoContext, opts: &Opts, status: &Status) -> Result<Selection>
         )?,
         _ => prs,
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let mut rows = prlist::build_rows(&prs, &ctx.me, now);
-    let info = rows.iter().map(|r| (r.number, r.info())).collect();
+    let mut rows = prlist::build_rows(&prs, &ctx.me, now_epoch());
     let numbers = if opts.pick {
         mark_resumable(&mut rows, ctx);
         // Cleared before the picker: gum owns the terminal from here, and a
@@ -129,5 +135,12 @@ pub fn run(ctx: &RepoContext, opts: &Opts, status: &Status) -> Result<Selection>
         status.clear();
         prlist::select_auto(&rows, opts.sweep_empty_hint, opts.gates())
     };
-    Ok((numbers.unwrap_or_default(), info))
+    Ok(Selection { numbers: numbers.unwrap_or_default(), info: shown, ranked })
+}
+
+fn now_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }

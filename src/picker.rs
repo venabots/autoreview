@@ -153,6 +153,7 @@ mod tests {
 
     fn row(n: u64, bot: bool, resumable: bool) -> Row {
         Row {
+            decision: crate::prlist::Decision::from_raw(None),
             bot,
             number: n,
             engage: Engagement::New,

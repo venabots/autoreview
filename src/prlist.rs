@@ -190,6 +190,37 @@ impl PrNode {
     }
 }
 
+/// What the PR's reviews add up to, as GitHub reports it. The sweep only
+/// reads "approved" (it leaves those alone); the full-screen view draws all
+/// three, because an icon per PR is the fastest way to see where a repo
+/// stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Decision {
+    Approved,
+    ChangesRequested,
+    /// Nobody has decided yet, or the PR has no reviews at all.
+    None,
+}
+
+impl Decision {
+    pub fn from_raw(raw: Option<&str>) -> Decision {
+        match raw {
+            Some("APPROVED") => Decision::Approved,
+            Some("CHANGES_REQUESTED") => Decision::ChangesRequested,
+            _ => Decision::None,
+        }
+    }
+
+    /// The picker's REVIEW column.
+    pub fn column(self) -> &'static str {
+        match self {
+            Decision::Approved => "APPROVED",
+            Decision::ChangesRequested => "CHANGES",
+            Decision::None => "-",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Engagement {
     New,
@@ -252,6 +283,8 @@ pub struct PrInfo {
     pub ci: Ci,
     /// See `Row::stacked_on`.
     pub stacked_on: Option<StackedOn>,
+    /// What the PR's reviews add up to, for the view's icon.
+    pub decision: Decision,
 }
 
 impl Row {
@@ -263,6 +296,7 @@ impl Row {
             head: self.head.clone(),
             ci: self.ci,
             stacked_on: self.stacked_on,
+            decision: self.decision,
         }
     }
 }
@@ -272,6 +306,8 @@ impl Row {
 pub struct Row {
     pub bot: bool,
     pub number: u64,
+    /// What the PR's reviews add up to. `review` is this, as a column.
+    pub decision: Decision,
     pub engage: Engagement,
     pub review: &'static str,
     pub rel_time: String,
@@ -342,6 +378,10 @@ impl PrInfo {
 /// browser reads as a broken query rather than a working filter.
 pub struct Fetched {
     pub prs: Vec<PrNode>,
+    /// Every open PR that is somebody else's work, approved ones included.
+    /// The sweep reviews `prs`; the full-screen view lists these, so an
+    /// approved PR is visible as approved rather than missing.
+    pub shown: Vec<PrNode>,
     /// Open and non-draft, before your own PRs, bots and approved ones were
     /// removed.
     pub open: usize,
@@ -407,14 +447,18 @@ pub fn filter_prs(
         .map(|pr| PrNode { stacked_on: stacked.get(&pr.number).copied(), ..pr })
         .collect();
     let total = open.len();
-    let prs: Vec<PrNode> = open
+    let shown: Vec<PrNode> = open
         .into_iter()
         // Always hide your own PRs -- this tool is for reviewing others' work.
         .filter(|pr| pr.author_login() != me)
         .filter(|pr| include_dependabot || !is_bot(pr.author_login()))
-        .filter(|pr| include_approved || pr.review_decision.as_deref() != Some("APPROVED"))
         .collect();
-    Fetched { prs, open: total, truncated }
+    let prs: Vec<PrNode> = shown
+        .iter()
+        .filter(|pr| include_approved || pr.review_decision.as_deref() != Some("APPROVED"))
+        .cloned()
+        .collect();
+    Fetched { prs, shown, open: total, truncated }
 }
 
 /// Nothing left after the filters is not an error, but it does need a reason:
@@ -548,17 +592,14 @@ pub fn build_rows(prs: &[PrNode], me: &str, now_epoch: i64) -> Vec<Row> {
         .iter()
         .map(|pr| {
             let engage = engagement(pr, me);
-            let review = match pr.review_decision.as_deref() {
-                Some("CHANGES_REQUESTED") => "CHANGES",
-                Some("APPROVED") => "APPROVED",
-                _ => "-",
-            };
+            let decision = Decision::from_raw(pr.review_decision.as_deref());
             let author = if pr.author_login().is_empty() { "ghost" } else { pr.author_login() };
             Row {
                 bot: is_bot(pr.author_login()),
                 number: pr.number,
+                decision,
                 engage,
-                review,
+                review: decision.column(),
                 rel_time: rel(now_epoch, &pr.updated_at),
                 author: author.to_string(),
                 title: pr.title.clone(),
