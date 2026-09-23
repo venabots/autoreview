@@ -39,13 +39,26 @@ as they were.
   writes to `stdout()`, which is the log file then. So the view never calls
   ratatui's `Terminal::clear`, `init` or `restore`; it enters, clears and
   leaves the alternate screen itself.
-- **One row per PR, not one per review.** Sections run top to bottom: running,
-  queued, waiting, finished. Under a run that looks again, every PR it still
-  watches is listed as waiting, including the ones the next pass will review,
-  so a finished row is a PR the run has dropped. Every row carries the newest
-  review that finished, whatever its section: under `--watch` a reviewed PR
-  spends most of its life resting, and a list that offered its review only
-  once the PR was finished for good would hide it where it is wanted.
+- **One row per PR, not one per review, and two lines of it.** A PR reviewed
+  three times in a watch run is one piece of work, and a list that grew a row
+  per pass would bury the running reviews under a day of history. The first
+  line is an icon, the number and one state word; the second is the author
+  and the title, because a title beside a state column leaves neither room in
+  a pane this narrow. Every row carries the newest review that finished, so a
+  PR resting under `--watch` still offers it.
+- **No headings: one order, most pressing first.** What is running, then what
+  is about to run, then what the run is waiting on and how soon, then what it
+  has reviewed, and last the PRs it has nothing to do about. The state word
+  says which is which, so the headings only cost rows.
+- **The icon is GitHub's word about the PR, not the run's.** Approved,
+  changes requested, or nothing decided yet -- and the spinner while a review
+  is running. A review this run just posted appears there when the PR list is
+  read again, which is the asymmetry decision 0002 keeps for the VERDICT
+  column: the state word says what the run did, the icon says what landed.
+- **The list holds every open PR, approved ones included.** They are filtered
+  out of what the sweep reviews, not out of what a person looks at. `R` still
+  works on them, because asking for a review of an approved PR is a thing a
+  person may want and the sweep never will.
 - **Keys act on the frame the person saw.** Selection follows a PR, not a
   place, because rows move as reviews finish. Stopping a review and quitting
   mid-pass take a second press, and the arming names its PR, so a second `x`

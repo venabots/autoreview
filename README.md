@@ -477,8 +477,8 @@ failed too.
 ### The full-screen view
 
 `--tui` draws the run full screen instead of the inline board. Every open PR is
-on the left, one row each, under a heading for its state. The selected PR's
-details are on the right.
+on the left, two lines each, most pressing first. The selected PR's details
+are on the right.
 
 The screen opens whenever there is a terminal, including on a repo with
 nothing to review: the PRs are all there, each saying why it is being left
@@ -490,29 +490,37 @@ alone, and `R` reviews any of them on the spot.
 
 ```
 autoreview · acme/widgets · watching every 2m · a reviewed PR rests 30m · log …
-RUNNING 1                                 │ #9 Add retry logic
-⠸ #9     1m12s        @alice Add retry lo…│ @alice
-QUEUED 1                                  │
-· #7     queued       @dan Bump deps      │ reviewing 1m12s · claude
-WAITING 2                                 │ session 3fcba529-a817-5cea-aea7-9c6bdf065a96
-◷ #8     rest 28m04s  @bob Fix typo       │ 14 turns · 9 tool calls
-◷ #5     CI failing   @erin Cache keys    │
-FINISHED 1                                │ ACTIVITY
-✓ #4     approved     @carol Refactor cli…│   40s ago  Read     pool.rs
-                                          │   12s ago  Bash     cargo test --quiet
-1 running · 1 queued · 2 waiting · 1 finished · next check in 1m40s   q quit  j/k move
+⠸ #1711 · reviewing 1m12s         │ #1711 Fix the ledger migration
+  @alice Fix the ledger migration │ @alice
+· #1702 · queued                  │
+  @dan Bump the client deps       │ reviewing 1m12s · claude
+✗ #1650 · CI failing              │ session 3fcba529-a817-5cea-aea7-9c6bdf065a96
+  @erin Cache keys by tenant      │ 14 turns · 9 tool calls
+○ #1698 · rest 28m04s             │
+  @bob Add retry logic            │ ACTIVITY
+✗ #1640 · changes req             │    40s ago  Read     pool.rs
+  @carol Refactor the client      │    12s ago  Bash     cargo test --quiet
+✓ #1633 · approved                │
+  @frank Drop the old gateway     │
+1 running · 1 queued · 3 waiting · 1 finished · next check in 1m40s   q quit  j/k move
 ```
 
-| Section  | What is in it                                                                                   |
-| -------- | ----------------------------------------------------------------------------------------------- |
-| RUNNING  | reviews in progress, with the transcript activity the inline board follows                      |
-| QUEUED   | reviews this pass has not started yet                                                           |
-| WAITING  | PRs due at the next pass, held for their checks or the PR underneath, resting, capped, quiet, or seen |
-| FINISHED | PRs the run is done with, newest first                                                          |
+The list has no headings. It is ordered by what the run will do next: the
+reviews running, then the ones about to start, then the PRs it is waiting on
+(soonest first: due next pass, held for their checks, stacked, resting,
+capped), then the ones it has reviewed, and last the PRs it has nothing to do
+about -- seen, then approved.
 
-A PR has one row, whatever has happened to it. The row keeps the PR's newest
-finished review in every section, so a PR that is resting under `--watch`
-still shows its verdict, its "not approved yet" block and the review text.
+A PR has one row of two lines, whatever has happened to it: the icon and one
+state word say where its reviews stand and what the run is doing, and the
+second line says whose work it is. The row keeps the PR's newest finished
+review wherever it sits, so a PR resting under `--watch` still shows its
+verdict, its "not approved yet" block and the review text.
+
+The icon is GitHub's word, not the run's: `✓` approved, `✗` changes
+requested, `○` nothing decided yet, and the spinner while a review of it is
+running. A review this run just posted shows up there once the PR list has
+been read again -- the same asymmetry the VERDICT column keeps.
 
 | Key               | Does                                                          |
 | ----------------- | ------------------------------------------------------------- |
