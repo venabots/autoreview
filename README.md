@@ -522,6 +522,23 @@ requested, `○` nothing decided yet, and the spinner while a review of it is
 running. A review this run just posted shows up there once the PR list has
 been read again -- the same asymmetry the VERDICT column keeps.
 
+The second line is the branch, not the title: a branch is short and says who
+is working on what, where half the titles in a repo open with the same
+`feat(scope):`. A PR the list has no branch for falls back to its title.
+
+**The mouse works, and so does everything without it.** The wheel scrolls
+whichever pane it is pointing at -- the list, or the review in the detail
+pane -- and a click selects a row. While the screen has the mouse, dragging
+does not select text, so `m` hands it back to the terminal and `m` takes it
+again. (Most terminals also bypass with shift, or option in iTerm and
+Ghostty.)
+
+**`f` changes what the reviewers are told**, mid-run. It opens the `--focus`
+text on a line at the bottom, prefilled with whatever is in force; enter
+applies it and esc leaves it alone. The next review started -- including one
+still queued in the pass that is running -- carries the new focus, and the
+header shows it until it changes again.
+
 | Key               | Does                                                          |
 | ----------------- | ------------------------------------------------------------- |
 | `j` `k`, arrows   | move the selection                                            |
@@ -532,6 +549,8 @@ been read again -- the same asymmetry the VERDICT column keeps.
 | `x` `x`           | stop the selected running review                              |
 | `R`               | review the selected PR now                                    |
 | `w`               | start or stop looking for work, as `--watch` does             |
+| `f`               | type what the reviewers are told to look at (`--focus`)       |
+| `m`               | hand the mouse back to the terminal, and take it again        |
 | `l`               | show the run log in the right pane; `esc` puts it away        |
 | `q`               | quit; a second `q` when reviews are running, which stops them |
 

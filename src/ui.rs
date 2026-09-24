@@ -278,6 +278,8 @@ pub struct Ui {
     /// Whether a person asked the run to start or stop looking for work,
     /// waiting for the loop to reach a point where it can.
     watch_toggle: Option<bool>,
+    /// What a person typed as the new focus, waiting to be taken.
+    focus_change: Option<Option<String>>,
     /// The full-screen view, while it is up.
     screen: Option<crate::tui::Screen>,
     /// The run directory, once the full-screen view has opened. The summary
@@ -311,6 +313,7 @@ impl Ui {
             live: Vec::new(),
             requests: Vec::new(),
             watch_toggle: None,
+            focus_change: None,
             screen: None,
             run_root: None,
             archive: Vec::new(),
@@ -562,6 +565,12 @@ impl Ui {
                         self.watch_toggle = Some(*on);
                         false
                     }
+                    // The focus reaches the pass itself: a review that has
+                    // not started yet is told what the person just typed.
+                    Action::Focus(focus) => {
+                        self.focus_change = Some(focus.clone());
+                        false
+                    }
                     _ => true,
                 })
                 .collect();
@@ -579,13 +588,13 @@ impl Ui {
             })
             .collect();
         for action in &actions {
-            self.apply(*action);
+            self.apply(action);
         }
         actions
     }
 
     /// One key's effect on what the board shows.
-    fn apply(&mut self, action: Action) {
+    fn apply(&mut self, action: &Action) {
         match action {
             Action::ToggleAll => {
                 if self.expanded.is_empty() {
@@ -602,7 +611,11 @@ impl Ui {
                 }
             }
             Action::Collapse => self.expanded.clear(),
-            Action::Stop | Action::StopReview(_) | Action::ReviewNow(_) | Action::Watch(_) => {}
+            Action::Stop
+            | Action::StopReview(_)
+            | Action::ReviewNow(_)
+            | Action::Watch(_)
+            | Action::Focus(_) => {}
         }
     }
 
@@ -1575,22 +1588,22 @@ mod tests {
     fn keys_change_what_the_board_shows() {
         let mut ui = self::ui(true, None);
         ui.live = vec![9, 8];
-        ui.apply(Action::ToggleAll);
+        ui.apply(&Action::ToggleAll);
         assert_eq!(ui.expanded.len(), 2);
-        ui.apply(Action::ToggleAll);
+        ui.apply(&Action::ToggleAll);
         assert!(ui.expanded.is_empty());
-        ui.apply(Action::Toggle(2));
+        ui.apply(&Action::Toggle(2));
         assert!(ui.expanded.contains(&8) && !ui.expanded.contains(&9));
-        ui.apply(Action::Toggle(2));
+        ui.apply(&Action::Toggle(2));
         assert!(ui.expanded.is_empty());
         // A digit past the last row names nothing, and zero is not a row.
-        ui.apply(Action::Toggle(3));
-        ui.apply(Action::Toggle(0));
+        ui.apply(&Action::Toggle(3));
+        ui.apply(&Action::Toggle(0));
         assert!(ui.expanded.is_empty());
-        ui.apply(Action::Toggle(1));
-        ui.apply(Action::Collapse);
+        ui.apply(&Action::Toggle(1));
+        ui.apply(&Action::Collapse);
         assert!(ui.expanded.is_empty());
-        ui.apply(Action::Stop);
+        ui.apply(&Action::Stop);
     }
 
     #[test]
@@ -1757,6 +1770,7 @@ mod tests {
             live: Vec::new(),
             requests: Vec::new(),
             watch_toggle: None,
+            focus_change: None,
             screen: None,
             run_root: None,
             archive: Vec::new(),

@@ -258,6 +258,14 @@ fn move_to_front(order: &mut VecDeque<usize>, jobs: &[Job], pr: u64) -> bool {
     true
 }
 
+/// What the run says when the focus changes, in the log and on the screen.
+pub fn focus_note(focus: Option<&str>) -> String {
+    match focus {
+        Some(focus) => format!("note: the reviewers are now told: {focus}"),
+        None => "note: the reviewers are no longer told anything in particular".to_string(),
+    }
+}
+
 /// Stop one running review because a person asked. It ends as a failure,
 /// like a review killed from outside, and the next pass reviews the PR from
 /// scratch. A reaped review has nothing left to stop, and its process group
@@ -296,7 +304,7 @@ fn should_fall_back(job: &Job, state: JobState, code: Option<i32>, cfg: &Config)
 pub fn run_pass(
     queue: &[u64],
     info: &HashMap<u64, crate::prlist::PrInfo>,
-    cfg: &Config,
+    cfg: &mut Config,
     ctx: &RepoContext,
     rundir: &RunDir,
     dashp: &str,
@@ -334,6 +342,14 @@ pub fn run_pass(
     let mut retries: Vec<usize> = Vec::new();
 
     while finished < total {
+        // Before anything is started: a focus typed while the run waited
+        // belongs to the reviews it was waiting to start, and one typed
+        // mid-pass belongs to whatever has not started yet.
+        if let Some(focus) = ui.take_focus() {
+            cfg.focus = focus;
+            ui.note(focus_note(cfg.focus.as_deref()));
+            ui.show_focus(cfg.focus.as_deref());
+        }
         // Fill free slots in queue order -- the order the tests (and eyes)
         // expect the starts to happen.
         while running < jobs_max {

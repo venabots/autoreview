@@ -59,6 +59,30 @@ as they were.
   out of what the sweep reviews, not out of what a person looks at. `R` still
   works on them, because asking for a review of an approved PR is a thing a
   person may want and the sweep never will.
+- **The second line of a row is the branch.** A title is longer than the
+  pane, and half of them open with the same `feat(scope):`; a branch says
+  whose work it is and what it is about in the space there is.
+- **The mouse is taken, and `m` gives it back.** The wheel scrolls the pane
+  it points at and a click selects a row; everything is still a key as well.
+  Mouse reporting stops the terminal selecting text with a drag, and the
+  pane holds a session id and a resume command worth copying, so one key
+  hands the mouse back rather than leaving people to guess at a modifier.
+  There is no crate for this: ratatui has no click events, and every crate
+  that offers them brings a widget framework whose focus rings and buttons
+  this view does not use. Hit-testing two panes of fixed-height rows is
+  arithmetic.
+- **A review's markdown is drawn, not dumped.** Headings lose their hashes
+  and keep their weight, bullets become bullets, fences become indented
+  code, and `code` and **bold** lose their markers. It is not a markdown
+  renderer: every shape it does not know passes through as itself, because a
+  review is somebody else's text and a clever parser would hide the line the
+  reader needed.
+- **`f` types the focus, mid-run.** It is the one thing a person changes
+  while watching reviews happen, and it is a sentence rather than a flag, so
+  it needs somewhere to type. The same validation as `--focus` runs on it:
+  a sentence the flag would refuse must not reach a prompt because it
+  arrived by another door. A pass takes it before it starts a review, so a
+  review still queued is told what was just typed.
 - **Keys act on the frame the person saw.** Selection follows a PR, not a
   place, because rows move as reviews finish. Stopping a review and quitting
   mid-pass take a second press, and the arming names its PR, so a second `x`

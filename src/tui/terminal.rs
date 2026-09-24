@@ -13,6 +13,7 @@
 //! used. And the size comes from `/dev/tty`, which crossterm asks first, so
 //! a resize is seen without the query the inline board depends on.
 
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{cursor, execute};
 use nix::unistd::{dup2_stderr, dup2_stdout};
@@ -59,7 +60,7 @@ fn restore() {
         let _ = dup2_stderr(&err);
     }
     if let Ok(mut tty) = OpenOptions::new().write(true).open("/dev/tty") {
-        let _ = execute!(tty, LeaveAlternateScreen, cursor::Show);
+        let _ = execute!(tty, DisableMouseCapture, LeaveAlternateScreen, cursor::Show);
     }
     let _ = terminal::disable_raw_mode();
 }
@@ -101,11 +102,28 @@ impl Term {
 
     fn take(tty: File, log: &File, saved: (OwnedFd, OwnedFd)) -> io::Result<Term> {
         let mut writer = BufWriter::new(tty);
-        execute!(writer, EnterAlternateScreen, cursor::Hide, Clear(ClearType::All))?;
+        execute!(writer, EnterAlternateScreen, EnableMouseCapture, cursor::Hide, Clear(ClearType::All))?;
         *SAVED.lock().unwrap_or_else(|e| e.into_inner()) = Some(saved);
         dup2_stdout(log)?;
         dup2_stderr(log)?;
         Ok(Term { terminal: Terminal::new(CrosstermBackend::new(writer))? })
+    }
+}
+
+impl Term {
+    /// Take the mouse, or give it back to the terminal.
+    ///
+    /// While the screen has it, a drag selects nothing: the terminal sends
+    /// the drag here instead of highlighting text with it. Handing it back
+    /// is how a person copies a session id or a resume command out of the
+    /// pane, which is worth one key.
+    pub fn set_mouse(&mut self, on: bool) -> io::Result<()> {
+        let writer = self.terminal.backend_mut();
+        if on {
+            execute!(writer, EnableMouseCapture)
+        } else {
+            execute!(writer, DisableMouseCapture)
+        }
     }
 }
 

@@ -7,6 +7,7 @@
 
 use super::actions;
 use super::detail::{self, Context};
+use super::input::{Edit, Input};
 use super::keys::{self, Armed, Intent, Pending, Press};
 use super::layout;
 use super::list;
@@ -19,8 +20,9 @@ use crate::prlist::PrInfo;
 use crate::report::{sanitize_block, sanitize_for_display};
 use crate::rundir;
 use crate::ui::{SPINNER_FRAMES, count, fmt_dur};
-use crossterm::event::{self, Event};
+use crossterm::event::{self, Event, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Frame;
+use ratatui::layout::Rect;
 use ratatui::style::{Style, Stylize};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
@@ -89,6 +91,29 @@ pub struct Screen {
     order: Vec<u64>,
     picked: Option<Picked>,
     running: usize,
+    /// Where the two panes were drawn, for working out what the pointer is
+    /// over. The detail pane's is the area inside its border, which is what
+    /// its scrolling is measured in.
+    list_area: Rect,
+    detail_area: Rect,
+    /// Whether the screen is taking the mouse. Off hands drags back to the
+    /// terminal, which is how text is selected and copied.
+    mouse: bool,
+    /// What the reviewers are told to look at, as the engine last said.
+    focus: Option<String>,
+    /// The focus being typed. While this is open every key belongs to it.
+    editing: Option<Input>,
+}
+
+/// Whether a point is inside an area. The pointer arrives in screen
+/// coordinates, the same ones the areas were drawn in.
+fn inside(area: Rect, (column, row): (u16, u16)) -> bool {
+    area.width > 0
+        && area.height > 0
+        && column >= area.x
+        && column < area.x + area.width
+        && row >= area.y
+        && row < area.y + area.height
 }
 
 fn epoch_now() -> i64 {
@@ -131,6 +156,11 @@ impl Screen {
             order: Vec::new(),
             picked: None,
             running: 0,
+            list_area: Rect::ZERO,
+            detail_area: Rect::ZERO,
+            mouse: true,
+            focus: None,
+            editing: None,
         }
     }
 
@@ -148,6 +178,13 @@ impl Screen {
 
     pub fn set_busy(&mut self, what: Option<&str>) {
         self.busy = what.map(String::from);
+    }
+
+    /// What the reviewers are being told to look at, as the engine has it.
+    /// The screen shows it and opens its editor on it; the engine decides
+    /// what it actually is.
+    pub fn set_focus(&mut self, focus: Option<&str>) {
+        self.focus = focus.map(String::from);
     }
 
     /// What the run does now, for the header, and whether it looks for work
@@ -189,10 +226,17 @@ impl Screen {
         let mut out = Vec::new();
         while event::poll(Duration::ZERO).unwrap_or(false) {
             let Ok(ev) = event::read() else { break };
-            if let Event::Key(key) = ev
-                && let Some(intent) = keys::intent(key)
-            {
-                out.extend(self.press(intent, Instant::now()));
+            match ev {
+                // While the focus is being typed, every key is the
+                // editor's: j and k are letters, not moves.
+                Event::Key(key) if self.editing.is_some() => out.extend(self.edit(key)),
+                Event::Key(key) => {
+                    if let Some(intent) = keys::intent(key) {
+                        out.extend(self.press(intent, Instant::now()));
+                    }
+                }
+                Event::Mouse(mouse) => self.point(mouse),
+                _ => {}
             }
         }
         out
@@ -236,12 +280,20 @@ impl Screen {
 
         let areas = layout::areas(f.area());
         let log = self.header.log.display().to_string();
-        f.render_widget(layout::header(&self.header.repo, &self.header.mode, &log, areas.header.width as usize), areas.header);
+        let header = layout::header(
+            &self.header.repo,
+            &self.header.mode,
+            self.focus.as_deref(),
+            &log,
+            areas.header.width as usize,
+        );
+        f.render_widget(header, areas.header);
 
         let (lines, selected_line) = list::lines(rows, at, areas.list.width as usize, spinner, now);
         let height = areas.list.height as usize;
         self.list_offset = list::offset(selected_line, height, self.list_offset, lines.len());
         let visible: Vec<Line> = lines.into_iter().skip(self.list_offset).take(height).collect();
+        self.list_area = areas.list;
         f.render_widget(Paragraph::new(visible), areas.list);
 
         let borders = if areas.detail.x > areas.list.x { Borders::LEFT } else { Borders::TOP };
@@ -250,6 +302,7 @@ impl Screen {
             .border_style(Style::new().dark_gray())
             .padding(Padding::left(1));
         let inner = block.inner(areas.detail);
+        self.detail_area = inner;
         let body = self.detail_lines(row, now);
         let paragraph = Paragraph::new(body).wrap(Wrap { trim: false });
         let total = paragraph.line_count(inner.width);
@@ -263,9 +316,17 @@ impl Screen {
         if self.message.as_ref().is_some_and(|(_, at)| at.elapsed() > MESSAGE_FOR) {
             self.message = None;
         }
-        let status = self.status(rows, now);
-        let message = self.message.as_ref().map(|(m, _)| m.as_str());
-        f.render_widget(layout::footer(&status, message, areas.footer.width as usize), areas.footer);
+        // While a focus is being typed the footer is the line it is typed
+        // on: the keys it lists are letters until enter or esc.
+        let width = areas.footer.width as usize;
+        let footer = match &self.editing {
+            Some(input) => layout::prompt(&input.text(), input.cursor(), width),
+            None => {
+                let status = self.status(rows, now);
+                layout::footer(&status, self.message.as_ref().map(|(m, _)| m.as_str()), width)
+            }
+        };
+        f.render_widget(footer, areas.footer);
     }
 
     fn pick(&self, row: &Row) -> Picked {
@@ -339,6 +400,71 @@ impl Screen {
             _ => {}
         }
         parts.join(" · ")
+    }
+
+    /// One key of a focus being typed. Enter hands it to the engine, esc
+    /// leaves the focus as it was, and a sentence the flag would refuse is
+    /// refused here too rather than reaching a prompt.
+    fn edit(&mut self, key: crossterm::event::KeyEvent) -> Vec<Action> {
+        let Some(input) = &mut self.editing else { return Vec::new() };
+        match input.key(key) {
+            Edit::Typing => Vec::new(),
+            Edit::Cancelled => {
+                self.editing = None;
+                self.flash("the focus is unchanged");
+                Vec::new()
+            }
+            Edit::Done(text) if text.trim().is_empty() => {
+                self.editing = None;
+                self.focus = None;
+                self.flash("the reviewers are told nothing in particular now");
+                vec![Action::Focus(None)]
+            }
+            Edit::Done(text) => match crate::cli::parse_focus(&text) {
+                Ok(focus) => {
+                    self.editing = None;
+                    // Shown at once. The engine says the same thing back
+                    // when it takes it, which is what keeps them in step.
+                    self.focus = Some(focus.clone());
+                    self.flash(format!("the reviewers are told: {focus}"));
+                    vec![Action::Focus(Some(focus))]
+                }
+                Err(why) => {
+                    self.flash(why);
+                    Vec::new()
+                }
+            },
+        }
+    }
+
+    /// One mouse event. Nothing it does needs the engine: it selects a row
+    /// or scrolls a pane, both of which are this screen's own business.
+    fn point(&mut self, mouse: MouseEvent) {
+        let at = (mouse.column, mouse.row);
+        match mouse.kind {
+            // The wheel scrolls whatever it is pointing at. Three lines a
+            // notch is what the rest of the terminal does.
+            MouseEventKind::ScrollDown if inside(self.detail_area, at) => self.scroll_by(3),
+            MouseEventKind::ScrollUp if inside(self.detail_area, at) => self.scroll_by(-3),
+            MouseEventKind::ScrollDown if inside(self.list_area, at) => self.move_by(1),
+            MouseEventKind::ScrollUp if inside(self.list_area, at) => self.move_by(-1),
+            MouseEventKind::Down(MouseButton::Left) if inside(self.list_area, at) => {
+                let row =
+                    list::row_at(mouse.row, self.list_area.y, self.list_offset, self.order.len());
+                if let Some(pr) = row.and_then(|at| self.order.get(at)) {
+                    self.selected = Some(*pr);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Scroll the detail pane by `lines`, and follow its end again once the
+    /// scrolling reaches it -- a running review keeps arriving at the
+    /// bottom, and a person who scrolled there is asking to stay there.
+    fn scroll_by(&mut self, lines: isize) {
+        self.scroll = self.scroll.saturating_add_signed(lines).min(self.scroll_max);
+        self.follow = self.scroll >= self.scroll_max;
     }
 
     fn move_by(&mut self, delta: isize) {
@@ -437,6 +563,25 @@ impl Screen {
                     }
                     Press::Fire => return vec![Action::Stop],
                 }
+            }
+            // The terminal cannot select text while the screen is taking
+            // the mouse, so the key that hands it back is how a person
+            // copies a session id or a resume command out of the pane.
+            Intent::Mouse => {
+                self.mouse = !self.mouse;
+                if let Some(term) = &mut self.term {
+                    let _ = term.set_mouse(self.mouse);
+                }
+                self.flash(if self.mouse {
+                    "the screen has the mouse again"
+                } else {
+                    "the mouse is the terminal's: drag to select text, m to take it back"
+                });
+            }
+            // What the reviewers are told to look at, typed in place. The
+            // engine takes it from the action and says what it became.
+            Intent::Focus => {
+                self.editing = Some(Input::at_end(self.focus.as_deref().unwrap_or("")));
             }
             Intent::Interrupt => return vec![Action::Stop],
         }
@@ -620,6 +765,116 @@ mod tests {
         assert!(out.contains("watching every 2m"), "{out}");
         assert_eq!(screen.press(Intent::Watch, Instant::now()), vec![Action::Watch(false)]);
         assert!(screen.message.as_ref().unwrap().0.contains("no longer looking"));
+    }
+
+    fn wheel(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+        MouseEvent { kind, column, row, modifiers: crossterm::event::KeyModifiers::NONE }
+    }
+
+    #[test]
+    fn the_wheel_scrolls_whichever_pane_it_points_at() {
+        let mut screen = Screen::new(None, header(true));
+        let mut long = done(7);
+        long.job.title = "Change 7".into();
+        frame(&mut screen, &[], &[long], 120);
+        // The detail pane is taller than its content here, so there is
+        // nothing to scroll and the wheel leaves it at the end.
+        screen.scroll_max = 40;
+        screen.follow = false;
+        let over_detail = (screen.detail_area.x + 2, screen.detail_area.y + 1);
+        screen.point(wheel(MouseEventKind::ScrollDown, over_detail.0, over_detail.1));
+        assert_eq!(screen.scroll, 3, "three lines a notch");
+        screen.point(wheel(MouseEventKind::ScrollUp, over_detail.0, over_detail.1));
+        assert_eq!(screen.scroll, 0);
+        screen.point(wheel(MouseEventKind::ScrollUp, over_detail.0, over_detail.1));
+        assert_eq!(screen.scroll, 0, "and never past the top");
+    }
+
+    #[test]
+    fn the_wheel_over_the_list_moves_the_selection() {
+        let mut screen = Screen::new(None, header(true));
+        let jobs = vec![job(9, JobState::Running), job(8, JobState::Queued)];
+        frame(&mut screen, &jobs, &[], 120);
+        let over_list = (screen.list_area.x + 1, screen.list_area.y + 1);
+        screen.point(wheel(MouseEventKind::ScrollDown, over_list.0, over_list.1));
+        assert_eq!(screen.selected, Some(8));
+        screen.point(wheel(MouseEventKind::ScrollUp, over_list.0, over_list.1));
+        assert_eq!(screen.selected, Some(9));
+    }
+
+    #[test]
+    fn a_click_selects_the_row_it_lands_on() {
+        let mut screen = Screen::new(None, header(true));
+        let jobs = vec![job(9, JobState::Running), job(8, JobState::Queued)];
+        frame(&mut screen, &jobs, &[], 120);
+        let x = screen.list_area.x + 1;
+        // Each row is two lines: the second row starts two lines down.
+        screen.point(wheel(MouseEventKind::Down(MouseButton::Left), x, screen.list_area.y + 2));
+        assert_eq!(screen.selected, Some(8));
+        screen.point(wheel(MouseEventKind::Down(MouseButton::Left), x, screen.list_area.y));
+        assert_eq!(screen.selected, Some(9));
+        // Past the last row, and outside the pane: nothing moves.
+        screen.point(wheel(MouseEventKind::Down(MouseButton::Left), x, screen.list_area.y + 9));
+        screen.point(wheel(MouseEventKind::Down(MouseButton::Left), screen.detail_area.x + 2, screen.list_area.y + 2));
+        assert_eq!(screen.selected, Some(9));
+    }
+
+    #[test]
+    fn m_hands_the_mouse_back_to_the_terminal() {
+        let mut screen = Screen::new(None, header(true));
+        frame(&mut screen, &[], &[done(7)], 120);
+        assert!(screen.mouse, "the screen takes it to begin with");
+        assert!(screen.press(Intent::Mouse, Instant::now()).is_empty());
+        assert!(!screen.mouse);
+        assert!(screen.message.as_ref().unwrap().0.contains("drag to select text"));
+        screen.press(Intent::Mouse, Instant::now());
+        assert!(screen.mouse);
+    }
+
+    #[test]
+    fn a_focus_is_typed_in_place_and_handed_to_the_engine() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut screen = Screen::new(None, header(true));
+        screen.set_focus(Some("the ledger"));
+        frame(&mut screen, &[], &[done(7)], 120);
+        assert!(screen.press(Intent::Focus, Instant::now()).is_empty());
+        // The editor opens on what the run is already being told.
+        let out = frame(&mut screen, &[], &[done(7)], 120);
+        assert!(out.contains("focus the ledger"), "{out}");
+        assert!(out.contains("enter to apply"), "{out}");
+
+        // Every key is the editor's now, j and k included.
+        let key = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        for c in " jk".chars() {
+            assert!(screen.edit(key(c)).is_empty());
+        }
+        let done_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(
+            screen.edit(done_key),
+            vec![Action::Focus(Some("the ledger jk".into()))],
+            "what was typed, as the flag would have taken it"
+        );
+        assert!(screen.editing.is_none(), "and the editor closes");
+
+        // Esc leaves it alone; an empty line clears it.
+        screen.press(Intent::Focus, Instant::now());
+        screen.edit(key('x'));
+        assert!(screen.edit(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).is_empty());
+        screen.press(Intent::Focus, Instant::now());
+        for _ in 0..40 {
+            screen.edit(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        }
+        assert_eq!(screen.edit(done_key), vec![Action::Focus(None)]);
+    }
+
+    #[test]
+    fn the_header_shows_what_the_reviewers_are_told() {
+        let mut screen = Screen::new(None, header(true));
+        let out = frame(&mut screen, &[], &[done(7)], 120);
+        assert!(!out.contains("focus:"), "nothing to say yet: {out}");
+        screen.set_focus(Some("be strict about the ledger"));
+        let out = frame(&mut screen, &[], &[done(7)], 120);
+        assert!(out.contains("focus: be strict about the ledger"), "{out}");
     }
 
     #[test]

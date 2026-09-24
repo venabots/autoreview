@@ -8,9 +8,11 @@
 
 pub mod actions;
 mod detail;
+mod input;
 pub mod keys;
 mod layout;
 mod list;
+mod markdown;
 pub mod model;
 mod screen;
 mod terminal;

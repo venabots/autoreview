@@ -140,10 +140,14 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
                       the review in a new terminal tab, o opens the PR, x x
                       stops a running review, R reviews the selected PR now,
                       w starts or stops looking for work (what --watch does,
-                      as a key), l shows the run log, q quits. While it is up
-                      the plain lines go to autoreview.log in the run
-                      directory. Off a terminal the run prints its plain
-                      lines as ever.
+                      as a key), f types what the reviewers are told to look
+                      at (--focus, changed mid-run), l shows the run log, q
+                      quits. The mouse works too: the wheel scrolls whichever
+                      pane it points at and a click selects a row; m hands
+                      the mouse back to the terminal for selecting text.
+                      While it is up the plain lines go to autoreview.log in
+                      the run directory. Off a terminal the run prints its
+                      plain lines as ever.
   --help, -h          Show this help.
   --version, -V       Show the version.
 
@@ -301,16 +305,23 @@ fn clean_focus(raw: &str) -> Option<String> {
 /// refused rather than cut: a run costs the same whether or not the guidance
 /// survived, and losing its tail in silence is the failure a blank value is
 /// already refused to avoid.
-fn checked_focus(raw: &str) -> Result<String, CliError> {
-    let focus = clean_focus(raw)
-        .ok_or_else(|| err("error: --focus expects text, not blank space".to_string()))?;
+///
+/// Shared with the full-screen view, where the focus is typed rather than
+/// passed: a sentence the flag would refuse must not reach a prompt because
+/// it arrived by another door.
+pub fn parse_focus(raw: &str) -> Result<String, String> {
+    let focus = clean_focus(raw).ok_or("error: --focus expects text, not blank space")?;
     if focus.chars().count() > FOCUS_MAX_CHARS {
-        return Err(err(format!(
+        return Err(format!(
             "error: --focus is {} characters; the most a prompt will carry is {FOCUS_MAX_CHARS}",
             focus.chars().count()
-        )));
+        ));
     }
     Ok(focus)
+}
+
+fn checked_focus(raw: &str) -> Result<String, CliError> {
+    parse_focus(raw).map_err(err)
 }
 
 pub enum Parsed {

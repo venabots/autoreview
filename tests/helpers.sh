@@ -681,7 +681,7 @@ EOF
 
   cat >"$SANDBOX/fixtures/prs.json" <<'EOF'
 {"data":{"repository":{"defaultBranchRef":{"name":"main"},"pullRequests":{"nodes":[
-  {"number":9,"title":"Add retry logic","isDraft":false,
+  {"number":9,"headRefName":"alice/add-retry-logic","title":"Add retry logic","isDraft":false,
    "updatedAt":"2026-08-10T10:00:00Z","reviewDecision":null,
    "headRefOid":"sha9",
    "author":{"login":"alice"},
@@ -689,7 +689,7 @@ EOF
    "commits":{"nodes":[{"commit":{"committedDate":"2026-08-10T10:00:00Z","author":{"user":{"login":"alice"}}}}]},
    "headCommit":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}},
 
-  {"number":8,"title":"Fix typo","isDraft":false,
+  {"number":8,"headRefName":"bob/fix-typo","title":"Fix typo","isDraft":false,
    "updatedAt":"2026-08-09T10:00:00Z","reviewDecision":"CHANGES_REQUESTED",
    "headRefOid":"sha8",
    "author":{"login":"bob"},
@@ -697,7 +697,7 @@ EOF
    "commits":{"nodes":[{"commit":{"committedDate":"2026-08-09T10:00:00Z","author":{"user":{"login":"bob"}}}}]},
    "headCommit":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}},
 
-  {"number":6,"title":"Refactor client","isDraft":false,
+  {"number":6,"headRefName":"carol/refactor-client","title":"Refactor client","isDraft":false,
    "updatedAt":"2026-08-08T10:00:00Z","reviewDecision":null,
    "headRefOid":"sha6",
    "author":{"login":"carol"},
@@ -705,28 +705,28 @@ EOF
    "reviews":{"nodes":[]},
    "commits":{"nodes":[{"commit":{"committedDate":"2026-08-07T10:00:00Z","author":{"user":{"login":"carol"}}}}]}},
 
-  {"number":5,"title":"Approved already","isDraft":false,
+  {"number":5,"headRefName":"dave/approved-already","title":"Approved already","isDraft":false,
    "updatedAt":"2026-08-06T10:00:00Z","reviewDecision":"APPROVED",
    "headRefOid":"sha5",
    "author":{"login":"dave"},
    "comments":{"nodes":[]},"reviews":{"nodes":[]},
    "commits":{"nodes":[{"commit":{"committedDate":"2026-08-06T10:00:00Z","author":{"user":{"login":"dave"}}}}]}},
 
-  {"number":4,"title":"My own work","isDraft":false,
+  {"number":4,"headRefName":"me/my-own-work","title":"My own work","isDraft":false,
    "updatedAt":"2026-08-05T10:00:00Z","reviewDecision":null,
    "headRefOid":"sha4",
    "author":{"login":"me"},
    "comments":{"nodes":[]},"reviews":{"nodes":[]},
    "commits":{"nodes":[{"commit":{"committedDate":"2026-08-05T10:00:00Z","author":{"user":{"login":"me"}}}}]}},
 
-  {"number":3,"title":"Bump lodash","isDraft":false,
+  {"number":3,"headRefName":"dependabot/bump-lodash","title":"Bump lodash","isDraft":false,
    "updatedAt":"2026-08-04T10:00:00Z","reviewDecision":null,
    "headRefOid":"sha3",
    "author":{"login":"dependabot"},
    "comments":{"nodes":[]},"reviews":{"nodes":[]},
    "commits":{"nodes":[{"commit":{"committedDate":"2026-08-04T10:00:00Z","author":{"user":{"login":"dependabot"}}}}]}},
 
-  {"number":2,"title":"Work in progress","isDraft":true,
+  {"number":2,"headRefName":"erin/work-in-progress","title":"Work in progress","isDraft":true,
    "updatedAt":"2026-08-03T10:00:00Z","reviewDecision":null,
    "headRefOid":"sha2",
    "author":{"login":"erin"},

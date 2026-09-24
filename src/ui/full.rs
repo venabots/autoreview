@@ -94,6 +94,19 @@ impl Ui {
         self.watch_toggle.take()
     }
 
+    /// What a person typed as the new focus, taken once. Some(None) is a
+    /// focus they cleared, which is not the same as never having set one.
+    pub fn take_focus(&mut self) -> Option<Option<String>> {
+        self.focus_change.take()
+    }
+
+    /// What the reviewers are being told to look at, for the header.
+    pub fn show_focus(&mut self, focus: Option<&str>) {
+        if let Some(screen) = &mut self.screen {
+            screen.set_focus(focus);
+        }
+    }
+
     /// Whether a toggle is waiting to be acted on, without taking it.
     pub fn watch_toggle_pending(&self) -> bool {
         self.watch_toggle.is_some()
@@ -124,6 +137,7 @@ impl Ui {
             match action {
                 Action::ReviewNow(pr) => self.request(pr),
                 Action::Watch(on) => self.watch_toggle = Some(on),
+                Action::Focus(focus) => self.focus_change = Some(focus),
                 other => out.push(other),
             }
         }

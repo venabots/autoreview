@@ -285,6 +285,10 @@ pub struct PrInfo {
     pub stacked_on: Option<StackedOn>,
     /// What the PR's reviews add up to, for the view's icon.
     pub decision: Decision,
+    /// The PR's own branch. The full-screen view shows it instead of the
+    /// title: a branch is short and says who is working on what, where a
+    /// title is long and starts with the same "feat(...)" as the last one.
+    pub branch: Option<String>,
 }
 
 impl Row {
@@ -297,6 +301,7 @@ impl Row {
             ci: self.ci,
             stacked_on: self.stacked_on,
             decision: self.decision,
+            branch: self.branch.clone(),
         }
     }
 }
@@ -306,6 +311,8 @@ impl Row {
 pub struct Row {
     pub bot: bool,
     pub number: u64,
+    /// See `PrInfo::branch`.
+    pub branch: Option<String>,
     /// What the PR's reviews add up to. `review` is this, as a column.
     pub decision: Decision,
     pub engage: Engagement,
@@ -597,6 +604,7 @@ pub fn build_rows(prs: &[PrNode], me: &str, now_epoch: i64) -> Vec<Row> {
             Row {
                 bot: is_bot(pr.author_login()),
                 number: pr.number,
+                branch: pr.head_ref_name.clone(),
                 decision,
                 engage,
                 review: decision.column(),

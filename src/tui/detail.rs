@@ -209,7 +209,7 @@ fn review(last: Review, ctx: &Context) -> Vec<Line<'static>> {
         out.push(Line::default());
         out.push(heading("REVIEW"));
         match ctx.review {
-            Some(text) => out.extend(text.iter().map(|l| review_line(l))),
+            Some(text) => out.extend(super::markdown::render(text)),
             None => {
                 let path = rundir::review_file(last.pass_dir, job.pr);
                 out.push(Line::from(format!("no review text at {}", path.display())).dark_gray());
@@ -217,18 +217,6 @@ fn review(last: Review, ctx: &Context) -> Vec<Line<'static>> {
         }
     }
     out
-}
-
-/// One line of a review's markdown, with its headings picked out. The text
-/// was sanitized and its tabs expanded when it was read.
-fn review_line(line: &str) -> Line<'static> {
-    if line.starts_with('#') {
-        Line::from(line.to_string()).bold()
-    } else if line.trim_start().starts_with("```") {
-        Line::from(line.to_string()).dark_gray()
-    } else {
-        Line::from(line.to_string())
-    }
 }
 
 #[cfg(test)]
@@ -288,7 +276,7 @@ mod tests {
         assert!(out.contains("spent     3m12s · $0.42"), "{out}");
         assert!(out.contains("resume    r opens it in a new tab, or run:\ncd /src/app && claude --resume 7442b624"), "{out}");
         assert!(out.contains(why::HEADER), "{out}");
-        assert!(out.contains("REVIEW\n## Findings\n- the retry path"), "{out}");
+        assert!(out.contains("REVIEW\nFindings\n• the retry path"), "{out}");
     }
 
     #[test]

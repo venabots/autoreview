@@ -2,7 +2,7 @@
 
 use super::text::{cut, fit};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Stylize};
+use ratatui::style::{Color, Modifier, Stylize};
 use ratatui::text::{Line, Span};
 
 /// Below this width the list goes above the detail instead of beside it:
@@ -45,16 +45,38 @@ pub fn areas(size: Rect) -> Areas {
     }
 }
 
-pub fn header(repo: &str, mode: &str, log: &str, width: usize) -> Line<'static> {
-    let line = Line::from(vec![
+pub fn header(repo: &str, mode: &str, focus: Option<&str>, log: &str, width: usize) -> Line<'static> {
+    let mut line = vec![
         Span::from("autoreview").bold().magenta(),
         Span::raw(" · "),
         Span::from(repo.to_string()).bold(),
         Span::raw(" · "),
         Span::from(mode.to_string()),
-        Span::from(format!(" · log {log}")).dark_gray(),
-    ]);
-    fit(line, width)
+    ];
+    // Before the log path, which is the part worth losing to a narrow
+    // terminal: what the reviewers are being told is not.
+    if let Some(focus) = focus {
+        line.push(Span::raw(" · "));
+        line.push(Span::from(format!("focus: {focus}")).yellow());
+    }
+    line.push(Span::from(format!(" · log {log}")).dark_gray());
+    fit(Line::from(line), width)
+}
+
+/// The line a focus is typed on, with the cursor drawn where it sits. The
+/// terminal's own cursor stays hidden: one that moved with the pane's
+/// scrolling would be a second, wrong cursor.
+pub fn prompt(text: &str, cursor: usize, width: usize) -> Line<'static> {
+    let mut spans = vec![Span::from("focus ").yellow().bold()];
+    let chars: Vec<char> = text.chars().collect();
+    let before: String = chars[..cursor.min(chars.len())].iter().collect();
+    let at: String = chars.get(cursor).copied().unwrap_or(' ').to_string();
+    let after: String = chars.iter().skip(cursor + 1).collect();
+    spans.push(Span::raw(before));
+    spans.push(Span::from(at).add_modifier(Modifier::REVERSED));
+    spans.push(Span::raw(after));
+    spans.push(Span::from("   enter to apply · esc to leave it").dark_gray());
+    fit(Line::from(spans), width)
 }
 
 /// The keys, most useful first; the footer shows as many as fit.
@@ -65,6 +87,8 @@ const HINTS: &[(&str, &str)] = &[
     ("o", "open"),
     ("R", "review now"),
     ("w", "watch"),
+    ("m", "mouse"),
+    ("f", "focus"),
     ("x", "stop"),
     ("l", "log"),
     ("^d/^u", "scroll"),
@@ -104,6 +128,34 @@ mod tests {
 
     fn text(line: &Line) -> String {
         line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn the_header_says_what_the_reviewers_are_told() {
+        let plain = text(&header("acme/app", "one pass", None, "/tmp/log", 80));
+        assert_eq!(plain, "autoreview · acme/app · one pass · log /tmp/log");
+        let with = text(&header("acme/app", "one pass", Some("the ledger"), "/tmp/log", 80));
+        assert!(with.contains("· focus: the ledger · log"), "{with}");
+    }
+
+    #[test]
+    fn a_focus_is_typed_on_a_line_with_a_cursor() {
+        let line = prompt("be strict", 0, 80);
+        assert!(text(&line).starts_with("focus be strict"), "{}", text(&line));
+        assert_eq!(under_cursor(&line), "b");
+        assert_eq!(under_cursor(&prompt("be strict", 3, 80)), "s");
+        // Past the last character the cursor is a blank cell of its own.
+        assert_eq!(under_cursor(&prompt("ab", 2, 80)), " ");
+        assert!(text(&prompt("ab", 2, 80)).contains("enter to apply"));
+    }
+
+    /// The one cell the prompt draws in reverse: its cursor.
+    fn under_cursor(line: &Line) -> String {
+        line.spans
+            .iter()
+            .filter(|s| s.style.add_modifier.contains(Modifier::REVERSED))
+            .map(|s| s.content.to_string())
+            .collect()
     }
 
     #[test]

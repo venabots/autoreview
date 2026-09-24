@@ -93,6 +93,10 @@ pub struct Row<'a> {
     pub section: Section,
     pub title: &'a str,
     pub author: &'a str,
+    /// The PR's branch, when the list knew one. What the row shows instead
+    /// of the title, which is long and rarely says anything the branch does
+    /// not.
+    pub branch: Option<&'a str>,
     /// What the PR's reviews add up to, whatever this run has done about
     /// it: the icon at the head of its row.
     pub decision: Decision,
@@ -142,6 +146,7 @@ pub fn rows<'a>(src: &Sources<'a>) -> Vec<Row<'a>> {
             pr,
             section,
             decision: known.map_or(Decision::None, |i| i.decision),
+            branch: known.and_then(|i| i.branch.as_deref()),
             title: known.map(|i| i.title.as_str()).or(job.map(|j| j.title.as_str())).unwrap_or(""),
             author: known.map(|i| i.author.as_str()).or(job.map(|j| j.author.as_str())).unwrap_or(""),
             live,
@@ -304,6 +309,7 @@ mod tests {
     fn info(title: &str) -> PrInfo {
         PrInfo {
             decision: Decision::None,
+            branch: Some("fix-the-ledger".into()),
             title: title.into(),
             author: "alice".into(),
             engage: crate::prlist::Engagement::New,
@@ -423,7 +429,7 @@ mod tests {
 
     fn one<'a>(live: Option<&'a Job>, last: Option<&'a Job>, section: Section) -> Row<'a> {
         let last = last.map(|job| Review { job, pass_dir: Path::new("/p") });
-        Row { pr: 9, section, decision: Decision::None, title: "", author: "", live, last, wait: None }
+        Row { pr: 9, section, decision: Decision::None, branch: None, title: "", author: "", live, last, wait: None }
     }
 
     #[test]
