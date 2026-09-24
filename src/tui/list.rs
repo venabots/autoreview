@@ -125,12 +125,17 @@ fn head_line(row: &Row, selected: bool, width: usize, spinner: &'static str, now
     paint(Line::from(spans), selected, width)
 }
 
-/// `  @alice Fix the ledger migration`
+/// `  @alice fix-ledger-migration`
+///
+/// The branch, not the title: a title is longer than the pane and half of
+/// them open with the same "feat(scope):". A PR with no branch in the list
+/// falls back to its title, which is better than an empty line.
 fn who_line(row: &Row, selected: bool, width: usize) -> Line<'static> {
+    let what = row.branch.unwrap_or(row.title);
     let who = if row.author.is_empty() {
-        sanitize_for_display(row.title)
+        sanitize_for_display(what)
     } else {
-        sanitize_for_display(&format!("@{} {}", row.author, row.title))
+        sanitize_for_display(&format!("@{} {}", row.author, what))
     };
     let spans = vec![Span::raw("  "), Span::from(pad(&who, width.saturating_sub(2))).dark_gray()];
     paint(Line::from(spans), selected, width)
@@ -154,6 +159,16 @@ pub fn offset(selected: Option<usize>, height: usize, previous: usize, total: us
     let Some(at) = selected else { return previous.min(most) };
     let at_least = (at + ROW_LINES).saturating_sub(height);
     previous.clamp(at_least, at.max(at_least)).min(most)
+}
+
+/// Which row a click at screen row `y` landed on, given where the pane
+/// starts, how far it is scrolled, and how many rows it holds. None when the
+/// click was past the last row: a pane with three rows in twenty lines is
+/// mostly empty space, and empty space selects nothing.
+pub fn row_at(y: u16, top: u16, offset: usize, rows: usize) -> Option<usize> {
+    let within = usize::from(y.checked_sub(top)?);
+    let at = (within + offset) / ROW_LINES;
+    (at < rows).then_some(at)
 }
 
 #[cfg(test)]
@@ -186,6 +201,7 @@ mod tests {
             ci: Ci::Passing,
             stacked_on: None,
             decision,
+            branch: Some("cache-keys-by-tenant".into()),
         }
     }
 
@@ -204,9 +220,9 @@ mod tests {
         let (drawn, at) = lines(&rows, Some(1), 36, "⠋", 0);
         let out: Vec<String> = drawn.iter().map(text).collect();
         assert_eq!(out[0], "⠋ #9 · reviewing 0s");
-        assert_eq!(out[1], "  @bob Add retry logic");
+        assert_eq!(out[1], "  @bob Add retry logic", "no branch known: the title does");
         assert_eq!(out[2], "○ #5 · CI failing");
-        assert_eq!(out[3], "  @erin Cache keys by tenant");
+        assert_eq!(out[3], "  @erin cache-keys-by-tenant");
         // GitHub has not been asked again since this run approved it, so
         // the icon is still "no decision" while the word says approved.
         assert_eq!(out[4], "○ #7 · approved");
@@ -284,5 +300,21 @@ mod tests {
         assert_eq!(offset(Some(2), 4, 6, 10), 2, "back up to it");
         assert_eq!(offset(None, 4, 9, 10), 6, "never past the end");
         assert_eq!(offset(Some(2), 4, 0, 4), 0, "a short list never scrolls");
+    }
+
+    #[test]
+    fn a_click_lands_on_the_row_it_points_at() {
+        // A pane starting at screen row 1, showing rows from the top.
+        assert_eq!(row_at(1, 1, 0, 3), Some(0), "the first line of the first row");
+        assert_eq!(row_at(2, 1, 0, 3), Some(0), "...and its second line");
+        assert_eq!(row_at(3, 1, 0, 3), Some(1));
+        assert_eq!(row_at(6, 1, 0, 3), Some(2));
+        assert_eq!(row_at(7, 1, 0, 3), None, "past the last row");
+        // Scrolled by two lines: the row at the top is the second one.
+        assert_eq!(row_at(1, 1, 2, 3), Some(1));
+        assert_eq!(row_at(3, 1, 2, 3), Some(2));
+        // Above the pane, or no rows at all.
+        assert_eq!(row_at(0, 1, 0, 3), None);
+        assert_eq!(row_at(1, 1, 0, 0), None);
     }
 }
