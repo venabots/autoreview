@@ -27,6 +27,8 @@ pub enum Intent {
     ReviewNow,
     /// Keep looking for work, or stop: what `--watch` does, as a key.
     Watch,
+    /// Give the mouse back to the terminal, or take it again.
+    Mouse,
     Log,
     Quit,
     /// ctrl-C: leave now, as it always has.
@@ -67,6 +69,7 @@ pub fn intent(key: KeyEvent) -> Option<Intent> {
         KeyCode::Char('x') => Some(Intent::Stop),
         KeyCode::Char('R') => Some(Intent::ReviewNow),
         KeyCode::Char('w') => Some(Intent::Watch),
+        KeyCode::Char('m') => Some(Intent::Mouse),
         KeyCode::Char('l') => Some(Intent::Log),
         KeyCode::Char('q') => Some(Intent::Quit),
         KeyCode::Esc => Some(Intent::Back),
@@ -128,6 +131,7 @@ mod tests {
         assert_eq!(press(KeyCode::Char('o'), none), Some(Intent::Open));
         assert_eq!(press(KeyCode::Char('x'), none), Some(Intent::Stop));
         assert_eq!(press(KeyCode::Char('w'), none), Some(Intent::Watch));
+        assert_eq!(press(KeyCode::Char('m'), none), Some(Intent::Mouse));
         assert_eq!(press(KeyCode::Char('l'), none), Some(Intent::Log));
         assert_eq!(press(KeyCode::Char('q'), none), Some(Intent::Quit));
         assert_eq!(press(KeyCode::Esc, none), Some(Intent::Back));

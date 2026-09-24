@@ -146,6 +146,28 @@ assert_equals "R reviews the asked-for PR at once" "$(reviews_of 9)" "2"
 assert_equals "...and the rest keep their interval" "$(reviews_of 8)" "1"
 assert_contains "q ends a babysit run" "$out" "autoreview-exit=130"
 
+# --- The mouse: capture, the wheel, and a click ---------------------------
+# Mouse reporting is escape sequences like any key, so the driver sends them
+# the same way: SGR press (M) and release (m), one-based column and row.
+# 65 is a wheel-down notch, 0 the left button.
+#
+# #8's checks fail, so it is held and #9 is the only review: the list is then
+# #8 first (the run is waiting on it) and #9 second, whatever the clock did.
+set_ci 8 FAILURE
+wheel_down="$(printf '\033[<65;80;10M')"
+click_row2="$(printf '\033[<0;5;4M')"
+unclick_row2="$(printf '\033[<0;5;4m')"
+out="$(FAKE_CLAUDE_TRAILER=9 run_tui \
+  --key 3.0:"$wheel_down" --key 3.2:"$wheel_down" \
+  --key 4.0:"$click_row2" --key 4.1:"$unclick_row2" --key 5.0:q --)"
+assert_contains "the screen asks the terminal for the mouse" "$out" $'\e[?1000h'
+# The detail pane's title, which only the selected PR draws.
+assert_contains "a click selects the row it lands on" "$out" "Add retry logic"
+assert_contains "the footer offers the mouse key" "$out" "m mouse"
+assert_contains "the run still exits 0" "$out" "autoreview-exit=0"
+check_cooked "the terminal is given back after a mouse run"
+set_ci 8 SUCCESS
+
 # --- w turns the looking for work on and off -------------------------------
 # A one-shot run starts watching when w is pressed, and stops when it is
 # pressed again, which leaves it waiting for q like any run with nothing

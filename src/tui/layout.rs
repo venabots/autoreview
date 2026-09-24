@@ -46,17 +46,16 @@ pub fn areas(size: Rect) -> Areas {
 }
 
 pub fn header(repo: &str, mode: &str, log: &str, width: usize) -> Line<'static> {
-    let line = Line::from(vec![
+    let line = vec![
         Span::from("autoreview").bold().magenta(),
         Span::raw(" · "),
         Span::from(repo.to_string()).bold(),
         Span::raw(" · "),
         Span::from(mode.to_string()),
         Span::from(format!(" · log {log}")).dark_gray(),
-    ]);
-    fit(line, width)
+    ];
+    fit(Line::from(line), width)
 }
-
 /// The keys, most useful first; the footer shows as many as fit.
 const HINTS: &[(&str, &str)] = &[
     ("q", "quit"),
@@ -65,6 +64,7 @@ const HINTS: &[(&str, &str)] = &[
     ("o", "open"),
     ("R", "review now"),
     ("w", "watch"),
+    ("m", "mouse"),
     ("x", "stop"),
     ("l", "log"),
     ("^d/^u", "scroll"),
