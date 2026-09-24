@@ -54,6 +54,8 @@ cargo clippy --all-targets      # clean today; keep it clean
 - While `--tui` is up, fds 1 and 2 point at the run log and the view draws
   through its own `/dev/tty` handle. Nothing may ask crossterm for the cursor
   then: the query goes to the log and stalls for two seconds.
+- The view captures the mouse, so a drag no longer selects text. `m` hands it
+  back. Every gesture has a key; none is the only way to do anything.
 - Read crossterm events on the main thread, through the board. A reader
   thread holds the lock the cursor query needs on every resize.
 - Progress goes to stderr and the report to stdout. Off a TTY, progress is one
