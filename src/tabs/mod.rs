@@ -43,7 +43,7 @@ pub fn run(cfg: &Config) -> Result<i32> {
     let status = Status::new();
     status.step(step::reading_repo());
     let ctx = repo::load(&status)?;
-    let (numbers, _info) = select::run(&ctx, &select_opts(cfg), &status)?;
+    let numbers = select::run(&ctx, &select_opts(cfg), &status)?.numbers;
     if numbers.is_empty() {
         return Ok(0);
     }

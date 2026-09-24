@@ -14,6 +14,7 @@
 
 use autoreview::ci::Ci;
 use autoreview::cli::Config;
+use autoreview::interval::Interval;
 use autoreview::queue::Queue;
 use autoreview::rundir::RunDir;
 use autoreview::select::CiPolicy;
@@ -83,6 +84,8 @@ fn select_prs(cfg: &Config) -> select::Opts<'static> {
 struct Looked {
     ready: Vec<u64>,
     info: HashMap<u64, prlist::PrInfo>,
+    /// Every open PR, most actionable first: the order the view lists in.
+    ranked: Vec<u64>,
     held: Vec<(u64, Ci)>,
     /// Waiting on the PR underneath them, not on a check. Kept apart from
     /// `held` because only one of the two is a reason to keep the loop alive.
@@ -99,16 +102,20 @@ struct Looked {
 /// returns what the board needs, so a PR that joined mid-run is not a bare
 /// number on it.
 fn actionable_now(cfg: &Config, ctx: &repo::RepoContext, status: &Status) -> anyhow::Result<Looked> {
-    let prs = prlist::fetch(ctx, cfg.include_approved, cfg.include_dependabot, status)?.prs;
+    let found = prlist::fetch(ctx, cfg.include_approved, cfg.include_dependabot, status)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let rows = prlist::build_rows(&prs, &ctx.me, now);
+    let rows = prlist::build_rows(&found.prs, &ctx.me, now);
+    // Everything open, ranked: the view lists approved PRs too, and the
+    // sweep still reviews only the rows above.
+    let seen = prlist::build_rows(&found.shown, &ctx.me, now);
     let gates = gates(cfg);
     Ok(Looked {
         ready: rows.iter().filter(|r| r.ready(gates)).map(|r| r.number).collect(),
-        info: rows.iter().map(|r| (r.number, r.info())).collect(),
+        info: seen.iter().map(|r| (r.number, r.info())).collect(),
+        ranked: seen.iter().map(|r| r.number).collect(),
         held: rows.iter().filter(|r| r.held(gates)).map(|r| (r.number, r.ci)).collect(),
         stacked: rows.iter().filter_map(|r| r.stacked(gates).map(|on| (r.number, on))).collect(),
         stacked_now: rows
@@ -235,19 +242,24 @@ fn drop_finished(prs: &[u64], tracker: &mut Queue) -> Vec<u64> {
 /// The last group is what makes the view worth opening on a quiet repo. The
 /// run is not responsible for a PR it has seen, but a person looking at the
 /// list can still ask for it.
-fn waiting_list(
-    watching: &[u64],
-    held: &[(u64, Ci)],
-    stacked: &[(u64, StackedOn)],
-    tracker: &Queue,
-    queue: &[u64],
-    info: &HashMap<u64, prlist::PrInfo>,
-    now: u64,
-) -> Vec<(u64, Wait)> {
-    let next = queue.iter().map(|&pr| (pr, Wait::Next));
-    let held = held.iter().map(|&(pr, ci)| (pr, Wait::Checks(ci)));
-    let stacked = stacked.iter().map(|&(pr, on)| (pr, Wait::Stacked(on)));
-    let watched = watching.iter().map(|&pr| {
+///
+/// What the list is worked out from, at one moment of the run.
+struct Seen<'a> {
+    /// The PRs this run is responsible for.
+    watching: &'a [u64],
+    held: &'a [(u64, Ci)],
+    stacked: &'a [(u64, StackedOn)],
+    /// What the next pass will review.
+    queue: &'a [u64],
+    /// Every open PR, most actionable first.
+    ranked: &'a [u64],
+    info: &'a HashMap<u64, prlist::PrInfo>,
+}
+fn waiting_list(seen: &Seen, tracker: &Queue, now: u64) -> Vec<(u64, Wait)> {
+    let next = seen.queue.iter().map(|&pr| (pr, Wait::Next));
+    let held = seen.held.iter().map(|&(pr, ci)| (pr, Wait::Checks(ci)));
+    let stacked = seen.stacked.iter().map(|&(pr, on)| (pr, Wait::Stacked(on)));
+    let watched = seen.watching.iter().map(|&pr| {
         let wait = match tracker.rest_left(pr, now) {
             _ if tracker.is_capped(pr) => Wait::Capped,
             Some(left) => Wait::Resting { until: now + left },
@@ -255,12 +267,14 @@ fn waiting_list(
         };
         (pr, wait)
     });
-    // In PR order, newest first, like the list itself.
-    let mut open: Vec<u64> = info.keys().copied().collect();
-    open.sort_unstable_by(|a, b| b.cmp(a));
-    let seen = open.into_iter().map(|pr| (pr, Wait::Seen));
+    // In the sweep's own order: what it would review first, first.
+    let rest = seen.ranked.iter().map(|&pr| {
+        let approved =
+            seen.info.get(&pr).is_some_and(|i| i.decision == prlist::Decision::Approved);
+        (pr, if approved { Wait::Approved } else { Wait::Seen })
+    });
     let mut out: Vec<(u64, Wait)> = Vec::new();
-    for (pr, wait) in next.chain(held).chain(stacked).chain(watched).chain(seen) {
+    for (pr, wait) in next.chain(held).chain(stacked).chain(watched).chain(rest) {
         if !out.iter().any(|(listed, _)| *listed == pr) {
             out.push((pr, wait));
         }
@@ -268,21 +282,59 @@ fn waiting_list(
     out
 }
 
-/// What the full-screen view's header says about the run.
-fn screen_header(cfg: &Config, ctx: &repo::RepoContext, rundir: &RunDir) -> tui::Header {
-    let mode = match (&cfg.watch, &cfg.babysit) {
+/// What the run does now, in the words the view's header uses.
+fn mode_line(watch: Option<&Interval>, babysit: Option<&Interval>) -> String {
+    match (watch, babysit) {
         (Some(w), Some(b)) => format!("watching every {} · a reviewed PR rests {}", w.normalized, b.normalized),
         (Some(w), None) => format!("watching every {}", w.normalized),
         (None, Some(b)) => format!("babysitting every {}", b.normalized),
         (None, None) => "one pass".to_string(),
-    };
+    }
+}
+
+/// What the full-screen view's header says about the run.
+fn screen_header(cfg: &Config, ctx: &repo::RepoContext, rundir: &RunDir) -> tui::Header {
     tui::Header {
         repo: format!("{}/{}", ctx.owner, ctx.name),
-        mode,
+        mode: mode_line(cfg.watch.as_ref(), cfg.babysit.as_ref()),
         repo_root: ctx.repo_root.clone(),
         log: rundir.root.join("autoreview.log"),
         looping: cfg.watch.is_some() || cfg.babysit.is_some(),
     }
+}
+
+/// Start or stop the run's own looking for work, which is what the view's
+/// `w` asks for. Turning it on is a watch run: poll on the watch interval,
+/// and rest each PR for the babysit one so a still-actionable PR is not
+/// reviewed on every poll. Turning it off leaves the run with the pass it
+/// is in and nothing after it.
+///
+/// A --babysit run that is turned off and on again comes back watching. The
+/// key is one question -- keep looking for work? -- and watching is the
+/// answer that suits somebody sitting in front of a screen.
+fn set_watching(
+    on: bool,
+    cfg: &mut Config,
+    watch: &mut Option<Interval>,
+    tracker: &mut Queue,
+    ui: &mut ui::Ui,
+) {
+    if on {
+        let rest = cfg.babysit.clone().unwrap_or_else(|| cfg.rest_default.clone());
+        *watch = Some(cfg.watch_default.clone());
+        cfg.babysit = Some(rest.clone());
+        tracker.set_cooldown(Some(rest.secs));
+        println!(
+            "\nwatching: looking for work every {}, and resting each PR {} after a review",
+            cfg.watch_default.normalized, rest.normalized
+        );
+    } else {
+        *watch = None;
+        cfg.babysit = None;
+        tracker.set_cooldown(None);
+        println!("\nno longer looking for work; the reviews running will finish");
+    }
+    ui.mode(&mode_line(watch.as_ref(), cfg.babysit.as_ref()), on);
 }
 
 /// The end of a run: the terminal back, and the run's summary. Without the
@@ -417,14 +469,15 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // Keeping it out of the arm below also keeps the two apart: a failed fetch
     // must not leave by the same door as an empty pick, which exits 0.
     let sweeping = cfg.watch.is_some() && !cfg.pick;
-    let (numbers, info) = match select::run(&ctx, &select_prs(cfg), &status) {
+    let selected = match select::run(&ctx, &select_prs(cfg), &status) {
         Err(e) if sweeping => {
             eprintln!("warning: could not read the PR list ({e:#})");
             println!("watching anyway; the list will be read again on the next check");
-            (Vec::new(), HashMap::new())
+            select::Selection { numbers: Vec::new(), info: HashMap::new(), ranked: Vec::new() }
         }
         other => other?,
     };
+    let (numbers, info, mut ranked) = (selected.numbers, selected.info, selected.ranked);
     // The selection clears the spinner on the paths it finishes, not on one
     // that fails. A watch run carries on past a failed first fetch, and a
     // spinner left ticking would draw over everything the run prints next.
@@ -496,7 +549,8 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // A watch run polls far more often than a PR can usefully be reviewed, so
     // the queue rests each PR for the babysit interval instead of the loop
     // sleeping it. Both are set whenever --watch is.
-    let watch = cfg.watch.clone();
+    // Not fixed for the run: the view's `w` turns this on and off.
+    let mut watch = cfg.watch.clone();
     // --watch always carries a babysit interval (src/cli.rs sets one). If that
     // ever stopped being true, watch mode falls back to its own interval for
     // the cooldown, and the loop guard below takes the same fallback.
@@ -532,7 +586,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // view. Only the view reads it.
     let mut stacked: Vec<(u64, StackedOn)> = stacked_at_start.clone();
     ui.know(&info);
-    ui.waiting(waiting_list(&[], &held, &stacked, &tracker, &queue, &info, now_secs()));
+    ui.waiting(waiting_list(&Seen { watching: &[], held: &held, stacked: &stacked, queue: &queue, ranked: &ranked, info: &info }, &tracker, now_secs()));
     // Why the run ended, for the view to say while it waits for `q`.
     let mut ended = String::from("the pass is done");
     let mut pass = 1u32;
@@ -574,6 +628,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         let failures = pool::failures(&jobs);
         let total = jobs.len();
         ui.archive(jobs);
+        // Asked for while the pass ran, and answered here, where what the
+        // run does next is decided.
+        if let Some(on) = ui.take_watch_toggle() {
+            set_watching(on, &mut cfg, &mut watch, &mut tracker, &mut ui);
+        }
 
         // A run with no interval at all does one pass and stops. --watch
         // always has one, and falls back to its own poll interval if that
@@ -583,6 +642,13 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             // A one-shot run has no next pass of its own. With the view up
             // it stays, and R is what gives it another.
             ended = if total == 0 { "nothing to review".into() } else { "the pass is done".into() };
+            // Nothing is queued or watched any more, so the PRs it reviewed
+            // stop saying they are due at the next pass.
+            ui.waiting(waiting_list(
+                &Seen { watching: &[], held: &held, stacked: &stacked, queue: &[], ranked: &ranked, info: &info },
+                &tracker,
+                now_secs(),
+            ));
             match held_for_more(&mut ui, &ended, &mut tracker, &mut watching, &cfg, &rx) {
                 Some(next) => {
                     // Like a babysit pass: a PR reviewed again is
@@ -591,12 +657,18 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     queue = next;
                     continue;
                 }
+                // Nothing more to review, but `w` may have asked the run to
+                // keep looking: the loop decides again with nothing queued.
+                None if ui.watch_toggle_pending() => {
+                    queue = Vec::new();
+                    continue;
+                }
                 None => break (failures, total),
             }
         };
         // The PRs just reviewed are waiting again, not finished, until the
         // look below says otherwise.
-        ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &[], &info, now_secs()));
+        ui.waiting(waiting_list(&Seen { watching: &watching, held: &held, stacked: &stacked, queue: &[], ranked: &ranked, info: &info }, &tracker, now_secs()));
         // How often to look for new work. Under --watch that is its own
         // interval; under --babysit the one interval does both jobs.
         let poll = watch.clone().unwrap_or_else(|| babysit.clone());
@@ -651,6 +723,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                         tracker.note_head(pr, pr_info.head.clone());
                     }
                     info.extend(seen.info);
+                    ranked = seen.ranked;
                     held = held_for_this_run(&seen.held, &tracker);
                     report_held(&held, &mut held_announced);
                     // The PRs leaving the watch list. A PR reviewed earlier in
@@ -743,7 +816,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             held_announced.retain(|(pr, _)| !intake.queue.contains(pr));
             report_intake(&intake, &cfg, &mut ui);
             ui.know(&info);
-            ui.waiting(waiting_list(&watching, &held, &stacked, &tracker, &intake.queue, &info, now_secs()));
+            ui.waiting(waiting_list(&Seen { watching: &watching, held: &held, stacked: &stacked, queue: &intake.queue, ranked: &ranked, info: &info }, &tracker, now_secs()));
             if !intake.queue.is_empty() {
                 break Some(intake.queue);
             }
@@ -769,6 +842,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     waiting_on(&watching)
                 );
                 last_woke = ui.wait(Duration::from_secs(poll.secs), &rx, true);
+                if last_woke == Woke::Changed {
+                    // The run is no longer the run this loop was deciding
+                    // for. Leave with nothing queued and start again.
+                    break Some(Vec::new());
+                }
                 already_waited = true;
                 continue;
             }
@@ -809,6 +887,9 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 still_open(&watching, held.len())
             );
             last_woke = ui.wait(Duration::from_secs(babysit.secs), &rx, true);
+            if last_woke == Woke::Changed {
+                break Some(Vec::new());
+            }
             already_waited = true;
         };
 
@@ -826,6 +907,10 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             match held_for_more(&mut ui, &ended, &mut tracker, &mut watching, &cfg, &rx) {
                 Some(next) => {
                     queue = next;
+                    continue;
+                }
+                None if ui.watch_toggle_pending() => {
+                    queue = Vec::new();
                     continue;
                 }
                 None => break (failures, total),
@@ -849,8 +934,12 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             let until = std::time::Instant::now() + Duration::from_secs(babysit.secs);
             loop {
                 let left = until.saturating_duration_since(std::time::Instant::now());
-                if ui.wait(left, &rx, true) == Woke::Elapsed {
-                    break;
+                match ui.wait(left, &rx, true) {
+                    Woke::Elapsed => break,
+                    // `w` changed what the run is; the outer loop decides
+                    // again with what is already queued.
+                    Woke::Changed => break,
+                    Woke::Requested => {}
                 }
                 // A person asked for a PR during the wait. That PR is
                 // reviewed now, on its own: the rest keep their interval,

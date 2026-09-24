@@ -39,13 +39,26 @@ as they were.
   writes to `stdout()`, which is the log file then. So the view never calls
   ratatui's `Terminal::clear`, `init` or `restore`; it enters, clears and
   leaves the alternate screen itself.
-- **One row per PR, not one per review.** Sections run top to bottom: running,
-  queued, waiting, finished. Under a run that looks again, every PR it still
-  watches is listed as waiting, including the ones the next pass will review,
-  so a finished row is a PR the run has dropped. Every row carries the newest
-  review that finished, whatever its section: under `--watch` a reviewed PR
-  spends most of its life resting, and a list that offered its review only
-  once the PR was finished for good would hide it where it is wanted.
+- **One row per PR, not one per review, and two lines of it.** A PR reviewed
+  three times in a watch run is one piece of work, and a list that grew a row
+  per pass would bury the running reviews under a day of history. The first
+  line is an icon, the number and one state word; the second is the author
+  and the title, because a title beside a state column leaves neither room in
+  a pane this narrow. Every row carries the newest review that finished, so a
+  PR resting under `--watch` still offers it.
+- **No headings: one order, most pressing first.** What is running, then what
+  is about to run, then what the run is waiting on and how soon, then what it
+  has reviewed, and last the PRs it has nothing to do about. The state word
+  says which is which, so the headings only cost rows.
+- **The icon is GitHub's word about the PR, not the run's.** Approved,
+  changes requested, or nothing decided yet -- and the spinner while a review
+  is running. A review this run just posted appears there when the PR list is
+  read again, which is the asymmetry decision 0002 keeps for the VERDICT
+  column: the state word says what the run did, the icon says what landed.
+- **The list holds every open PR, approved ones included.** They are filtered
+  out of what the sweep reviews, not out of what a person looks at. `R` still
+  works on them, because asking for a review of an approved PR is a thing a
+  person may want and the sweep never will.
 - **Keys act on the frame the person saw.** Selection follows a PR, not a
   place, because rows move as reviews finish. Stopping a review and quitting
   mid-pass take a second press, and the arming names its PR, so a second `x`
@@ -75,6 +88,14 @@ as they were.
   their authors time to answer. The waits after a failure do not wake: a key
   press there would repeat the call that just failed. A wake a request
   caused is not an idle check.
+- **`w` starts and stops the run's own looking for work.** The mode was a
+  startup choice, and a screen is where a person changes their mind: they
+  open one pass, see a PR worth watching for, and want the run to stay. The
+  key asks one question -- keep looking for work? -- so a `--babysit` run
+  turned off and on comes back watching, which is the answer that suits
+  somebody sitting in front of it. The toggle is applied only where the loop
+  decides what it does next, never mid-pass, and a wait it interrupts leaves
+  the loop to decide again with nothing queued.
 - **The loop keeps the view drawn while it waits.** Its sleeps and its `gh`
   calls run in tenths of a second, drawing and reading keys; the calls run on
   a scoped thread.
@@ -103,3 +124,6 @@ as they were.
 - A `--tui` run with nothing to review still makes a run directory and
   stages its skills, because `R` may ask for a review at any moment. Without
   the flag such a run still exits before either.
+- The intervals `w` turns on are resolved when the flags are parsed, and
+  leniently: a bad `$AUTOREVIEW_WATCH_INTERVAL` still refuses a `--watch`
+  run, but it must not refuse a run that only might become one.

@@ -141,6 +141,7 @@ fn wait_reason(wait: Wait, ctx: &Context) -> String {
         Wait::Quiet => format!("nothing new since its last review{next}"),
         Wait::Next => format!("reviewed at the next check{next}"),
         Wait::Seen => "nothing has happened on it since you last engaged".into(),
+        Wait::Approved => "approved already; the sweep leaves those alone".into(),
     }
 }
 

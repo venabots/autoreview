@@ -47,6 +47,9 @@ pub enum Action {
     /// Review this PR next: first among the reviews this pass has not
     /// started, or first in the next pass.
     ReviewNow(u64),
+    /// Keep looking for work after this pass, or stop looking. What
+    /// `--watch` decides at startup, decided again from the screen.
+    Watch(bool),
 }
 
 /// The keys the board answers to. A pure function, so the table is testable

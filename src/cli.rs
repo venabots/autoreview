@@ -139,9 +139,11 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
                       there is nothing to review. Keys: j/k move, r resumes
                       the review in a new terminal tab, o opens the PR, x x
                       stops a running review, R reviews the selected PR now,
-                      l shows the run log, q quits. While it is up the plain
-                      lines go to autoreview.log in the run directory. Off a
-                      terminal the run prints its plain lines as ever.
+                      w starts or stops looking for work (what --watch does,
+                      as a key), l shows the run log, q quits. While it is up
+                      the plain lines go to autoreview.log in the run
+                      directory. Off a terminal the run prints its plain
+                      lines as ever.
   --help, -h          Show this help.
   --version, -V       Show the version.
 
@@ -253,6 +255,13 @@ pub struct Config {
     /// Show the run full screen. Whether there is a terminal to show it on
     /// is decided when the run starts, not here.
     pub tui: bool,
+    /// How often the full-screen view's `w` polls when it turns watching on,
+    /// and how long a reviewed PR then rests. Resolved here so the key has
+    /// the same defaults the flags would have given it -- leniently, because
+    /// a bad value belongs to a flag this run never passed, and refusing the
+    /// run over it would be refusing it for something it is not doing.
+    pub watch_default: Interval,
+    pub rest_default: Interval,
 }
 
 impl Config {
@@ -576,6 +585,13 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     // Validated only by the run that will wait, like the babysit interval:
     // a --watch run holds and looks again, and a --pick run never waits, so
     // neither reads the value and neither should refuse on it.
+    // The view's `w` needs both intervals whether or not the flags gave
+    // them. A value that will not parse falls back to the built-in default:
+    // see `watch_default`.
+    let watch_default = interval::normalize_named(&watch_interval_raw, "watch")
+        .unwrap_or_else(|_| interval::normalize_named("2", "watch").expect("2 minutes parses"));
+    let rest_default = interval::normalize(&babysit_interval_raw)
+        .unwrap_or_else(|_| interval::normalize("30").expect("30 minutes parses"));
     let wait_for_ci = !skip_wait_for_ci;
     let ci_wait = if wait_for_ci && !watch && !pick {
         Some(interval::normalize_named(&ci_wait_raw, "CI wait").map_err(err)?)
@@ -672,6 +688,8 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         fallback,
         startup_notes,
         tui,
+        watch_default,
+        rest_default,
     })))
 }
 

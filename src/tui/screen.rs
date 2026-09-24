@@ -150,6 +150,13 @@ impl Screen {
         self.busy = what.map(String::from);
     }
 
+    /// What the run does now, for the header, and whether it looks for work
+    /// again after a pass. Both change when `w` is pressed.
+    pub fn set_mode(&mut self, mode: &str, looping: bool) {
+        self.header.mode = mode.to_string();
+        self.header.looping = looping;
+    }
+
     /// The run has nothing left to do; the screen stays, saying so, until a
     /// key ends it or asks for a review. None again once one does.
     pub fn set_ended(&mut self, why: Option<&str>) {
@@ -400,6 +407,17 @@ impl Screen {
                 Some((_, Err(why))) => self.flash(why),
                 None => {}
             },
+            // The run's own looking for work, turned on or off. What it is
+            // now comes from the engine, which says so through set_mode.
+            Intent::Watch => {
+                let on = !self.header.looping;
+                self.flash(if on {
+                    "watching: the run will look for work until you press w again"
+                } else {
+                    "no longer looking for work; the reviews running will finish"
+                });
+                return vec![Action::Watch(on)];
+            }
             Intent::ReviewNow => match picked.map(|p| (p.pr, p.request)) {
                 Some((pr, Ok(()))) => {
                     self.flash(format!("PR #{pr} is reviewed next"));
@@ -498,10 +516,12 @@ mod tests {
         let archive = vec![done(7)];
         let out = frame(&mut screen, &jobs, &archive, 120);
         assert!(out.starts_with("autoreview · acme/app · watching every 2m"), "{out}");
-        assert!(out.contains("RUNNING 1"), "{out}");
-        assert!(out.contains("#9"), "{out}");
-        assert!(out.contains("QUEUED 1"), "{out}");
-        assert!(out.contains("FINISHED 1"), "{out}");
+        // Two lines a row, most pressing first, and no headings.
+        assert!(out.contains("#9 · reviewing 0s"), "{out}");
+        assert!(out.contains("@alice Change 9"), "{out}");
+        assert!(out.contains("#8 · queued"), "{out}");
+        assert!(out.contains("#7 · approved"), "{out}");
+        assert!(!out.contains("RUNNING") && !out.contains("FINISHED"), "{out}");
         // The first row is selected, and the detail pane is about it.
         assert!(out.contains("#9 Change 9"), "{out}");
         assert!(out.contains("reviewing 0s · claude"), "{out}");
@@ -544,7 +564,7 @@ mod tests {
         let mut screen = Screen::new(None, header(true));
         let archive = vec![done(7)];
         let out = frame(&mut screen, &[], &archive, 60);
-        assert!(out.contains("FINISHED 1") && out.contains("LAST REVIEW"), "{out}");
+        assert!(out.contains("#7 · approved") && out.contains("LAST REVIEW"), "{out}");
     }
 
     #[test]
@@ -589,6 +609,20 @@ mod tests {
     }
 
     #[test]
+    fn w_turns_the_looking_for_work_on_and_off() {
+        let mut screen = Screen::new(None, header(false));
+        frame(&mut screen, &[], &[], 120);
+        assert_eq!(screen.press(Intent::Watch, Instant::now()), vec![Action::Watch(true)]);
+        assert!(screen.message.as_ref().unwrap().0.contains("look for work"));
+        // The engine says what it did; the header follows it, not the key.
+        screen.set_mode("watching every 2m", true);
+        let out = frame(&mut screen, &[], &[], 120);
+        assert!(out.contains("watching every 2m"), "{out}");
+        assert_eq!(screen.press(Intent::Watch, Instant::now()), vec![Action::Watch(false)]);
+        assert!(screen.message.as_ref().unwrap().0.contains("no longer looking"));
+    }
+
+    #[test]
     fn what_review_now_takes() {
         // A looping run has dropped what it lists as finished.
         let mut screen = Screen::new(None, header(true));
@@ -616,7 +650,10 @@ mod tests {
         assert!(out.contains("nothing left to babysit · q quits"), "{out}");
         assert_eq!(screen.press(Intent::Quit, Instant::now()), vec![Action::Stop]);
         // A run waiting for q still takes a request: it is what starts
-        // another pass.
+        // another pass. #7 is reviewed and above #5, which is only quiet,
+        // and a key acts on the frame the person saw -- so move, draw, ask.
+        screen.press(Intent::Down, Instant::now());
+        frame(&mut screen, &[], &[done(7)], 120);
         assert_eq!(screen.press(Intent::ReviewNow, Instant::now()), vec![Action::ReviewNow(5)]);
         screen.set_ended(None);
         let out = frame(&mut screen, &[], &[done(7)], 120);

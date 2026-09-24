@@ -79,7 +79,7 @@ out="$(FAKE_CLAUDE_TRAILER=9 run_tui --key 3.0:j --key 4.0:q --)"
 assert_contains "a one-pass run exits 0" "$out" "autoreview-exit=0"
 assert_contains "the view opens on the alternate screen" "$out" $'\e[?1049h'
 assert_contains "...and leaves it" "$out" $'\e[?1049l'
-assert_contains "the list has a finished section" "$out" "FINISHED"
+assert_contains "a row says what the run did about the PR" "$out" "no verdict"
 assert_contains "the detail pane shows the last review" "$out" "LAST"
 assert_contains "...and why it is not approved yet" "$out" "retried"
 assert_contains "...and how to reopen it" "$out" "--resume"
@@ -129,7 +129,7 @@ fi
 # After the first pass both PRs rest for the babysit interval. The first row
 # is a resting PR; R wakes the run and reviews it again at once.
 out="$(run_tui --key 3.0:R --key 7.0:q -- --watch=1)"
-assert_contains "a reviewed PR waits under a watch run" "$out" "WAITING"
+assert_contains "a reviewed PR rests under a watch run" "$out" "· rest"
 assert_contains "...resting" "$out" "resting after its review"
 assert_equals "R reviews it again at once" "$(reviews_of 9)" "2"
 assert_equals "...and only it" "$(reviews_of 8)" "1"
@@ -145,6 +145,18 @@ assert_contains "the next pass's PRs are listed as waiting for it" "$out" "next 
 assert_equals "R reviews the asked-for PR at once" "$(reviews_of 9)" "2"
 assert_equals "...and the rest keep their interval" "$(reviews_of 8)" "1"
 assert_contains "q ends a babysit run" "$out" "autoreview-exit=130"
+
+# --- w turns the looking for work on and off -------------------------------
+# A one-shot run starts watching when w is pressed, and stops when it is
+# pressed again, which leaves it waiting for q like any run with nothing
+# left to do.
+out="$(run_tui --key 3.0:w --key 6.0:w --key 8.0:q --)"
+assert_contains "w starts the run watching" "$(run_log)" "watching: looking for work every 2m"
+assert_contains "...and it polls" "$(run_log)" "next check in 2m"
+assert_contains "...and the view says so" "$out" "watching"
+assert_contains "w again stops it" "$(run_log)" "no longer looking for work"
+assert_contains "...leaving the run waiting for q" "$out" "autoreview-exit=0"
+check_cooked "the terminal is given back after a toggled run"
 
 # --- A quiet repo: the view opens anyway ----------------------------------
 # The sweep has nothing to review, which without --tui is a one-line exit.

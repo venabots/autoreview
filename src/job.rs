@@ -446,6 +446,8 @@ mod tests {
             fallback: crate::orchestrator::Fallback::None,
             startup_notes: vec![],
             tui: false,
+            watch_default: crate::interval::normalize_named("2", "watch").unwrap(),
+            rest_default: crate::interval::normalize("30").unwrap(),
         }
     }
 
