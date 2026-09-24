@@ -30,7 +30,7 @@ use std::time::Duration;
 pub const ASSUMED_WIDTH: usize = 80;
 
 /// What a key asks the pass to do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     /// Stop the reviews and print the summary, as ctrl-C did before raw
     /// mode turned it into a key.
@@ -50,6 +50,9 @@ pub enum Action {
     /// Keep looking for work after this pass, or stop looking. What
     /// `--watch` decides at startup, decided again from the screen.
     Watch(bool),
+    /// What the reviewers are told to look at from now on, or None to tell
+    /// them nothing in particular. What `--focus` sets at startup.
+    Focus(Option<String>),
 }
 
 /// The keys the board answers to. A pure function, so the table is testable

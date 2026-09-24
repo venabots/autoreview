@@ -7,6 +7,7 @@
 
 use super::actions;
 use super::detail::{self, Context};
+use super::input::{Edit, Input};
 use super::keys::{self, Armed, Intent, Pending, Press};
 use super::layout;
 use super::list;
@@ -98,6 +99,10 @@ pub struct Screen {
     /// Whether the screen is taking the mouse. Off hands drags back to the
     /// terminal, which is how text is selected and copied.
     mouse: bool,
+    /// What the reviewers are told to look at, as the engine last said.
+    focus: Option<String>,
+    /// The focus being typed. While this is open every key belongs to it.
+    editing: Option<Input>,
 }
 
 /// Whether a point is inside an area. The pointer arrives in screen
@@ -154,6 +159,8 @@ impl Screen {
             list_area: Rect::ZERO,
             detail_area: Rect::ZERO,
             mouse: true,
+            focus: None,
+            editing: None,
         }
     }
 
@@ -171,6 +178,13 @@ impl Screen {
 
     pub fn set_busy(&mut self, what: Option<&str>) {
         self.busy = what.map(String::from);
+    }
+
+    /// What the reviewers are being told to look at, as the engine has it.
+    /// The screen shows it and opens its editor on it; the engine decides
+    /// what it actually is.
+    pub fn set_focus(&mut self, focus: Option<&str>) {
+        self.focus = focus.map(String::from);
     }
 
     /// What the run does now, for the header, and whether it looks for work
@@ -213,6 +227,9 @@ impl Screen {
         while event::poll(Duration::ZERO).unwrap_or(false) {
             let Ok(ev) = event::read() else { break };
             match ev {
+                // While the focus is being typed, every key is the
+                // editor's: j and k are letters, not moves.
+                Event::Key(key) if self.editing.is_some() => out.extend(self.edit(key)),
                 Event::Key(key) => {
                     if let Some(intent) = keys::intent(key) {
                         out.extend(self.press(intent, Instant::now()));
@@ -263,10 +280,14 @@ impl Screen {
 
         let areas = layout::areas(f.area());
         let log = self.header.log.display().to_string();
-        f.render_widget(
-            layout::header(&self.header.repo, &self.header.mode, &log, areas.header.width as usize),
-            areas.header,
+        let header = layout::header(
+            &self.header.repo,
+            &self.header.mode,
+            self.focus.as_deref(),
+            &log,
+            areas.header.width as usize,
         );
+        f.render_widget(header, areas.header);
 
         let (lines, selected_line) = list::lines(rows, at, areas.list.width as usize, spinner, now);
         let height = areas.list.height as usize;
@@ -295,9 +316,17 @@ impl Screen {
         if self.message.as_ref().is_some_and(|(_, at)| at.elapsed() > MESSAGE_FOR) {
             self.message = None;
         }
-        let status = self.status(rows, now);
-        let message = self.message.as_ref().map(|(m, _)| m.as_str());
-        f.render_widget(layout::footer(&status, message, areas.footer.width as usize), areas.footer);
+        // While a focus is being typed the footer is the line it is typed
+        // on: the keys it lists are letters until enter or esc.
+        let width = areas.footer.width as usize;
+        let footer = match &self.editing {
+            Some(input) => layout::prompt(&input.text(), input.cursor(), width),
+            None => {
+                let status = self.status(rows, now);
+                layout::footer(&status, self.message.as_ref().map(|(m, _)| m.as_str()), width)
+            }
+        };
+        f.render_widget(footer, areas.footer);
     }
 
     fn pick(&self, row: &Row) -> Picked {
@@ -371,6 +400,41 @@ impl Screen {
             _ => {}
         }
         parts.join(" · ")
+    }
+
+    /// One key of a focus being typed. Enter hands it to the engine, esc
+    /// leaves the focus as it was, and a sentence the flag would refuse is
+    /// refused here too rather than reaching a prompt.
+    fn edit(&mut self, key: crossterm::event::KeyEvent) -> Vec<Action> {
+        let Some(input) = &mut self.editing else { return Vec::new() };
+        match input.key(key) {
+            Edit::Typing => Vec::new(),
+            Edit::Cancelled => {
+                self.editing = None;
+                self.flash("the focus is unchanged");
+                Vec::new()
+            }
+            Edit::Done(text) if text.trim().is_empty() => {
+                self.editing = None;
+                self.focus = None;
+                self.flash("the reviewers are told nothing in particular now");
+                vec![Action::Focus(None)]
+            }
+            Edit::Done(text) => match crate::cli::parse_focus(&text) {
+                Ok(focus) => {
+                    self.editing = None;
+                    // Shown at once. The engine says the same thing back
+                    // when it takes it, which is what keeps them in step.
+                    self.focus = Some(focus.clone());
+                    self.flash(format!("the reviewers are told: {focus}"));
+                    vec![Action::Focus(Some(focus))]
+                }
+                Err(why) => {
+                    self.flash(why);
+                    Vec::new()
+                }
+            },
+        }
     }
 
     /// One mouse event. Nothing it does needs the engine: it selects a row
@@ -513,6 +577,11 @@ impl Screen {
                 } else {
                     "the mouse is the terminal's: drag to select text, m to take it back"
                 });
+            }
+            // What the reviewers are told to look at, typed in place. The
+            // engine takes it from the action and says what it became.
+            Intent::Focus => {
+                self.editing = Some(Input::at_end(self.focus.as_deref().unwrap_or("")));
             }
             Intent::Interrupt => return vec![Action::Stop],
         }
@@ -760,6 +829,52 @@ mod tests {
         assert!(screen.message.as_ref().unwrap().0.contains("drag to select text"));
         screen.press(Intent::Mouse, Instant::now());
         assert!(screen.mouse);
+    }
+
+    #[test]
+    fn a_focus_is_typed_in_place_and_handed_to_the_engine() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut screen = Screen::new(None, header(true));
+        screen.set_focus(Some("the ledger"));
+        frame(&mut screen, &[], &[done(7)], 120);
+        assert!(screen.press(Intent::Focus, Instant::now()).is_empty());
+        // The editor opens on what the run is already being told.
+        let out = frame(&mut screen, &[], &[done(7)], 120);
+        assert!(out.contains("focus the ledger"), "{out}");
+        assert!(out.contains("enter to apply"), "{out}");
+
+        // Every key is the editor's now, j and k included.
+        let key = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        for c in " jk".chars() {
+            assert!(screen.edit(key(c)).is_empty());
+        }
+        let done_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(
+            screen.edit(done_key),
+            vec![Action::Focus(Some("the ledger jk".into()))],
+            "what was typed, as the flag would have taken it"
+        );
+        assert!(screen.editing.is_none(), "and the editor closes");
+
+        // Esc leaves it alone; an empty line clears it.
+        screen.press(Intent::Focus, Instant::now());
+        screen.edit(key('x'));
+        assert!(screen.edit(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).is_empty());
+        screen.press(Intent::Focus, Instant::now());
+        for _ in 0..40 {
+            screen.edit(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        }
+        assert_eq!(screen.edit(done_key), vec![Action::Focus(None)]);
+    }
+
+    #[test]
+    fn the_header_shows_what_the_reviewers_are_told() {
+        let mut screen = Screen::new(None, header(true));
+        let out = frame(&mut screen, &[], &[done(7)], 120);
+        assert!(!out.contains("focus:"), "nothing to say yet: {out}");
+        screen.set_focus(Some("be strict about the ledger"));
+        let out = frame(&mut screen, &[], &[done(7)], 120);
+        assert!(out.contains("focus: be strict about the ledger"), "{out}");
     }
 
     #[test]

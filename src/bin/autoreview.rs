@@ -528,6 +528,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // the summary lands.
     if cfg.tui {
         ui.open_screen(screen_header(cfg, &ctx, &rundir), &rundir.root);
+        ui.show_focus(cfg.focus.as_deref());
         if cfg.no_post {
             ui.after_summary(format!(
                 "nothing was posted to any PR; the reviews are in {}",
@@ -610,7 +611,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 return Err(e);
             }
             let jobs =
-                pool::run_pass(&queue, &info, &cfg, &ctx, &rundir, &dashp, &rx, &tx, &mut ui);
+                pool::run_pass(&queue, &info, &mut cfg, &ctx, &rundir, &dashp, &rx, &tx, &mut ui);
             ui.print_summary(&jobs, &rundir.pass_dir);
             if cfg.no_post {
                 // Every VERDICT in that table reads "nothing posted", which
@@ -632,6 +633,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         // run does next is decided.
         if let Some(on) = ui.take_watch_toggle() {
             set_watching(on, &mut cfg, &mut watch, &mut tracker, &mut ui);
+        }
+        if let Some(focus) = ui.take_focus() {
+            cfg.focus = focus;
+            println!("\n{}", pool::focus_note(cfg.focus.as_deref()));
+            ui.show_focus(cfg.focus.as_deref());
         }
 
         // A run with no interval at all does one pass and stops. --watch

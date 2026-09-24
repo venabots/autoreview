@@ -180,6 +180,18 @@ assert_contains "w again stops it" "$(run_log)" "no longer looking for work"
 assert_contains "...leaving the run waiting for q" "$out" "autoreview-exit=0"
 check_cooked "the terminal is given back after a toggled run"
 
+# --- f types what the reviewers are told ----------------------------------
+# The focus is the one thing worth changing mid-run, so it is typed on the
+# screen and reaches the next review's prompt. R is what starts that review.
+out="$(run_tui --key 3.0:f --key 3.4:"the ledger migration" --key 3.8:$'\r' \
+  --key 4.4:R --key 8.0:q -- --watch=1)"
+assert_contains "f says what was typed" "$(run_log)" \
+  "the reviewers are now told: the ledger migration"
+assert_contains "...and the header carries it" "$out" "focus: the ledger"
+assert_contains "the next review is told the same" "$(claude_calls)" \
+  '--focus "the ledger migration"'
+assert_contains "q ends the run" "$out" "autoreview-exit=130"
+
 # --- A quiet repo: the view opens anyway ----------------------------------
 # The sweep has nothing to review, which without --tui is a one-line exit.
 # The view opens on it instead: every open PR is there, saying why it is

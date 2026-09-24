@@ -8,6 +8,7 @@
 
 pub mod actions;
 mod detail;
+mod input;
 pub mod keys;
 mod layout;
 mod list;
