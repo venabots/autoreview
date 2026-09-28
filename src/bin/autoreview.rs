@@ -498,6 +498,12 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // being left alone, and R reviews any of them.
     let terminal = ui::on_a_terminal();
     let screening = terminal && cfg.view.tries_screen(terminal);
+    // Said before the run can end with nothing to do: whoever passed --tui
+    // off a terminal asked for a screen, and an empty run that exits
+    // silently would leave them wondering why none opened.
+    if cfg.view.tries_screen(terminal) && !terminal {
+        eprintln!("note: --tui needs a terminal; printing plain lines");
+    }
     if numbers.is_empty() && !sweeping && !babysitting_held && !screening {
         return Ok(0);
     }
@@ -520,7 +526,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // After everything the run says on its way in -- the selection, the
     // skills, the notes -- so that stays on the normal screen, above where
     // the summary lands.
-    if cfg.view.tries_screen(terminal) {
+    if screening {
         ui.open_screen(screen_header(cfg, &ctx, &rundir), &rundir.root);
         ui.show_focus(cfg.focus.as_deref());
         if cfg.no_post {

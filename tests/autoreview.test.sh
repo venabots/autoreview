@@ -1302,5 +1302,9 @@ echo '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}' >"$SANDBOX/fixtures
 out="$(run_autoreview --auto)"
 assert_equals "an empty repo exits 0" "$(last_status)" "0"
 assert_contains "an empty repo says why" "$out" "no matching open PRs"
+out="$(run_autoreview --tui)"
+assert_equals "--tui off a terminal with nothing to do exits 0" "$(last_status)" "0"
+assert_contains "...and still says there is no screen" "$out" \
+  "note: --tui needs a terminal; printing plain lines"
 
 finish

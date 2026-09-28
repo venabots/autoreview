@@ -49,13 +49,9 @@ fn latest(archive: &[Archived], jobs: &[Job]) -> Vec<Job> {
 }
 
 impl Ui {
-    /// Open the full-screen view over `run_root`'s log. Off a terminal there
-    /// is nothing to open it on, and the run prints its plain lines as ever.
+    /// Open the full-screen view over `run_root`'s log. The caller has
+    /// already checked for a terminal.
     pub fn open_screen(&mut self, header: Header, run_root: &Path) {
-        if !super::on_a_terminal() {
-            eprintln!("note: --tui needs a terminal; printing plain lines");
-            return;
-        }
         match Screen::open(header) {
             Ok(screen) => {
                 self.screen = Some(screen);
