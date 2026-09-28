@@ -13,7 +13,7 @@ use crate::repo::RepoContext;
 use crate::rundir::RunDir;
 use crate::session::{self, SessionFlag};
 use crate::activity::Tail;
-use crate::board::Action;
+use crate::tui::Action;
 use crate::ui::Ui;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;

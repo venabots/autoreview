@@ -18,5 +18,6 @@ mod screen;
 mod terminal;
 mod text;
 
+pub use keys::Action;
 pub use model::{Archived, Wait};
 pub use screen::{Header, Screen};

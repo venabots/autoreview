@@ -9,7 +9,7 @@
 
 use super::Ui;
 use crate::activity::Tail;
-use crate::board::Action;
+use crate::tui::Action;
 use crate::job::{Job, JobState};
 use crate::pool;
 use crate::prlist::PrInfo;

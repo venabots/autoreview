@@ -14,7 +14,8 @@
 //! itself at the terminal's current size. This module decides what each row
 //! says and how wide it may be; the board decides where it goes.
 
-use crate::board::{self, Action, Board};
+use crate::board::{self, Board};
+use crate::tui::Action;
 use crate::tui::Screen;
 use crate::job::{Job, JobState};
 use crate::report::{Panelist, Trailer};

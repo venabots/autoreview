@@ -8,13 +8,12 @@
 use super::actions;
 use super::detail::{self, Context};
 use super::input::{Edit, Input};
-use super::keys::{self, Armed, Intent, Pending, Press};
+use super::keys::{self, Action, Armed, Intent, Pending, Press};
 use super::layout;
 use super::list;
 use super::model::{self, Archived, Row, Section, Sources, Wait};
 use super::terminal::{self, Term};
 use super::text::expand_tabs;
-use crate::board::Action;
 use crate::job::{Job, JobState};
 use crate::prlist::PrInfo;
 use crate::report::{sanitize_block, sanitize_for_display};
