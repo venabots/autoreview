@@ -4,8 +4,8 @@
 //! mode and its answer lands when the review ends. The one thing written as
 //! the review goes is the session transcript Claude Code keeps, one JSON
 //! line per block -- a tool call with its input, the text the reviewer
-//! wrote, the thinking in between. Following that file is how a row on the
-//! board can say "Bash cargo test" instead of only "reviewing 1m47s".
+//! wrote, the thinking in between. Following that file is how the view can
+//! say "Bash cargo test" instead of only "reviewing 1m47s".
 //!
 //! Read incrementally: each poll is one stat, and only the bytes past the
 //! last read are parsed. The file may not exist for the first seconds of a
@@ -19,9 +19,9 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// How many recent events a tail keeps. The inline board shows four; the
-/// full-screen view shows as many as its detail pane holds, and a review
-/// that was scrolled back through is worth more than a few bytes a line.
+/// How many recent events a tail keeps. The full-screen view shows as many
+/// as its detail pane holds, and a review that was scrolled back through is
+/// worth more than a few bytes a line.
 pub const KEEP: usize = 200;
 /// The most columns a summary of one event may take. Every view cuts its
 /// lines to its own width, so this only bounds what a pasted essay in a

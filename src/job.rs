@@ -47,9 +47,9 @@ pub enum JobState {
 #[derive(Debug, Clone)]
 pub struct Job {
     pub pr: u64,
-    /// The PR title, for the live board; empty when unknown.
+    /// The PR title, for the view; empty when unknown.
     pub title: String,
-    /// Who opened it. On the board because a row that says only "#9" makes
+    /// Who opened it. In the view because a row that says only "#9" makes
     /// you go and look up whose work you are about to spend money reviewing.
     pub author: String,
     pub state: JobState,
@@ -83,7 +83,7 @@ pub struct Job {
     pub verdict: Option<String>,
     /// The agent's self-reported trailer (risk, findings, panel).
     pub trailer: Option<Trailer>,
-    /// What the review is doing right now, for the board. Silent until the
+    /// What the review is doing right now, for the view. Silent until the
     /// pool decides what there is to follow.
     pub activity: Tail,
     /// The orchestrator this attempt runs under: the primary, or the

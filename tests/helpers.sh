@@ -486,7 +486,7 @@ fi
 
 # PRs named in $FAKE_CLAUDE_TRANSCRIPT get a transcript written under the
 # session store as the review "runs": two assistant lines, the shape Claude
-# Code writes as a reviewer works. The board follows it live; nothing else
+# Code writes as a reviewer works. The view follows it live; nothing else
 # reads it. Only a pinned or resumed session has one to write.
 case " ${FAKE_CLAUDE_TRANSCRIPT:-} " in
   *" $n "*)

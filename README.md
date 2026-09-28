@@ -242,8 +242,8 @@ binary passes down is a flag the skill has to understand.
 
 The default way to run all this. Each PR is reviewed by a
 [dash-p](https://github.com/venabots/dash-p) subprocess driving claude
-headlessly, `--jobs` at a time. The run shows a live per-PR board, reads each
-review's verdict back from GitHub when it finishes, and ends with a summary of
+headlessly, `--jobs` at a time. The run prints a line as each review starts
+and ends, reads each review's verdict back from GitHub when it finishes, and ends with a summary of
 verdicts, findings, models and cost. It exits nonzero if any review failed,
 which is what makes it safe to put in cron or CI.
 
@@ -294,47 +294,27 @@ alongside `$AUTOREVIEW_AUTO_CMD`, which decides for itself what it posts. The
 session stays resumable, so a later `--continue` run can pick the review up
 and post it.
 
-On a terminal the pass is a live board -- finished reviews settle into
-permanent result lines, running ones spin, and a progress bar tracks the
-pass:
+The pass prints one plain line per state change, on a terminal or not:
 
 ```
 2 PRs to review: #9 #8
-reviewing 2 PRs · logs: /tmp/autoreview.k3Xq8p/run-Qszknc/pass-1
+reviewing 2 PRs
+logs: /tmp/autoreview.k3Xq8p/run-Qszknc/pass-1
 
-  ✓ #9 approved · risk LOW · 4m12s · $0.51  @alice Add retry logic
-  ⠹ #8 @bob Fix flaky test · rechecking 1m47s
-  ━━━━━━━━━━━━╸───────────  1/2 · 1 running
+start   #9 @alice (reviewing)
+start   #8 @bob (rechecking)
+done    #9 (4m12s)
+done    #8 (6m03s)
+        not approved yet because:
+        - [MEDIUM] (money, irreversible) src/pay.rs:88 — a retried checkout charges twice
 ```
 
-Each row says who opened the PR, and whether this is a first look
+Each `start` line says who opened the PR, and whether this is a first look
 (`reviewing`) or a second one against the findings already in that session
 (`rechecking`) — both questions you would otherwise open the PR to answer.
-
-The board redraws itself when the terminal is resized, in place: the rows
-refit to the new width, and the header and the reviews that already finished
-stay where they are. `q` (or ctrl-C) stops the pass, stops every running
-review, and prints the summary of what finished.
-
-A running row is not the whole story, so `space` (or `enter`) opens every
-running row: the session the review runs in, how many turns and tool calls
-it has made, and the last few things it did -- read from the transcript
-Claude Code writes as it works. `1` to `9` open one row by its position,
-`esc` closes them all. When the terminal is wide enough the row itself ends
-with the tool the review is in right now:
-
-```
-  ⠹ #8 @bob Fix flaky test · reviewing 1m47s · Bash
-      session fa5ced7b-32dd-578b-a3b9-d4d23195dce1
-      14 turns · 9 tool calls
-        40s ago  Read    pool.rs
-        12s ago  said    The retry path never re-arms the deadline.
-         3s ago  Bash    cargo test --quiet
-```
-
-Only the built-in reviewer in a session this run named has a transcript to
-follow. A session claude named itself is found when the review ends, and a
-command override has no transcript at all; its row follows its stderr.
+ctrl-C stops the pass, stops every running review, and prints the summary of
+what finished. To watch the reviews as they run, use
+[the full-screen view](#the-full-screen-view).
 
 The header only mentions concurrency when it actually holds reviews back: with
 five PRs and `--jobs 2` it reads `reviewing 5 PRs, 2 at a time`.
@@ -386,9 +366,8 @@ reviewer did not say. The panelist's CLI name is dropped: the model identifies
 the row, and a panelist that never reported one falls back to its name
 (`opencode`).
 
-Without a TTY -- cron, CI, piped output -- the board becomes one plain line
-per state change and the summary a plain aligned table with the same columns,
-plus one `panel #N:` line per PR with panel data, which keeps both the CLI
+Without a TTY -- cron, CI, piped output -- the summary is a plain aligned
+table with the same columns, plus one `panel #N:` line per PR with panel data, which keeps both the CLI
 name and the model: `panel #9: codex (gpt-5.5) 1 finding, top LOW`. A failed
 review names its reason on its line: `FAILED  #9 (exit 10, 3s): You've hit
 your session limit · resets 12pm (America/New_York)`.
@@ -554,7 +533,7 @@ failed too.
 
 ### The full-screen view
 
-`--tui` draws the run full screen instead of the inline board. Every open PR is
+`--tui` draws the run full screen. Every open PR is
 on the left, two lines each, most pressing first. The selected PR's details
 are on the right.
 
@@ -1348,8 +1327,7 @@ src/pool.rs        autoreview: the event-driven job pool
 src/job.rs         autoreview: one review, spawned and classified
 src/report.rs      autoreview: verdict readback and the agent's trailer
 src/rundir.rs      autoreview: what one run writes under --log-dir
-src/ui.rs          autoreview: what every board row and summary says
-src/board.rs       autoreview: the live area, an inline viewport in raw mode
+src/ui.rs          autoreview: the plain lines and the summary
 src/tui/           autoreview --tui: the list, the detail pane, keys, the terminal
 src/findings.rs    the findings a synthesized review attributes to each panelist
 src/ledger.rs      the append-only record of finished reviews, across runs
@@ -1369,12 +1347,11 @@ parsing, session goldens, ranking, CLI validation, argv and tab-command
 shapes), then runs the bash suites — the real binaries against fake `gh`,
 `gum`, `cmux` and `dash-p` on `PATH`, inside a throwaway git repo, with
 `$CLAUDE_CONFIG_DIR` pointed at a throwaway session store. They never touch
-your repos, your Claude Code sessions, or GitHub. Two files,
-`tests/board.test.sh` and `tests/tui.test.sh`, run autoreview on a pty rather
-than a pipe, through `tests/pty.py`: a driver that answers the board's cursor
-query, resizes the terminal mid-pass and presses keys. They are the only times
-the live board and the full-screen view are drawn under test, and they need
-`python3`; without one they say so and skip.
+your repos, your Claude Code sessions, or GitHub. One file,
+`tests/tui.test.sh`, runs autoreview on a pty rather than a pipe, through
+`tests/pty.py`: a driver that answers a cursor query, resizes the terminal
+and presses keys. It is the only time the full-screen view is drawn under
+test, and it needs `python3`; without one it says so and skips.
 It finishes with `bash -n`
 and `shellcheck` over the suite itself and over the scripts in `skills/`, which
 is all the bash in the repo.

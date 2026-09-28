@@ -38,7 +38,7 @@ comments and the commit history, not written at the time of the decision.
 - [0003](0003-the-exit-status-means-the-reviews-succeeded.md) The exit status means the reviews succeeded
 - [0004](0004-argument-parsing-is-hand-rolled.md) Argument parsing is hand-rolled
 - [0005](0005-plain-output-is-a-test-contract.md) Plain output is a test contract
-- [0006](0006-board-rows-carry-no-hyperlinks.md) Board rows carry no hyperlinks
+- [0006](0006-board-rows-carry-no-hyperlinks.md) Board rows carry no hyperlinks (superseded by 0022)
 - [0007](0007-session-ids-are-derived-per-checkout-and-pr.md) Session ids are derived per checkout and PR
 - [0008](0008-one-process-group-per-review.md) One process group per review
 - [0009](0009-a-run-directory-is-made-not-named.md) A run directory is made, not named
@@ -47,10 +47,11 @@ comments and the commit history, not written at the time of the decision.
 - [0012](0012-panel-is-a-program-and-the-judgment-is-one-model-call.md) Panel is a program, and the judgment is one model call
 - [0013](0013-skills-are-vendored-and-versioned-with-the-binaries.md) Skills are vendored and versioned with the binaries
 - [0014](0014-progress-goes-to-stderr-and-the-report-to-stdout.md) Progress goes to stderr and the report to stdout
-- [0015](0015-the-board-is-an-inline-ratatui-viewport.md) The board is an inline ratatui viewport
+- [0015](0015-the-board-is-an-inline-ratatui-viewport.md) The board is an inline ratatui viewport (superseded by 0022)
 - [0016](0016-a-running-review-is-followed-through-its-transcript.md) A running review is followed through its transcript
 - [0017](0017-a-review-says-why-it-did-not-approve.md) A review says why it did not approve
 - [0018](0018-rendering-defects-cap-at-low.md) Rendering defects cap at LOW
 - [0019](0019-exit-10-is-retried-under-another-orchestrator.md) Exit 10 is retried under another orchestrator
 - [0020](0020-the-tui-is-a-full-screen-view-over-the-same-engine.md) The TUI is a full-screen view over the same engine
 - [0021](0021-a-tree-review-audits-head.md) A tree review audits HEAD
+- [0022](0022-the-inline-board-is-removed.md) The inline board is removed

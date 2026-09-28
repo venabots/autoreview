@@ -16,14 +16,7 @@ pub enum Action {
     /// Stop the reviews and print the summary, as ctrl-C did before raw
     /// mode turned it into a key.
     Stop,
-    /// Show every running row's details, or hide them all if any are shown.
-    ToggleAll,
-    /// Show or hide one row's details, by its position on the board from 1.
-    Toggle(usize),
-    /// Hide every row's details.
-    Collapse,
-    /// Stop one running review, by its PR number. The full-screen view asks
-    /// for this after a second press; the inline board never does.
+    /// Stop one running review, by its PR number, after a second press.
     StopReview(u64),
     /// Review this PR next: first among the reviews this pass has not
     /// started, or first in the next pass.

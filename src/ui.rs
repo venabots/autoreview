@@ -1,32 +1,20 @@
 //! Everything the user reads.
 //!
-//! Two renderings of the same pass. On a TTY: a live board -- one animated
-//! spinner line per running review, finished reviews promoted to permanent
-//! result lines above it, an overall progress bar below -- and a summary as
-//! rounded tables. Without a TTY -- cron, CI, piped output -- there is no
-//! cursor to move, so state changes print one plain line each and the summary
-//! is a plain aligned table.
+//! Two front-ends over the same pass. With the full-screen view up
+//! (`crate::tui`), the view draws the run and every plain line goes to the
+//! run log. Without it -- cron, CI, piped output, or a terminal nobody
+//! asked the view for -- state changes print one plain line each.
 //!
 //! The plain strings are a contract: the test suite greps for them verbatim,
 //! and so do people's eyes -- keep them byte-identical across refactors.
-//!
-//! The board is drawn by `crate::board`, an inline viewport that redraws
-//! itself at the terminal's current size. This module decides what each row
-//! says and how wide it may be; the board decides where it goes.
 
-use crate::board::{self, Board};
-use crate::tui::Action;
-use crate::tui::Screen;
+use crate::tui::{Action, Screen};
 use crate::job::{Job, JobState};
 use crate::report::{Panelist, Trailer};
 use crate::why;
 use comfy_table::presets::UTF8_FULL_CONDENSED;
 use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 use console::style;
-use crossterm::event::Event;
-use ratatui::style::{Color as Ink, Stylize};
-use ratatui::text::{Line, Span};
-use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
@@ -34,29 +22,14 @@ mod full;
 
 pub use full::Woke;
 
-/// The frames the spinner turns through. The board indexes this slice
+/// The frames the spinner turns through. The view indexes this slice
 /// directly, so every frame has to draw something: a blank in the cycle
 /// blanks the row once a turn, which reads as a flash rather than as motion.
 pub const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-/// The most title any board row will show, on a terminal wide enough for it.
-const TITLE_WIDTH: usize = 60;
-/// Below this a title is no longer a title. A row this tight drops the title
-/// outright rather than shaving it further, because what the row has left --
-/// the PR number, the verb and the clock -- is the part that tells you the
-/// review is alive.
-const TITLE_FLOOR: usize = 16;
-/// The columns the footer's gauge draws: a full bar is this many `━`.
-const GAUGE_WIDTH: usize = 24;
-/// The most lines an expanded row adds under itself: what is being followed,
-/// the counts, and the last few events.
-const DETAIL_LINES: usize = 6;
-/// The indent of a detail line, so it sits under the row's label.
-const DETAIL_INDENT: &str = "      ";
-
 /// The same frames for indicatif, which takes the last string it is handed as
 /// the one it leaves on the line when the bar stops. The blank on the end is
 /// that parting frame, so a finished step erases its spinner; it is not part
-/// of the animation, and handing it to the board would flash the row.
+/// of the animation, and handing it to the view would flash the row.
 pub fn spinner_ticks() -> Vec<&'static str> {
     SPINNER_FRAMES.iter().copied().chain([" "]).collect()
 }
@@ -251,28 +224,12 @@ fn opt_label(v: Option<&str>) -> String {
 }
 
 pub struct Ui {
-    /// Whether output is styled for a terminal and the inline board may
-    /// draw. False while the full-screen view is up: the plain lines then
-    /// go to the run log, which is where fds 1 and 2 point.
-    pub tty: bool,
-    /// Whether stdout was a terminal when the run started. What `tty` goes
-    /// back to when the full-screen view closes.
-    terminal: bool,
+    /// Whether stdout was a terminal when the run started, which is whether
+    /// the summary is drawn as styled tables.
+    tty: bool,
     /// Where a "#9" links to, or None when hyperlinks are off (no terminal,
     /// or a terminal that asked for plain output).
     pr_url_base: Option<String>,
-    /// The live area, open for the length of a pass on a TTY.
-    board: Option<Board>,
-    /// Which spinner frame the next draw shows.
-    frame: usize,
-    /// The footer's counts: reviews finished, out of the pass.
-    finished: usize,
-    total: usize,
-    /// The PRs whose rows show their details.
-    expanded: HashSet<u64>,
-    /// The PRs on the board at the last draw, top to bottom: what a digit
-    /// key names.
-    live: Vec<u64>,
     /// PRs a person asked to have reviewed now that the current pass could
     /// not start, for the loop to put in the next one.
     requests: Vec<u64>,
@@ -304,14 +261,7 @@ impl Ui {
         let linked = tty && console::colors_enabled();
         Ui {
             tty,
-            terminal: tty,
             pr_url_base: linked.then_some(pr_url_base),
-            board: None,
-            frame: 0,
-            finished: 0,
-            total: 0,
-            expanded: HashSet::new(),
-            live: Vec::new(),
             requests: Vec::new(),
             watch_toggle: None,
             focus_change: None,
@@ -323,12 +273,11 @@ impl Ui {
         }
     }
 
-    /// Whether the pass should tick: turn a spinner ten times a second and
-    /// follow each running review's activity. Not the same question as
-    /// `tty`, which is whether output is styled for a terminal. A view that
-    /// sends the plain lines to a log still has rows to animate.
+    /// Whether the pass should tick: redraw ten times a second and follow
+    /// each running review's activity. Only the full-screen view shows
+    /// either; the plain lines only need to hear when something changed.
     pub fn ticking(&self) -> bool {
-        self.tty || self.screen.is_some()
+        self.screen.is_some()
     }
 
     /// Keep a request for the next pass. Asked twice is asked once.
@@ -353,32 +302,22 @@ impl Ui {
     }
 
     /// A note the user should see now: spawn failures, session fallbacks.
-    /// On the board it prints above the rows; elsewhere it goes to stderr.
+    /// The view flashes it; it also goes to stderr, which is the run log
+    /// while the view is up.
     pub fn note(&mut self, note: String) {
         if let Some(screen) = &mut self.screen {
             screen.flash(note.clone());
         }
-        match &mut self.board {
-            Some(b) => {
-                let note = fit_str(&note, b.width().saturating_sub(2));
-                let _ = b.println(Line::from(vec![Span::raw("  "), Span::from(note).yellow()]));
-            }
-            None => eprintln!("{note}"),
-        }
+        eprintln!("{note}");
     }
 
-    /// Without a TTY the in-place board is replaced by one line per state
-    /// change. On a TTY this drives the board instead: a finish prints a
-    /// permanent result line, and the next draw picks up a start.
+    /// One plain line per state change. While the view is up these land in
+    /// the run log, which is where fd 1 points.
     pub fn note_transition(&mut self, job: &Job) {
-        if self.tty {
-            self.board_transition(job);
-            return;
-        }
         let n = job.pr;
-        // The same three facts the board shows, one line each: who opened it,
-        // and whether this is a first look or a second one. A log that only
-        // says "start #9" makes you open the PR to learn either.
+        // Who opened it, and whether this is a first look or a second one.
+        // A log that only says "start #9" makes you open the PR to learn
+        // either.
         let who = if job.author.is_empty() { String::new() } else { format!(" @{}", job.author) };
         match job.state {
             JobState::Running => {
@@ -389,7 +328,7 @@ impl Ui {
             JobState::Done => {
                 println!("done    #{n} ({})", fmt_dur(job.elapsed_secs));
                 // Indented under the line they explain, on the same stream,
-                // so a cron log reads the way the board does.
+                // so a cron log keeps each reason with its PR.
                 for line in plain_why_lines(job) {
                     println!("{line}");
                 }
@@ -408,239 +347,58 @@ impl Ui {
     }
 
     /// The orchestrator gave up and the fallback is taking the review over.
-    /// Not a finish: the row stays on the board and the finished count does
-    /// not move, because this PR still has a review to come. Called after
-    /// the job was reset for the retry, so the job names the stand-in and
-    /// its first attempt names the failure.
+    /// Not a finish: this PR still has a review to come. Called after the
+    /// job was reset for the retry, so the job names the stand-in and its
+    /// first attempt names the failure.
     pub fn note_retry(&mut self, job: &Job) {
         let Some(first) = &job.first_attempt else { return };
-        let n = job.pr;
         let why = match &first.error {
             // The harness's own words, where it gave any: "exit 10" alone
             // does not separate a usage limit from an outage.
             Some(why) => format!("{} {}: {why}", first.orchestrator.label(), first.outcome()),
             None => format!("{} {}", first.orchestrator.label(), first.outcome()),
         };
-        let tail = format!("{why} · retrying with {}", job.orchestrator.label());
-        if !self.tty {
-            println!("RETRY   #{n} ({tail})");
-            return;
-        }
-        let label = board_label(n);
-        let Some(board) = &mut self.board else { return };
-        // "  " + the mark + two joining spaces, plus the label itself.
-        let fixed = 2 + 1 + 2 + cols(&label);
-        let tail = fit_str(&tail, board.width().saturating_sub(fixed));
-        let _ = board.println(Line::from(vec![
-            Span::raw("  "),
-            Span::from("↻").yellow().bold(),
-            Span::raw(" "),
-            Span::from(label).cyan().bold(),
-            Span::raw(" "),
-            Span::from(tail).yellow(),
-        ]));
+        println!("RETRY   #{} ({why} · retrying with {})", job.pr, job.orchestrator.label());
     }
 
-    /// Print the pass header and stand up the live board.
+    /// Print the pass header.
     pub fn begin_pass(&mut self, total: usize, jobs_max: u32, pass_dir: &std::path::Path) {
         self.pass_dir = pass_dir.to_path_buf();
-        self.finished = 0;
-        self.total = total;
-        if !self.tty {
-            println!("{}", pass_headline(total, jobs_max));
-            println!("logs: {}\n", pass_dir.display());
-            return;
-        }
-        println!(
-            "{} {}",
-            style(pass_headline(total, jobs_max)).bold(),
-            style(format!("· logs: {}", pass_dir.display())).dim()
-        );
-        println!();
-        // As many rows as can run at once, plus the footer. A reaped review
-        // waiting on its readback keeps its row while the next one starts,
-        // so the board may still have to grow; it does that on its own.
-        let rows = total.min(jobs_max as usize) as u16;
-        match Board::open(rows + 1) {
-            Ok(board) => self.board = Some(board),
-            Err(e) => {
-                // A terminal that will not take raw mode still gets the pass,
-                // one plain line per change, like a pipe would.
-                eprintln!("note: could not draw the board ({e}); printing plain lines");
-                self.tty = false;
-            }
-        }
+        println!("{}", pass_headline(total, jobs_max));
+        println!("logs: {}\n", pass_dir.display());
     }
 
-    fn board_transition(&mut self, job: &Job) {
-        let label = board_label(job.pr);
-        let Some(board) = &mut self.board else {
-            return;
-        };
-        match job.state {
-            // The next draw adds the row; nothing to insert.
-            JobState::Running | JobState::Queued => {}
-            JobState::Done | JobState::Failed | JobState::Timeout => {
-                let width = board.width();
-                let _ = board.println(finished_line(label, job, width));
-                // Under the row it explains, while the pass is still running:
-                // the reason a review stopped short of approving is worth
-                // more now than in a table at the end.
-                for line in why_lines(job, width) {
-                    let _ = board.println(line);
-                }
-                self.finished += 1;
-            }
-        }
-    }
-
-    /// Redraw the live area: one row per running review, the footer under
-    /// them. Called on the pool's tick, which is also what turns the spinner.
+    /// Redraw the view, if it is up. Called on the pool's tick, which is
+    /// also what turns the spinner.
     pub fn render(&mut self, jobs: &[Job]) {
         if let Some(screen) = &mut self.screen {
             screen.draw(jobs, &self.pass_dir, &self.archive);
-            return;
         }
-        let Some(board) = &mut self.board else {
-            return;
-        };
-        // Read once, not once per row: every row of a tick is drawn in the
-        // same terminal, and each read is a size ioctl.
-        let width = board.width();
-        let spinner = SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()];
-        self.frame += 1;
-        let now = crate::clock::epoch_secs();
-        let mut running = 0usize;
-        let mut finishing = 0usize;
-        let mut queued = 0usize;
-        let mut lines: Vec<Line<'static>> = Vec::new();
-        self.live.clear();
-        for job in jobs {
-            match job.state {
-                JobState::Running => {
-                    if job.reaped {
-                        finishing += 1;
-                    } else {
-                        running += 1;
-                    }
-                    self.live.push(job.pr);
-                    lines.push(running_line(board_label(job.pr), job, width, spinner));
-                    if self.expanded.contains(&job.pr) {
-                        lines.extend(detail_lines(job, width, now));
-                    }
-                }
-                JobState::Queued => queued += 1,
-                _ => {}
-            }
-        }
-        // A row that finished takes its details with it, so "any shown"
-        // keeps meaning what the space key thinks it means.
-        let live = &self.live;
-        self.expanded.retain(|pr| live.contains(pr));
-        let mut msg = format!("{running} running");
-        if finishing > 0 {
-            msg.push_str(&format!(" · {finishing} finishing"));
-        }
-        if queued > 0 {
-            msg.push_str(&format!(" · {queued} queued"));
-        }
-        let hint = if self.expanded.is_empty() { "space details · q stop" } else { "space hide · q stop" };
-        lines.push(footer_line(self.finished, self.total, &msg, hint, width));
-        let _ = board.ensure_height(lines.len() as u16);
-        let _ = board.draw(&lines);
     }
 
-    /// What the keys pressed since the last tick ask for. The ones that only
-    /// change what the board shows are applied here; the rest are handed
-    /// back for the pass to act on. Nothing off a TTY: there is no board to
-    /// press a key at.
+    /// What the keys pressed since the last tick ask for. The loop's own
+    /// requests are kept here; the rest are handed back for the pass to act
+    /// on. Nothing without the view: there is nothing to press a key at.
     pub fn poll_input(&mut self) -> Vec<Action> {
-        if self.screen.is_some() {
-            // The watch key is the loop's, not the pass's: kept here until
-            // the loop reaches a point where it can change what it does.
-            let actions = self.screen.as_mut().map(Screen::events).unwrap_or_default();
-            return actions
-                .into_iter()
-                .filter(|action| match action {
-                    Action::Watch(on) => {
-                        self.watch_toggle = Some(*on);
-                        false
-                    }
-                    // The focus reaches the pass itself: a review that has
-                    // not started yet is told what the person just typed.
-                    Action::Focus(focus) => {
-                        self.focus_change = Some(focus.clone());
-                        false
-                    }
-                    _ => true,
-                })
-                .collect();
-        }
-        let Some(board) = &self.board else {
-            return Vec::new();
-        };
-        let actions: Vec<Action> = board
-            .events()
-            .into_iter()
-            .filter_map(|e| match e {
-                Event::Key(key) => board::key_to_action(key),
-                // The next draw redraws at the new size; nothing to decide.
-                _ => None,
-            })
-            .collect();
-        for action in &actions {
-            self.apply(action);
-        }
+        // The watch key is the loop's, not the pass's: kept here until the
+        // loop reaches a point where it can change what it does.
+        let actions = self.screen.as_mut().map(Screen::events).unwrap_or_default();
         actions
-    }
-
-    /// One key's effect on what the board shows.
-    fn apply(&mut self, action: &Action) {
-        match action {
-            Action::ToggleAll => {
-                if self.expanded.is_empty() {
-                    self.expanded = self.live.iter().copied().collect();
-                } else {
-                    self.expanded.clear();
+            .into_iter()
+            .filter(|action| match action {
+                Action::Watch(on) => {
+                    self.watch_toggle = Some(*on);
+                    false
                 }
-            }
-            Action::Toggle(n) => {
-                if let Some(&pr) = n.checked_sub(1).and_then(|i| self.live.get(i))
-                    && !self.expanded.remove(&pr)
-                {
-                    self.expanded.insert(pr);
+                // The focus reaches the pass itself: a review that has not
+                // started yet is told what the person just typed.
+                Action::Focus(focus) => {
+                    self.focus_change = Some(focus.clone());
+                    false
                 }
-            }
-            Action::Collapse => self.expanded.clear(),
-            Action::Stop
-            | Action::StopReview(_)
-            | Action::ReviewNow(_)
-            | Action::Watch(_)
-            | Action::Focus(_) => {}
-        }
-    }
-
-    /// Tear the board down, leaving only the permanent result lines. Safe to
-    /// call twice: the interrupt path and the normal end both come through.
-    /// This is also where raw mode ends, so it runs before anything else
-    /// prints.
-    pub fn end_pass(&mut self) {
-        if let Some(board) = self.board.take() {
-            board.close();
-        }
-    }
-
-    pub fn hide_cursor(&self) {
-        if self.tty {
-            print!("\x1b[?25l");
-        }
-    }
-
-    pub fn show_cursor(&self) {
-        if self.tty {
-            print!("\x1b[?25h");
-            let _ = std::io::Write::flush(&mut std::io::stdout());
-        }
+                _ => true,
+            })
+            .collect()
     }
 
     pub fn print_summary(&self, jobs: &[Job], pass_dir: &std::path::Path) {
@@ -880,314 +638,11 @@ fn risk_cell(risk: Option<&str>) -> Cell {
     }
 }
 
-/// PR titles are other people's text headed for the terminal: control bytes
-/// (ANSI/OSC escapes) could repaint the board and bidi/zero-width marks
-/// could visually reorder it, so both are dropped before display.
-fn short_title(title: &str, width: usize) -> String {
-    let clean = crate::report::sanitize_for_display(title);
-    console::truncate_str(&clean, width, "…").to_string()
-}
-
-/// What a board row calls a PR: plain text, never the hyperlinked label the
-/// summary uses.
-///
-/// The board is the one place a row is measured and redrawn in place, and a
-/// hyperlink is forty-odd bytes that draw five columns. The first board
-/// measured them as bytes, believed every linked row wrapped, and climbed the
-/// screen overwriting scrollback. The current one measures spans correctly,
-/// but the rule stays: the summary is where a `#N` links, and the board says
-/// the number plain. Every board call site goes through here so the links
-/// cannot come back one site at a time.
-fn board_label(pr: u64) -> String {
-    format!("#{pr}")
-}
-
-/// What is left for the title once the parts that must survive have been paid
-/// for. `fixed` is measured by the caller from the strings it will actually
-/// draw, rather than estimated from a constant, because the parts vary: a
-/// seven-digit PR number and "rechecking 1h05m" cost eight columns more than
-/// "#123" and "reviewing 3s".
-///
-/// Zero means the row cannot afford a title at all.
-fn title_budget(width: usize, fixed: usize) -> usize {
-    let left = width.saturating_sub(fixed);
-    if left < TITLE_FLOOR { 0 } else { TITLE_WIDTH.min(left) }
-}
-
-/// Cut a plain string to the width it is drawn in. For the parts of the
-/// board that are not rows: a note, the footer's message.
-fn fit_str(line: &str, width: usize) -> String {
-    // console::truncate_str returns the ellipsis itself at width 0, which is
-    // one column and so still overruns. A width this small has nothing to say
-    // anyway.
-    if width == 0 {
-        return String::new();
-    }
-    console::truncate_str(line, width, "…").to_string()
-}
-
-/// Cut a rendered row to the width it is drawn in. This is a backstop, not
-/// the mechanism: the row builders size the title so it never fires. It exists
-/// for the row too narrow to hold even its fixed parts, where something has to
-/// give and there is nothing left to choose.
-///
-/// The cut keeps every span's style up to the column it stops at, and ends
-/// in an ellipsis styled like the span it cut.
-pub(crate) fn fit(line: Line<'static>, width: usize) -> Line<'static> {
-    if width == 0 {
-        return Line::default();
-    }
-    if line.width() <= width {
-        return line;
-    }
-    // Measured on the plain text, so a wide character at the boundary is
-    // counted the way the terminal draws it; then the same number of
-    // characters is taken back out of the spans.
-    let plain: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-    let cut = console::truncate_str(&plain, width, "…");
-    let mut keep = cut.chars().count().saturating_sub(1);
-    let mut spans = Vec::new();
-    for span in line.spans {
-        let chars = span.content.chars().count();
-        if chars <= keep {
-            keep -= chars;
-            spans.push(span);
-            continue;
-        }
-        let head: String = span.content.chars().take(keep).collect();
-        spans.push(Span::styled(format!("{head}…"), span.style));
-        break;
-    }
-    Line::from(spans)
-}
-
-/// Who opened it and what it is called, in the width the board has. A row
-/// that says only "#9" makes you go and look up whose work you are about to
-/// spend money reviewing.
-fn who_and_what(job: &Job, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    if job.author.is_empty() {
-        return short_title(&job.title, width);
-    }
-    short_title(&format!("@{} {}", job.author, job.title), width)
-}
-
-/// A row's parts joined with single spaces, skipping any that draws nothing --
-/// a row that could not afford a title must not show where it would have been.
-fn join_spans(parts: Vec<Span<'static>>) -> Vec<Span<'static>> {
-    let mut out: Vec<Span<'static>> = Vec::new();
-    for part in parts.into_iter().filter(|p| p.width() > 0) {
-        if !out.is_empty() {
-            out.push(Span::raw(" "));
-        }
-        out.push(part);
-    }
-    out
-}
-
-/// The width of a string as the terminal will draw it.
-fn cols(s: &str) -> usize {
-    console::measure_text_width(s)
-}
-
-/// What a running row draws ahead of its text: two spaces, the spinner, one
-/// space. Built as spans and measured, never restated as a constant, so a
-/// row cut to the terminal width is never drawn wider than the terminal.
-fn spinner_lead(spinner: &'static str) -> Vec<Span<'static>> {
-    vec![Span::raw("  "), Span::raw(spinner).magenta(), Span::raw(" ")]
-}
-
-/// `label` is the PR number as the caller wants it rendered. The board passes
-/// plain text; see `board_label` for why it may not pass a hyperlink.
-fn running_line(label: String, job: &Job, width: usize, spinner: &'static str) -> Line<'static> {
-    // A reaped review already exited and only the verdict readback remains:
-    // freeze the clock at the real duration rather than letting it climb
-    // past what the summary will report.
-    let (verb, secs) = if job.reaped {
-        ("finishing", job.elapsed_secs)
-    } else {
-        (
-            if job.resume { "rechecking" } else { "reviewing" },
-            job.started.map(|s| s.elapsed().as_secs()).unwrap_or(0),
-        )
-    };
-    // A retry names its stand-in: the row would otherwise read exactly like
-    // the attempt that just failed.
-    let via = if job.fell_back() { format!(" with {}", job.orchestrator.backend) } else { String::new() };
-    let status = format!("· {verb}{via} {}", fmt_dur(secs));
-    let lead = spinner_lead(spinner);
-    let reserve: usize = lead.iter().map(Span::width).sum();
-    // Two single spaces join the three parts; an absent title takes its space
-    // with it, which join_spans handles.
-    let fixed = reserve + cols(&label) + cols(&status) + 2;
-    // The tool the review is in, when the row can afford it and a title too.
-    // It is the least important part: it goes before the title shrinks to
-    // nothing, and long before the clock.
-    let tool = job
-        .activity
-        .current_tool()
-        .map(|t| format!("· {t}"))
-        .filter(|t| title_budget(width, fixed + cols(t) + 1) > 0)
-        .unwrap_or_default();
-    let fixed = if tool.is_empty() { fixed } else { fixed + cols(&tool) + 1 };
-    let who = who_and_what(job, title_budget(width, fixed));
-    let mut spans = lead;
-    spans.extend(join_spans(vec![
-        Span::from(label).cyan().bold(),
-        Span::from(who).dim(),
-        Span::from(status).magenta(),
-        Span::from(tool).dim(),
-    ]));
-    fit(Line::from(spans), width)
-}
-
-/// How long ago an event was, in the clock's own words, or nothing when the
-/// event did not say.
-fn age(at: Option<i64>, now: i64) -> String {
-    match at {
-        Some(at) => format!("{} ago", fmt_dur(now.saturating_sub(at).max(0) as u64)),
-        None => String::new(),
-    }
-}
-
-/// The lines an expanded row shows under itself: what is being followed, how
-/// much has happened, and the last few things the reviewer did, oldest
-/// first, each cut to the width.
-fn detail_lines(job: &Job, width: usize, now: i64) -> Vec<Line<'static>> {
-    let tail = &job.activity;
-    let mut lines = vec![detail_line(vec![Span::from(tail.source_label()).dim()], width)];
-    let counts = if tail.turns == 0 {
-        "waiting for the first turn".to_string()
-    } else {
-        format!("{} · {}", count(tail.turns as usize, "turn"), count(tail.tool_calls as usize, "tool call"))
-    };
-    lines.push(detail_line(vec![Span::from(counts).dim()], width));
-    let shown = tail.events.len().min(DETAIL_LINES - lines.len());
-    for event in tail.events.iter().skip(tail.events.len() - shown) {
-        let when = format!("{:>9}", age(event.at, now));
-        let name = event.tool.clone().unwrap_or_else(|| "said".to_string());
-        lines.push(detail_line(
-            vec![
-                Span::from(when).dim(),
-                Span::raw("  "),
-                Span::from(format!("{name:<6}")).cyan(),
-                Span::raw(" "),
-                Span::from(event.what.clone()),
-            ],
-            width,
-        ));
-    }
-    lines
-}
-
-fn detail_line(mut spans: Vec<Span<'static>>, width: usize) -> Line<'static> {
-    spans.insert(0, Span::raw(DETAIL_INDENT));
-    fit(Line::from(spans), width)
-}
-
-/// The "not approved yet because" block, indented under the row it explains.
-/// Empty for an approved PR and for a review that named no blocker, so a
-/// clean pass still scrolls past as one line each.
-fn why_lines(job: &Job, width: usize) -> Vec<Line<'static>> {
-    let reasons = why::reasons(job);
-    if reasons.is_empty() {
-        return Vec::new();
-    }
-    let mut lines = vec![detail_line(vec![Span::from(why::HEADER).yellow()], width)];
-    lines.extend(reasons.into_iter().map(|r| detail_line(vec![Span::from(r).dim()], width)));
-    lines
-}
-
-/// The permanent line a finished review leaves on the board.
-fn finished_line(label: String, job: &Job, width: usize) -> Line<'static> {
-    let (mark, headline) = match job.state {
-        JobState::Done => {
-            let word = match job.verdict.as_deref() {
-                Some("approved") => Span::raw("approved").green().bold(),
-                Some("changes requested") => Span::raw("changes requested").yellow(),
-                Some("commented") => Span::raw("commented").cyan(),
-                Some(other) => Span::from(other.to_string()),
-                None => Span::raw("done").green(),
-            };
-            (Span::raw("✓").green().bold(), word)
-        }
-        JobState::Timeout => (Span::raw("✗").yellow().bold(), Span::raw("timed out").yellow()),
-        _ => {
-            // The harness's own words on the line: "failed (exit 10): You've
-            // hit your session limit" explains itself; "failed (exit 10)"
-            // sends the reader to a log directory.
-            let mut words = format!("failed ({})", job.outcome());
-            if let Some(why) = &job.error {
-                words.push_str(&format!(": {why}"));
-            }
-            (Span::raw("✗").red().bold(), Span::from(words).red())
-        }
-    };
-    let mut extras = Vec::new();
-    if let Some(risk) = job.trailer.as_ref().and_then(|t| t.risk.as_deref()) {
-        extras.push(format!("risk {risk}"));
-    }
-    extras.push(fmt_dur(job.elapsed_secs));
-    if let Some(cost) = job.cost {
-        extras.push(format!("${cost:.2}"));
-    }
-    if job.fell_back() {
-        extras.push(format!("via {}", job.orchestrator.backend));
-    }
-    let extras = format!("· {}", extras.join(" · "));
-    // "  " + mark + the three joining spaces, plus the parts themselves.
-    let fixed = 2 + mark.width() + cols(&label) + headline.width() + cols(&extras) + 4;
-    let who = who_and_what(job, title_budget(width, fixed));
-    let mut spans = vec![Span::raw("  "), mark, Span::raw(" ")];
-    spans.extend(join_spans(vec![
-        Span::from(label).cyan().bold(),
-        headline,
-        Span::from(extras).dim(),
-        Span::from(who).dim(),
-    ]));
-    fit(Line::from(spans), width)
-}
-
-/// The footer's gauge: GAUGE_WIDTH columns, the done part solid, a tip on
-/// the boundary while the pass is unfinished, the rest a faint line.
-fn gauge(pos: usize, len: usize) -> Vec<Span<'static>> {
-    let full = (pos * GAUGE_WIDTH).checked_div(len).unwrap_or(GAUGE_WIDTH).min(GAUGE_WIDTH);
-    let tip = usize::from(full < GAUGE_WIDTH);
-    vec![
-        Span::from("━".repeat(full)).cyan(),
-        Span::from("╸".repeat(tip)).cyan(),
-        Span::from("─".repeat(GAUGE_WIDTH - full - tip)).fg(Ink::Indexed(238)),
-    ]
-}
-
-/// The line under the rows: the gauge, the counts, what the rows are doing
-/// in words, and at the right edge, when there is room, the keys.
-fn footer_line(pos: usize, len: usize, msg: &str, hint: &str, width: usize) -> Line<'static> {
-    let mut lead = vec![Span::raw("  ")];
-    lead.extend(gauge(pos, len));
-    lead.push(Span::raw(" "));
-    lead.push(Span::from(format!("{pos}/{len}")));
-    lead.push(Span::raw(" "));
-    let reserve: usize = lead.iter().map(Span::width).sum();
-    let msg = fit_str(msg, width.saturating_sub(reserve));
-    let used = reserve + cols(&msg);
-    let mut spans = lead;
-    spans.push(Span::from(msg).dim());
-    // Two columns of air at least, or the hint is not worth the space.
-    if let Some(gap) = width.checked_sub(used + cols(hint) + 2) {
-        spans.push(Span::raw(" ".repeat(gap + 2)));
-        spans.push(Span::from(hint.to_string()).dim());
-    }
-    fit(Line::from(spans), width)
-}
-
-/// A panic must not leave the terminal without its cursor.
+/// A `?` that returns early, or a panic that unwinds, must not leave the
+/// terminal in raw mode on the alternate screen.
 impl Drop for Ui {
     fn drop(&mut self) {
         self.shutdown();
-        self.show_cursor();
     }
 }
 
@@ -1224,14 +679,8 @@ pub fn align(rows: &[Vec<String>]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::ASSUMED_WIDTH;
     use crate::job::Job;
     use crate::report::parse_trailer;
-
-    /// The text of a line, styles dropped: what the row says.
-    fn text(line: &Line<'_>) -> String {
-        line.spans.iter().map(|s| s.content.as_ref()).collect()
-    }
 
     #[test]
     fn durations_read_as_written() {
@@ -1358,17 +807,6 @@ mod tests {
     }
 
     #[test]
-    fn failure_reasons_ride_the_failed_lines() {
-        let mut job = Job::new(9);
-        job.state = JobState::Failed;
-        job.exit_code = Some(10);
-        job.error = Some("You've hit your session limit · resets 12pm (America/New_York)".into());
-        // The board line says why.
-        let board = text(&finished_line(board_label(9), &job, ASSUMED_WIDTH));
-        assert!(board.contains("failed (exit 10): You've hit your session limit"), "got {board:?}");
-    }
-
-    #[test]
     fn identical_failure_reasons_group_into_one_line() {
         let failed = |pr: u64, why: Option<&str>| {
             let mut job = Job::new(pr);
@@ -1414,203 +852,6 @@ mod tests {
         assert_eq!(findings_label(partial.as_ref()), "-");
     }
 
-    #[test]
-    fn a_reaped_job_freezes_its_clock() {
-        let mut job = Job::new(9);
-        job.title = "t".into();
-        job.reaped = true;
-        job.elapsed_secs = 252;
-        let line = text(&running_line("#9".into(), &job, ASSUMED_WIDTH, "⠋"));
-        assert!(line.contains("finishing"));
-        assert!(line.contains("4m12s"));
-        job.reaped = false;
-        assert!(text(&running_line("#9".into(), &job, ASSUMED_WIDTH, "⠋")).contains("reviewing"));
-        // A resumed review says so: it is the difference between paying for a
-        // first look and paying for a second one.
-        job.resume = true;
-        assert!(text(&running_line("#9".into(), &job, ASSUMED_WIDTH, "⠋")).contains("rechecking"));
-    }
-
-    #[test]
-    fn a_board_row_says_who_opened_it() {
-        let mut job = Job::new(9);
-        job.title = "Add retry logic".into();
-        job.author = "alice".into();
-        assert_eq!(who_and_what(&job, TITLE_WIDTH), "@alice Add retry logic");
-        // An author the fetch never learned leaves the title alone rather
-        // than printing a bare "@".
-        job.author = String::new();
-        assert_eq!(who_and_what(&job, TITLE_WIDTH), "Add retry logic");
-    }
-
-    #[test]
-    fn a_board_row_never_carries_a_hyperlink() {
-        // The summary table links its PR numbers and the board does not; see
-        // `board_label` for why the asymmetry is load-bearing. Asserting on
-        // `board_label` rather than on a literal is what stops the links
-        // returning through a call site no test covers.
-        assert_eq!(board_label(9), "#9");
-        assert!(!board_label(9).contains('\x1b'));
-        let job = Job::new(9);
-        for line in [running_line(board_label(9), &job, ASSUMED_WIDTH, "⠋"), finished_line(board_label(9), &job, ASSUMED_WIDTH)] {
-            let plain = text(&line);
-            assert!(plain.contains("#9"), "the row still names the PR: {plain:?}");
-            assert!(!plain.contains('\x1b'), "no escapes on the board: {plain:?}");
-        }
-    }
-
-    #[test]
-    fn the_title_is_the_only_part_of_a_row_that_shrinks() {
-        // The budget is what a row can spend on a title after the parts that
-        // must survive are paid for. Pinned at real widths, because the
-        // terminal under `cargo test` is always the same one and a test that
-        // only restates the min/max clamps cannot fail.
-        assert_eq!(title_budget(200, 30), TITLE_WIDTH);
-        assert_eq!(title_budget(80, 30), 50);
-        assert_eq!(title_budget(60, 30), 30);
-        // Too tight for a title worth the name: the row drops it rather than
-        // shaving it, and keeps the number, the verb and the clock.
-        assert_eq!(title_budget(45, 30), 0);
-        assert_eq!(title_budget(10, 30), 0);
-        assert_eq!(who_and_what(&Job::new(9), 0), "");
-    }
-
-    #[test]
-    fn a_row_fits_the_width_it_is_given() {
-        let mut job = Job::new(1234567);
-        job.author = "domleboss97".into();
-        job.title = "ENG-2304: add a protocol-neutral payment credential format".into();
-        job.resume = true;
-
-        // Widths are given, not read, so this pins the arithmetic at every
-        // shape of terminal rather than at whichever one cargo test ran in --
-        // including the degenerate ones, where a naive cut would hand back a
-        // one-column ellipsis for a zero-column budget.
-        for width in [200, 120, 80, 60, 45, 30, 20, 6, 4, 1, 0] {
-            let run = running_line(board_label(job.pr), &job, width, "⠋");
-            assert!(run.width() <= width, "running row at {width}: {} > {width}", run.width());
-            let fin = finished_line(board_label(job.pr), &job, width);
-            assert!(fin.width() <= width, "finished row at {width}: {} > {width}", fin.width());
-            let foot = footer_line(1, 2, "1 running · 3 queued", "space details · q stop", width);
-            assert!(foot.width() <= width, "footer at {width}: {} > {width}", foot.width());
-            for line in detail_lines(&job, width, 0) {
-                assert!(line.width() <= width, "detail line at {width}: {} > {width}", line.width());
-            }
-        }
-        // Down to the width where the title stops fitting, the row keeps the
-        // parts that say the review is alive.
-        let run = text(&running_line(board_label(job.pr), &job, 45, "⠋"));
-        assert!(run.contains("#1234567") && run.contains("rechecking"), "got {run:?}");
-    }
-
-    fn busy_job() -> Job {
-        let mut job = Job::new(9);
-        job.author = "alice".into();
-        job.title = "Add retry logic".into();
-        job.activity = crate::activity::Tail::transcript_at("/nonexistent".into(), 0);
-        let line = |block: serde_json::Value| {
-            serde_json::json!({"type": "assistant", "timestamp": "2026-09-01T11:00:05.000Z", "message": {"content": [block]}}).to_string()
-        };
-        let mut text = String::new();
-        text.push_str(&line(serde_json::json!({"type": "text", "text": "Reading the diff."})));
-        text.push('\n');
-        text.push_str(&line(serde_json::json!({"type": "tool_use", "name": "Bash", "input": {"command": "cargo test --quiet"}})));
-        text.push('\n');
-        job.activity.feed(&text);
-        job
-    }
-
-    #[test]
-    fn a_running_row_says_which_tool_it_is_in_when_there_is_room() {
-        let job = busy_job();
-        let wide = text(&running_line("#9".into(), &job, 120, "⠋"));
-        assert!(wide.ends_with("· Bash"), "got {wide:?}");
-        assert!(wide.contains("@alice Add retry logic"));
-        // The tool goes before the title would have to go, and the clock is
-        // never what pays for it.
-        let tight = text(&running_line("#9".into(), &job, 40, "⠋"));
-        assert!(!tight.contains("Bash"), "got {tight:?}");
-        assert!(tight.contains("reviewing"), "got {tight:?}");
-        // A review that just said something is not in a tool.
-        let mut job = job;
-        job.activity.feed(&format!(
-            "{}\n",
-            serde_json::json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "Done."}]}})
-        ));
-        assert!(!text(&running_line("#9".into(), &job, 120, "⠋")).contains("Bash"));
-    }
-
-    #[test]
-    fn an_expanded_row_shows_what_the_review_is_doing() {
-        let job = busy_job();
-        let lines: Vec<String> = detail_lines(&job, 120, 1_788_260_417).iter().map(text).collect();
-        assert_eq!(lines.len(), 4, "{lines:?}");
-        assert!(lines[0].starts_with(DETAIL_INDENT), "indented under the row: {:?}", lines[0]);
-        assert!(lines[0].contains("waiting for its transcript"), "{:?}", lines[0]);
-        assert_eq!(lines[1].trim(), "2 turns · 1 tool call");
-        assert!(lines[2].contains("12s ago") && lines[2].contains("said") && lines[2].contains("Reading the diff."), "{:?}", lines[2]);
-        assert!(lines[3].contains("Bash") && lines[3].contains("cargo test --quiet"), "{:?}", lines[3]);
-        // Nothing followed yet: the block says so and stays short.
-        let idle = detail_lines(&Job::new(8), 120, 0);
-        let idle: Vec<String> = idle.iter().map(text).collect();
-        assert_eq!(idle.len(), 2, "{idle:?}");
-        assert!(idle[0].contains("not started") && idle[1].contains("waiting for the first turn"), "{idle:?}");
-        // The block never grows past its cap, whatever the tail holds.
-        let mut job = busy_job();
-        for i in 0..20 {
-            job.activity.feed(&format!(
-                "{}\n",
-                serde_json::json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {"file_path": format!("f{i}.rs")}}]}})
-            ));
-        }
-        assert_eq!(detail_lines(&job, 120, 0).len(), DETAIL_LINES);
-    }
-
-    #[test]
-    fn the_footer_names_the_keys_when_there_is_room() {
-        let wide = text(&footer_line(0, 2, "2 running", "space details · q stop", 100));
-        assert!(wide.ends_with("space details · q stop"), "got {wide:?}");
-        assert_eq!(wide.len(), wide.trim_end().len(), "the hint sits at the right edge");
-        assert_eq!(console::measure_text_width(&wide), 100);
-        let narrow = text(&footer_line(0, 2, "2 running", "space details · q stop", 45));
-        assert!(!narrow.contains("space"), "got {narrow:?}");
-        assert!(narrow.contains("2 running"));
-    }
-
-    #[test]
-    fn keys_change_what_the_board_shows() {
-        let mut ui = self::ui(true, None);
-        ui.live = vec![9, 8];
-        ui.apply(&Action::ToggleAll);
-        assert_eq!(ui.expanded.len(), 2);
-        ui.apply(&Action::ToggleAll);
-        assert!(ui.expanded.is_empty());
-        ui.apply(&Action::Toggle(2));
-        assert!(ui.expanded.contains(&8) && !ui.expanded.contains(&9));
-        ui.apply(&Action::Toggle(2));
-        assert!(ui.expanded.is_empty());
-        // A digit past the last row names nothing, and zero is not a row.
-        ui.apply(&Action::Toggle(3));
-        ui.apply(&Action::Toggle(0));
-        assert!(ui.expanded.is_empty());
-        ui.apply(&Action::Toggle(1));
-        ui.apply(&Action::Collapse);
-        assert!(ui.expanded.is_empty());
-        ui.apply(&Action::Stop);
-    }
-
-    #[test]
-    fn a_running_row_starts_with_the_spinner() {
-        // The row builder pays for its own lead. If the lead ever changed
-        // shape, the width arithmetic in running_line would be paying for the
-        // wrong thing, so the lead is pinned here.
-        let lead = spinner_lead("⠋");
-        assert_eq!(lead.iter().map(Span::width).sum::<usize>(), 4);
-        let mut job = Job::new(9);
-        job.title = "t".into();
-        assert!(text(&running_line("#9".into(), &job, ASSUMED_WIDTH, "⠋")).starts_with("  ⠋ #9"));
-    }
-
     /// A review that commented on #9 over one blocker.
     fn unapproved_job() -> Job {
         let trailer = parse_trailer(
@@ -1651,21 +892,11 @@ mod tests {
         job.verdict = Some("approved".into());
         assert!(plain_why_lines(&job).is_empty());
         assert!(summary_why_lines(&job).is_empty());
-        assert!(why_lines(&job, ASSUMED_WIDTH).is_empty());
-    }
-
-    #[test]
-    fn the_board_block_is_cut_to_the_row_width() {
-        // It prints into the live area, where a line wider than the terminal
-        // pushes the board's own rows out of place.
-        for line in why_lines(&unapproved_job(), 40) {
-            assert!(text(&line).chars().count() <= 40, "{}", text(&line));
-        }
     }
 
     #[test]
     fn every_spinner_frame_draws_something() {
-        // The board walks these frames in order, so a blank one empties the
+        // The view walks these frames in order, so a blank one empties the
         // lead for a tick and the row flashes. The blank belongs only at the
         // end of the indicatif ticks, where it is what a finished bar leaves
         // behind.
@@ -1675,57 +906,6 @@ mod tests {
         let ticks = spinner_ticks();
         assert_eq!(ticks.len(), SPINNER_FRAMES.len() + 1);
         assert_eq!(ticks.last(), Some(&" "));
-    }
-
-    #[test]
-    fn the_gauge_is_always_the_same_width() {
-        for (pos, len) in [(0, 2), (1, 2), (2, 2), (0, 0), (3, 7)] {
-            let width: usize = gauge(pos, len).iter().map(Span::width).sum();
-            assert_eq!(width, GAUGE_WIDTH, "gauge at {pos}/{len}");
-        }
-        // A finished pass is a solid bar with no tip.
-        let full: String = gauge(2, 2).iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(full, "━".repeat(GAUGE_WIDTH));
-        let half: String = gauge(1, 2).iter().map(|s| s.content.as_ref()).collect();
-        assert!(half.starts_with("━━━━━━━━━━━━╸"), "got {half:?}");
-    }
-
-    #[test]
-    fn a_row_with_no_room_for_a_title_leaves_no_gap() {
-        // An empty title is a span that draws nothing; it must take its
-        // joining space with it.
-        let joined = join_spans(vec![Span::raw("#9"), Span::raw("").dim(), Span::raw("· reviewing 3s")]);
-        let plain: String = joined.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(plain, "#9 · reviewing 3s");
-    }
-
-    #[test]
-    fn fit_cuts_to_the_width_it_is_given() {
-        assert_eq!(fit(Line::from("hello"), 80).width(), 5);
-        let cut = fit(Line::from("hello world, this is long"), 10);
-        assert_eq!(cut.width(), 10);
-        assert!(text(&cut).ends_with('…'));
-        // Colour is not width: a styled line is cut by what it draws, and the
-        // cut keeps the style of the span it fell in.
-        let styled = Line::from(vec![Span::raw("hello ").green(), Span::raw("world").red()]);
-        let cut = fit(styled, 8);
-        assert_eq!(cut.width(), 8);
-        assert_eq!(text(&cut), "hello w…");
-        assert_eq!(cut.spans.len(), 2);
-        assert_eq!(cut.spans[1].style, Span::raw("").red().style);
-        // Nothing fits in nothing, and not an ellipsis either.
-        assert_eq!(fit(Line::from("hello"), 0).width(), 0);
-        assert_eq!(fit_str("hello", 0), "");
-    }
-
-    #[test]
-    fn titles_lose_their_control_bytes() {
-        assert_eq!(short_title("Add \x1b[31mretry\x1b[0m logic", TITLE_WIDTH), "Add [31mretry[0m logic");
-        assert_eq!(short_title("plain title", TITLE_WIDTH), "plain title");
-        // Bidi overrides and zero-width characters reorder or hide text
-        // without being C0 controls; they must go too.
-        assert_eq!(short_title("fix\u{202E}cod.exe", TITLE_WIDTH), "fixcod.exe");
-        assert_eq!(short_title("a\u{200B}b\u{FEFF}c", TITLE_WIDTH), "abc");
     }
 
     #[test]
@@ -1753,14 +933,7 @@ mod tests {
     fn ui(tty: bool, pr_url_base: Option<&str>) -> Ui {
         Ui {
             tty,
-            terminal: tty,
             pr_url_base: pr_url_base.map(String::from),
-            board: None,
-            frame: 0,
-            finished: 0,
-            total: 0,
-            expanded: HashSet::new(),
-            live: Vec::new(),
             requests: Vec::new(),
             watch_toggle: None,
             focus_change: None,

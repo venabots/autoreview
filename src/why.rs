@@ -19,8 +19,8 @@ use crate::ui::count;
 pub const HEADER: &str = "not approved yet because:";
 
 /// How many blockers a reader gets before the tail is counted instead. Three
-/// fits under a board row without pushing the next row off a short terminal,
-/// and a review with more than three blockers is one you open anyway.
+/// fits under a plain `done` line without burying the next one, and a review
+/// with more than three blockers is one you open anyway.
 const MAX_SHOWN: usize = 3;
 
 /// The reasons this PR is not approved yet, each already a bullet. Empty for

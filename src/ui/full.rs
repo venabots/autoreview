@@ -52,7 +52,7 @@ impl Ui {
     /// Open the full-screen view over `run_root`'s log. Off a terminal there
     /// is nothing to open it on, and the run prints its plain lines as ever.
     pub fn open_screen(&mut self, header: Header, run_root: &Path) {
-        if !self.terminal {
+        if !super::on_a_terminal() {
             eprintln!("note: --tui needs a terminal; printing plain lines");
             return;
         }
@@ -60,8 +60,6 @@ impl Ui {
             Ok(screen) => {
                 self.screen = Some(screen);
                 self.run_root = Some(run_root.to_path_buf());
-                // The plain lines, from here on, are the log's.
-                self.tty = false;
             }
             Err(e) => eprintln!("note: could not open the full-screen view ({e}); using the ordinary output"),
         }
@@ -243,13 +241,10 @@ impl Ui {
         }
     }
 
-    /// Give the terminal back: the board, the view, and the plain lines to
-    /// stdout. Safe to call twice.
+    /// Give the terminal back: the view, and the plain lines to stdout.
+    /// Safe to call twice.
     pub fn shutdown(&mut self) {
-        self.end_pass();
-        if self.screen.take().is_some() {
-            self.tty = self.terminal;
-        }
+        self.screen = None;
     }
 
     /// A line to print under the whole-run summary. A line the loop prints
@@ -288,7 +283,6 @@ impl Ui {
         println!();
         eprintln!("interrupted; stopping running reviews");
         self.print_final(jobs);
-        self.show_cursor();
         std::process::exit(130);
     }
 }

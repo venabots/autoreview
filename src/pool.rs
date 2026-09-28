@@ -66,8 +66,7 @@ fn interrupt(jobs: &[Job], ui: &mut Ui) -> ! {
             stop_group(pgid);
         }
     }
-    // Then the terminal: the board or the full-screen view holds it in raw
-    // mode, and the summary must land on a terminal that has been given back.
+    // Then the terminal: the full-screen view holds it in raw mode, and the summary must land on a terminal that has been given back.
     ui.interrupted(jobs)
 }
 
@@ -370,8 +369,8 @@ pub fn run_pass(
             break;
         }
 
-        // Ten frames a second on a terminal: the tick is what turns the
-        // spinner now, and one turn a second is what a spinner looks like.
+        // Ten frames a second with the view up: the tick is what turns the
+        // spinner, and one turn a second is what a spinner looks like.
         let wait = if ui.ticking() {
             Duration::from_millis(100)
         } else {
@@ -564,9 +563,8 @@ pub fn run_pass(
             Err(RecvTimeoutError::Disconnected) => break,
         }
 
-        // With the board up the terminal is in raw mode, so ctrl-C is a key
-        // rather than a signal. Read here, on this thread, after every wake:
-        // the board must never own a reader thread (see src/board.rs).
+        // With the view up the terminal is in raw mode, so ctrl-C is a key
+        // rather than a signal. Read here, on this thread, after every wake.
         for action in ui.poll_input() {
             match action {
                 Action::Stop => interrupt(&jobs, ui),
@@ -578,9 +576,9 @@ pub fn run_pass(
             }
         }
 
-        // What each running review is doing, for the board. One stat per
-        // running job per tick; nothing at all off a terminal, where no row
-        // would show it.
+        // What each running review is doing, for the view. One stat per
+        // running job per tick; nothing at all without the view, where no
+        // row would show it.
         if ui.ticking() {
             for job in jobs.iter_mut().filter(|j| j.state == JobState::Running && !j.reaped) {
                 job.activity.poll();
@@ -607,7 +605,6 @@ pub fn run_pass(
     }
 
     ui.render(&jobs);
-    ui.end_pass();
     jobs
 }
 

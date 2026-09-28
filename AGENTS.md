@@ -29,9 +29,9 @@ cargo clippy --all-targets      # clean today; keep it clean
 - `cargo fmt` is not applied to this tree. Clippy is clean.
 - The test suite is bash 3.2 compatible because macOS ships 3.2. An empty
   array under `set -u` needs the `${arr[@]+"${arr[@]}"}` guard.
-- The suite runs the binaries through pipes, where the board never draws.
-  `tests/board.test.sh` and `tests/tui.test.sh` are the exceptions: they give
-  autoreview a pty through `tests/pty.py`, which answers the cursor query that
+- The suite runs the binaries through pipes, where the full-screen view never
+  opens. `tests/tui.test.sh` is the exception: it gives autoreview a pty
+  through `tests/pty.py`, which also answers the cursor query that
   `script(1)` does not.
 - The skills under `skills/` are the reviewers the binaries invoke by slash
   name. They are versioned with the binaries.
@@ -46,18 +46,14 @@ cargo clippy --all-targets      # clean today; keep it clean
   unknown flags only that way, and a silently dropped `--max-budget-usd` is
   the failure the flag exists to prevent.
 - Count in English through `ui::count`. "1 PR(s)" is the shape to avoid.
-- Board rows carry a plain `#N` label. OSC 8 hyperlinks belong in the summary
-  tables only: the board is measured and redrawn in place, and the summary is
-  the one place a number links.
-- While the board is open the terminal is in raw mode. Print through
-  `ui.note`; a bare `println!` lands inside the live area.
 - While `--tui` is up, fds 1 and 2 point at the run log and the view draws
   through its own `/dev/tty` handle. Nothing may ask crossterm for the cursor
   then: the query goes to the log and stalls for two seconds.
 - The view captures the mouse, so a drag no longer selects text. `m` hands it
   back. Every gesture has a key; none is the only way to do anything.
-- Read crossterm events on the main thread, through the board. A reader
-  thread holds the lock the cursor query needs on every resize.
+- Read crossterm events on the main thread, through the view
+  (`Screen::events`). The pass polls them after every wake; there is no
+  reader thread.
 - Progress goes to stderr and the report to stdout. Off a TTY, progress is one
   plain line per step and a ticking message says nothing.
 - Doc comments state the failure the code prevents, in prose. Match that

@@ -11,7 +11,7 @@
 //! crossterm's cursor query does, so no call here may ask for the cursor --
 //! ratatui's `Terminal::clear`, `init` and `restore` all do, and none is
 //! used. And the size comes from `/dev/tty`, which crossterm asks first, so
-//! a resize is seen without the query the inline board depends on.
+//! a resize is seen without asking the terminal where the cursor is.
 
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
