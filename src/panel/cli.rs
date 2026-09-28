@@ -9,7 +9,8 @@ use std::path::PathBuf;
 
 pub const HELP: &str = r#"panel: review one change with several models at once, then synthesize.
 
-Usage: panel [--base REF | --uncommitted | --staged] [--panelist BACKEND[:MODEL]]...
+Usage: panel [--base REF | --uncommitted | --staged | --tree [PATH]]
+             [--panelist BACKEND[:MODEL]]...
              [--focus TEXT] [--timeout SECONDS] [--log-dir DIR]
              [--synth BACKEND[:MODEL]] [--no-synthesis] [--help]
 
@@ -23,6 +24,10 @@ questionable claims against the code, and writes the report.
   --uncommitted       Review what is not committed yet (default). Panelists
                       read your working tree and change nothing.
   --staged            Review the index only.
+  --tree [PATH]       Audit the code as it is at HEAD, with no change to
+                      review: the whole repository, or only PATH. Each
+                      panelist gets its own worktree and may run the tests.
+                      Uncommitted edits are not part of it.
   --panelist B[:M]    Add one panelist: a backend (codex, claude, opencode)
                       and optionally the model to pin it to. Repeatable. The
                       default is every backend found on PATH, on its own
@@ -95,6 +100,9 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             "--uncommitted" => target = Target::Uncommitted,
             "--staged" => target = Target::Staged,
             "--base" => target = Target::Base(require_value("--base", it.next())?),
+            // The path is optional, so a following flag is left for the next
+            // turn of the loop rather than taken as the path.
+            "--tree" => target = Target::Tree(it.next_if(|next| !next.starts_with('-'))),
             "--panelist" => {
                 let spec = require_value("--panelist", it.next())?;
                 panelists.push(panelist::parse_spec(&spec).map_err(err)?);
@@ -107,7 +115,9 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             "--help" | "-h" => return Ok(Parsed::Help),
             "--version" | "-V" => return Ok(Parsed::Version),
             other => {
-                if let Some(v) = other.strip_prefix("--base=") {
+                if let Some(v) = other.strip_prefix("--tree=") {
+                    target = Target::Tree(Some(require_value("--tree", Some(v.to_string()))?));
+                } else if let Some(v) = other.strip_prefix("--base=") {
                     target = Target::Base(require_value("--base", Some(v.to_string()))?);
                 } else if let Some(v) = other.strip_prefix("--panelist=") {
                     let spec = require_value("--panelist", Some(v.to_string()))?;
@@ -190,6 +200,18 @@ mod tests {
         assert_eq!(cfg(&["--base=origin/main"]).target, Target::Base("origin/main".into()));
         assert_eq!(cfg(&["--timeout=30"]).timeout_secs, 30);
         assert_eq!(cfg(&["--focus=auth"]).focus.as_deref(), Some("auth"));
+    }
+
+    #[test]
+    fn a_tree_review_takes_an_optional_path() {
+        assert_eq!(cfg(&["--tree"]).target, Target::Tree(None));
+        assert_eq!(cfg(&["--tree", "src"]).target, Target::Tree(Some("src".into())));
+        assert_eq!(cfg(&["--tree=src/panel"]).target, Target::Tree(Some("src/panel".into())));
+        // A flag after it is a flag, not the path.
+        let c = cfg(&["--tree", "--focus", "auth"]);
+        assert_eq!(c.target, Target::Tree(None));
+        assert_eq!(c.focus.as_deref(), Some("auth"));
+        assert_eq!(run(&["--tree="]).err().unwrap().msg, "error: --tree expects a value");
     }
 
     #[test]
