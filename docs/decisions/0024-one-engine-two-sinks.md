@@ -47,7 +47,8 @@ events, and neither calls the engine.
 
 `src/engine/` owns the run:
 
-- the `Queue` (unchanged: it is already a pure intake state machine),
+- the `Queue`, which is already a pure intake state machine. It changes in
+  one place (see "One loop, with a policy").
 - a `Policy` (below),
 - the jobs of the pass in progress, and the newest finished job per PR,
 - the run directory, and the session and failure state per PR. This state
@@ -75,7 +76,8 @@ enum Command {
 ```
 
 The wait is `recv_timeout` until the earliest of the next poll, the next
-review deadline and the CI wait limit. The `gh` fetch runs on a worker thread
+review deadline, the next CI recheck of a held PR (every 30 seconds, as
+`ci::settle` polls today) and the CI wait limit. The `gh` fetch runs on a worker thread
 and posts `Listed`. The engine does not sleep, and it does not tick when
 nothing is due.
 
@@ -86,11 +88,14 @@ view keeps its own view-only intents (selection, scrolling, mouse).
 
 ```rust
 enum Event {
-    PassStarted { pass: u32, total: usize, jobs_max: u32, dir: PathBuf },
+    PassStarted { pass: u32, prs: Vec<u64>, jobs_max: u32, dir: PathBuf },
     Started(Job),
+    Reaped(Job),
     Retrying(Job),
     Finished(Job),
-    Note(String),
+    Line(String),   // stdout
+    Note(String),   // stderr
+    PassEnded(Vec<Job>),
     Listed { info: HashMap<u64, PrInfo>, ranked: Vec<u64>, waiting: Vec<(u64, Wait)> },
     Mode { line: String, looping: bool },
     Focus(Option<String>),
@@ -100,30 +105,46 @@ enum Event {
 ```
 
 A `Job` in an event is an owned copy. No sink holds a reference into the
-engine.
+engine. Between them the events carry every state a row shows today:
+
+- `PassStarted` names the PRs of the pass, so the view can draw them as
+  queued.
+- `Reaped` is sent when the review process exits. It carries the time,
+  model, cost and session that `JobReaped` records now, while the GitHub
+  readback is still running. The view shows it as "finishing".
+- `Finished` is sent when the readback returns.
+- `Line` and `Note` keep the stream each line goes to today. Progress goes
+  to stderr and the report to stdout (decision 0014), and the bash suite
+  reads them apart.
+- `PassEnded` carries the jobs of the pass that ended.
 
 ### The sinks
 
 - **Plain.** One writer that turns each event into the lines the bash suite
-  pins today, byte for byte, and prints the summary on `Ended`. Headless runs
+  pins today, byte for byte. It prints each pass summary on `PassEnded`, as
+  a headless run does today, before the loop waits again. Headless runs
   write it to stdout and stderr, as today (decision 0014).
 - **View.** The main thread runs the view's loop: draw, read crossterm for up
   to 100 ms, send any `Command`, then take the waiting events. Crossterm is
   still read on the main thread only, and nothing else reads it. While the
   view is up, a second plain sink writes to `<run>/autoreview.log`. The log
-  keeps its content, but a sink writes it now, and fds 1 and 2 stay where
-  they are.
+  keeps its content, pass summaries included, but a sink writes it now, and
+  fds 1 and 2 stay where they are. The view prints one summary for the
+  whole run on `Ended`, after it closes (decision 0020).
 
 Only the sinks print. The 38 bare `println!`/`eprintln!` calls in the loop
-become `Note` events. Library code that prints today (`prlist`, `ci` through
-`Status`) runs either before the engine starts, as the startup lines do now
-(decision 0020), or through `Note`.
+become `Line` and `Note` events, each on the stream it uses today. Before
+the engine starts, only the preflight and the picker print, on the normal
+screen, as the startup lines do now (decision 0020). The first look and the
+CI wait run in the engine, so what `prlist` and `ci` say through `Status`
+today becomes `Busy`, `Line` and `Note` events.
 
 ### Following a running review
 
-The view follows each review's transcript itself (decision 0016). `Started`
-carries the job and its log paths, and the view reads the transcript on its
-own tick. The engine stops polling activity, and `ticking()` goes.
+The view follows each review's transcript itself (decision 0016). `Job` has
+no path fields, so the view finds a review's files from `PassStarted.dir`
+and the PR number, the way `rundir` names them. It reads the transcript on
+its own tick, and the engine stops polling activity.
 
 ### One loop, with a policy
 
@@ -131,8 +152,13 @@ own tick. The engine stops polling activity, and `ticking()` goes.
 struct Policy {
     poll: Option<Duration>,      // None: look once
     rest: Duration,              // per PR, after a review
-    ci: CiWait,                  // Hold | WaitUpTo(Duration) | Off
+    reset_cap_on_push: bool,
+    ci: CiRule,
     stop: StopRule,
+}
+struct CiRule {
+    first: CiWait,               // the first look: Hold | WaitUpTo(Duration) | Off
+    later: CiWait,               // every look after it
 }
 struct StopRule {
     when_exhausted: bool,        // nothing left to watch ends the run
@@ -141,20 +167,51 @@ struct StopRule {
 }
 ```
 
-- One-shot: look once. `ci: WaitUpTo($AUTOREVIEW_CI_WAIT)`. Stop when
+- One-shot: look once. `ci.first: WaitUpTo($AUTOREVIEW_CI_WAIT)`. Stop when
   exhausted. The CI wait becomes "hold the PR and look again" in the same
-  loop, and `ci::settle` goes.
+  loop, and `ci::settle` goes. For this to work, the first look moves into
+  the engine too: today `select::run` calls `ci::settle` before the binary
+  starts the loop.
 - `--watch`: poll every 2 minutes, rest 30 minutes, never stop, back off on
-  a refresh failure.
+  a refresh failure. `ci` is `Hold` on every look: a held PR waits for the
+  next poll.
 - `--babysit`: poll at the interval, rest at the interval, stop when
-  exhausted, `--max-idle`, and 3 refresh failures.
+  exhausted, `--max-idle`, and 3 refresh failures. `ci.first` is
+  `WaitUpTo($AUTOREVIEW_CI_WAIT)` and `ci.later` is `Hold`, as today.
+  `src/cli.rs` gives a babysit run its CI wait, and a unit test there pins
+  it. Decision 0011 names only the one-shot run as one that waits, so step
+  3 corrects 0011.
+- `--skip-wait-for-ci` sets both to `Off`.
 - `w` replaces the policy. It does not flip flags.
 
-Decision 0010 still applies. A babysit run looks every interval, and a PR
-found on a look is reviewed on that look. Today a babysit run sleeps the
-interval before every pass, so the first review can start up to one interval
-sooner. When that difference changes a line in the bash suite, the test
-change goes in the same commit as the code change.
+Decision 0010 still applies. Today a babysit run behaves like this:
+
+- The first pass starts at once.
+- When a pass ends, the loop looks at once.
+- If that look finds work, the loop waits one interval, then reviews what
+  it found. The interval gives an author time to answer the review.
+- If that look finds nothing, the loop looks again every interval. Work
+  found on one of those looks is reviewed at once, because an interval has
+  already passed.
+
+Today the `Queue`'s `cooldown` turns on two things together: the rest per
+PR, and a cap that a push resets. Only `--watch` sets it. A policy sets
+them apart, as `rest` and `reset_cap_on_push`. `--watch` has both.
+`--babysit` gets the rest and keeps its cap as today: a push does not reset
+it. Decision 0010 says a push resets the cap, which the code does only under
+`--watch`. Step 3 records which of the two is meant, in 0010 and in the
+code.
+
+A policy keeps the looks: one at once when a pass ends, then one every
+`poll`. It moves the interval from the loop to the PR: `rest` stops a PR
+from being reviewed again until one interval after its last review. The
+difference is a PR that opens during a pass. Today it waits the interval
+with the rest of the queue. Under a policy it has no rest to wait out, so
+it is reviewed at the first look after the pass. A PR that was just reviewed
+still waits one interval, as today.
+
+When that difference changes a line in the bash suite, the test change goes
+in the same commit as the code change.
 
 ### Passes stay
 
@@ -166,7 +223,8 @@ the moment a slot frees, are out of scope here.
 
 ### Exit
 
-The engine never calls `process::exit`. An interrupt, `q`, or the policy
+The engine never calls `process::exit`. Today `Ui::interrupted` does, with
+exit status 130, from inside the loop. An interrupt, `q`, or the policy
 saying stop becomes `Ended { why, code }`. The main thread closes the view,
 prints the summary through the plain sink and exits with the code: 0, 1 or
 130, as decision 0003 says.
@@ -186,7 +244,8 @@ prints the summary through the plain sink and exits with the code: 0, 1 or
 `src/bin/autoreview.rs` does these things only:
 
 - parse the flags,
-- run the preflight and the first selection,
+- run the preflight, and the picker under `--pick` (the first automatic
+  look is the engine's),
 - start the engine,
 - run a sink,
 - exit with the code.
@@ -201,13 +260,20 @@ Each step is one PR, and `tests/run.sh` passes after each one.
    methods send events. No behavior change.
 2. The `Command` channel. The `Ui` mailboxes and `poll_input`'s filtering
    go. No behavior change.
-3. The loop moves into `src/engine/` with `Policy`. The mode branches and
-   `ci::settle` go. Any babysit timing lines change here, with their tests.
-4. The engine goes on its own thread, and the view runs on the main thread.
-   The fd redirect, `wait`, `while_busy`, `hold` and `Woke` go. The run log
-   is written by a sink.
-5. Transcript following moves into the view. `ticking()` goes.
-6. `Ended` replaces the two `process::exit` calls inside the loop.
+3. The loop moves into `src/engine/` with `Policy`, and so does the first
+   look. The mode branches and `ci::settle` go. The CI wait at startup now
+   shows in the view as waiting rows, not as a spinner before the view
+   opens. That changes one consequence of decision 0020. Any babysit timing
+   lines change here, with their tests.
+4. Transcript following moves into the view, and the pool stops polling
+   activity. This comes before the thread split: after the split, the
+   engine thread cannot update the activity of a job copy that the view
+   holds. `ticking()` stays for now, because the pool still wakes every
+   100 ms to redraw the view.
+5. The engine goes on its own thread, and the view runs on the main thread
+   with its own tick. The fd redirect, `wait`, `while_busy`, `hold`, `Woke`
+   and `ticking()` go. The run log is written by a sink.
+6. `Ended` replaces the `process::exit(130)` in `Ui::interrupted`.
 
 ## Consequences
 
@@ -225,12 +291,16 @@ Each step is one PR, and `tests/run.sh` passes after each one.
 - Output order is the order the engine emits. Each sink writes from one
   thread, so plain lines cannot interleave.
 - A print that bypasses the sinks, while the view is up, lands on the screen.
-  The fd redirect caught this, and now nothing does. Step 4 adds a pty test
+  The fd redirect caught this, and now nothing does. Step 5 adds a pty test
   that drives a full watch cycle and checks that the screen shows only the
   view.
 - These notes stop being true, and change in the step that makes them false:
-  - the "fds 1 and 2 point at the run log" convention in `CLAUDE.md`,
-  - the "loop keeps the view drawn while it waits" part of decision 0020,
-  - the `ui.ticking()` consequence of decision 0020.
+  - the "fds 1 and 2 point at the run log" convention in `AGENTS.md`
+    (step 5),
+  - the "loop keeps the view drawn while it waits" part of decision 0020
+    (step 5),
+  - the `ui.ticking()` consequence of decision 0020 (step 5),
+  - the consequence of decision 0020 that the CI wait runs before the view
+    opens (step 3).
 - Decisions 0003, 0009, 0010, 0011 and 0020 otherwise still apply. When this
   is accepted, their mentions of `ui` and the binary's loop point here.
