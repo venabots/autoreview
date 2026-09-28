@@ -865,6 +865,8 @@ and writes the report.
 ```sh
 panel                         # review what you have not committed yet
 panel --base main             # review what this branch added
+panel --tree                  # audit the code at HEAD, no change needed
+panel --tree src/payments     # audit one part of it
 panel --panelist codex --panelist claude:opus-4.8
 panel --focus "the retry path"
 panel --no-synthesis          # the raw reports, no synthesis
@@ -907,6 +909,11 @@ into each other's reading.
 
 Uncommitted work has no ref to pin, so panelists read your actual working tree
 with `--perms read-only` and change nothing.
+
+`--tree` audits the committed code at HEAD, so it gets worktrees too.
+Uncommitted edits are not part of it. The panelists get an audit prompt that
+names the files in scope instead of a diff, and a narrower PATH gives a deeper
+audit.
 
 Either way the worktrees are removed when the run ends — including on ctrl-C,
 which stops the panelists first.

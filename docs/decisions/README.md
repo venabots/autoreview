@@ -53,3 +53,4 @@ comments and the commit history, not written at the time of the decision.
 - [0018](0018-rendering-defects-cap-at-low.md) Rendering defects cap at LOW
 - [0019](0019-exit-10-is-retried-under-another-orchestrator.md) Exit 10 is retried under another orchestrator
 - [0020](0020-the-tui-is-a-full-screen-view-over-the-same-engine.md) The TUI is a full-screen view over the same engine
+- [0021](0021-a-tree-review-audits-head.md) A tree review audits HEAD

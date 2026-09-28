@@ -245,6 +245,65 @@ assert_contains "a base target with an empty diff says to commit" \
   "$out" "commit them first"
 rm -f "$SANDBOX/repo/new-file.txt"
 
+# --- A tree audit ----------------------------------------------------------
+# The code as it is at HEAD, with no change to review: an audit prompt that
+# names the files, a worktree per panelist, and a synthesis that knows it is
+# an audit.
+out="$(run_panel --tree)"
+assert_equals "a tree audit exits 0" "$(last_status)" "0"
+assert_contains "...naming what it audits" "$out" "Target: 1 file at "
+assert_contains "...and saying it lists the files, not a diff" "$out" "listing the files"
+prompt="$(cat "$SANDBOX"/out/stdin-codex-* 2>/dev/null)"
+assert_contains "the panelist gets the audit prompt" "$prompt" "# Code audit request"
+assert_contains "...with the files named" "$prompt" '- `a.rs`'
+assert_not_contains "...and no diff" "$prompt" "## Diff"
+assert_contains "each panelist gets a worktree" "$(calls)" "worktree-codex"
+synth="$(cat "$(cat "$SANDBOX/out/synthesis-prompt-path" 2>/dev/null)" 2>/dev/null || true)"
+assert_contains "the synthesis is told it is an audit" "$synth" "Panel synthesis request: code audit"
+assert_equals "...leaving no worktree behind" \
+  "$(git -C "$SANDBOX/repo" worktree list | wc -l | tr -d ' ')" "1"
+
+mkdir -p "$SANDBOX/repo/sub"
+printf 'fn b() {}\n' >"$SANDBOX/repo/sub/b.rs"
+git -C "$SANDBOX/repo" add sub/b.rs
+git -C "$SANDBOX/repo" -c user.name=t -c user.email=t@e.com commit -q -m "add sub/b.rs"
+
+out="$(run_panel --tree sub)"
+assert_contains "a path narrows the audit" "$out" "Target: 1 file under sub at "
+prompt="$(cat "$SANDBOX"/out/stdin-codex-* 2>/dev/null)"
+assert_contains "...and the panelists are told where it stops" "$prompt" 'Only the files under `sub` are in scope.'
+assert_not_contains "...and shown only what is in it" "$prompt" '- `a.rs`'
+
+set +e
+out="$(cd "$SANDBOX/repo/sub" && "$PANEL" --log-dir "$SANDBOX/out/logs" --tree . 2>&1)"
+set -e
+assert_contains "a path is read from where the user stands" "$out" "Target: 1 file under sub at "
+
+out="$(run_panel --tree no-such-dir)"
+assert_equals "a path with no files at HEAD is refused" "$(last_status)" "1"
+assert_contains "...saying so" "$out" 'nothing to review: no file under "no-such-dir" at HEAD'
+
+out="$(run_panel --tree "$SANDBOX/repo/gone")"
+assert_contains "an absolute path that is not on disk is still inside the repository" \
+  "$out" 'nothing to review: no file under "gone" at HEAD'
+
+# Pathspec magic is a name like any other, not an instruction to git.
+out="$(run_panel --tree ':(top)sub')"
+assert_contains "a scope is matched literally" \
+  "$out" 'nothing to review: no file under ":(top)sub" at HEAD'
+
+# A submodule is a gitlink with an empty directory in each worktree.
+git -C "$SANDBOX/repo" update-index --add --cacheinfo "160000,$(git -C "$SANDBOX/repo" rev-parse HEAD),sub/vendored"
+git -C "$SANDBOX/repo" -c user.name=t -c user.email=t@e.com commit -q -m "add a submodule"
+out="$(run_panel --tree sub)"
+assert_contains "a submodule is not counted as a file" "$out" "Target: 1 file under sub at "
+prompt="$(cat "$SANDBOX"/out/stdin-codex-* 2>/dev/null)"
+assert_not_contains "...or named in the prompt" "$prompt" "sub/vendored"
+
+out="$(run_panel --tree ..)"
+assert_equals "a path outside the repository is refused" "$(last_status)" "1"
+assert_contains "...saying so" "$out" "is outside this repository"
+
 # --- Version -----------------------------------------------------------------
 out="$(run_panel --version)"
 assert_equals "--version exits 0" "$(last_status)" "0"

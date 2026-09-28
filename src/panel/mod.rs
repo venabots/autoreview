@@ -79,7 +79,10 @@ pub fn run(cfg: &Config) -> Result<i32> {
     status.step(step::reading_repo());
     let repo_root = repo::git_root(&status)?;
 
-    status.step("building the diff");
+    status.step(match cfg.target {
+        target::Target::Tree(_) => "listing the files",
+        _ => "building the diff",
+    });
     let resolved = target::resolve(&cfg.target, &repo_root)?;
     cfg.isolated = resolved.isolated;
 
@@ -94,7 +97,7 @@ pub fn run(cfg: &Config) -> Result<i32> {
         &resolved.label,
         resolved.isolated,
         cfg.focus.as_deref(),
-        &resolved.diff,
+        &resolved.subject,
         &resolved.untracked,
     );
     let prompt_path = dir.join("review.prompt");
@@ -230,7 +233,7 @@ pub fn run(cfg: &Config) -> Result<i32> {
 
     let report = match synthesis::run(
         &resolved.label,
-        &resolved.diff,
+        &resolved.subject,
         &resolved.untracked,
         &outcomes,
         &cfg,
