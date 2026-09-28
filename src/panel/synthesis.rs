@@ -13,7 +13,7 @@
 
 use crate::panel::cli::Config;
 use crate::panel::fanout::{GRACE_SECS, Outcome};
-use crate::panel::prompt::{fence_for, fenced_diff};
+use crate::panel::prompt::{fence_for, fenced_diff, files_section};
 use crate::panel::target::Subject;
 use crate::pool::stop_group;
 use crate::status::{Status, step};
@@ -28,6 +28,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const INSTRUCTIONS: &str = include_str!("../../prompts/synthesis.md");
+const AUDIT_INSTRUCTIONS: &str = include_str!("../../prompts/audit-synthesis.md");
 
 /// One roster line. The model and the failure reason are process output, and
 /// these lines sit outside the fences that contain the reports -- so a
@@ -55,7 +56,10 @@ pub fn build_prompt(
     outcomes: &[Outcome],
     focus: Option<&str>,
 ) -> String {
-    let mut p = String::from(INSTRUCTIONS);
+    let mut p = String::from(match subject {
+        Subject::Diff(_) => INSTRUCTIONS,
+        Subject::Files { .. } => AUDIT_INSTRUCTIONS,
+    });
 
     p.push_str("\n\n## This run\n\n");
     p.push_str(&format!("- Target line to quote: {target_label}\n"));
@@ -95,9 +99,18 @@ pub fn build_prompt(
     // own view, and it cannot run git: it is read-only, so exec is denied.
     // Without this it could only read the post-image files, and could not
     // tell a line this change touched from one it did not.
-    let Subject::Diff(diff) = subject;
-    p.push_str("\n## The diff under review\n\n");
-    p.push_str(&fenced_diff(diff));
+    // For an audit there is no diff. The list is what the panelists were told
+    // was in scope, so a finding outside it can be read as such.
+    match subject {
+        Subject::Diff(diff) => {
+            p.push_str("\n## The diff under review\n\n");
+            p.push_str(&fenced_diff(diff));
+        }
+        Subject::Files { scope, files } => {
+            p.push('\n');
+            p.push_str(&files_section(scope.as_deref(), files));
+        }
+    }
 
     // The panelists were told to read these from the tree, so a finding can
     // point at one. Without this the synthesizer would look for them in the
@@ -296,6 +309,22 @@ mod tests {
         assert!(p.contains("### codex / gpt-5"));
         assert!(p.contains("- [HIGH] a.rs:1 — bug"));
         assert!(!p.contains("Do not count them toward consensus"));
+    }
+
+    #[test]
+    fn an_audit_is_synthesized_as_an_audit_over_the_same_files() {
+        let outcomes = vec![outcome("codex", "gpt-5", "Model: gpt-5\nPurpose: x\n- [HIGH] a.rs:1 — bug", None)];
+        let subject = Subject::Files { scope: Some("src".into()), files: vec!["src/a.rs".into()] };
+        let p = build_prompt("1 file under src at abc1234 on main", &subject, &[], &outcomes, None);
+        assert!(p.starts_with("# Panel synthesis request: code audit"));
+        assert!(p.contains("- Target line to quote: 1 file under src at abc1234 on main"));
+        assert!(p.contains("## Files under review"));
+        assert!(p.contains("- `src/a.rs`"));
+        assert!(!p.contains("## The diff under review"));
+        // The headings the report parser reads back are the same in both.
+        for heading in ["### Overview", "### Risk", "### must-fix", "### should-fix", "### polish", "### Disagreements"] {
+            assert!(AUDIT_INSTRUCTIONS.contains(heading), "{heading}");
+        }
     }
 
     #[test]

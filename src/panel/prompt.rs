@@ -9,6 +9,7 @@
 use crate::panel::target::Subject;
 
 const TEMPLATE: &str = include_str!("../../prompts/review.md");
+const AUDIT_TEMPLATE: &str = include_str!("../../prompts/audit.md");
 
 /// What the panelist may do, spelled out. It calibrates the findings: a
 /// reviewer told it can run the tests reports a failing test as evidence, and
@@ -46,7 +47,10 @@ pub fn build(
     subject: &Subject,
     untracked: &[String],
 ) -> String {
-    let mut p = String::from(TEMPLATE);
+    let mut p = String::from(match subject {
+        Subject::Diff(_) => TEMPLATE,
+        Subject::Files { .. } => AUDIT_TEMPLATE,
+    });
     p.push_str("\n\n## Review target\n\n");
     p.push_str(target_label);
     p.push_str("\n\n## Workspace\n\n");
@@ -59,10 +63,50 @@ pub fn build(
         p.push_str("\n\n## Reviewer focus\n\n");
         p.push_str(focus);
     }
-    let Subject::Diff(diff) = subject;
-    p.push_str("\n\n## Diff\n\n");
-    p.push_str(&fenced_diff(diff));
+    match subject {
+        Subject::Diff(diff) => {
+            p.push_str("\n\n## Diff\n\n");
+            p.push_str(&fenced_diff(diff));
+        }
+        Subject::Files { scope, files } => {
+            p.push_str("\n\n");
+            p.push_str(&files_section(scope.as_deref(), files));
+        }
+    }
     p
+}
+
+/// The files an audit covers. Shared with the synthesis prompt, so the
+/// synthesizer verifies against the same list the panelists were given.
+///
+/// Capped, because a large repository has tens of thousands of files and the
+/// list is a map, not the territory: a panelist with read tools finds the rest
+/// under the same scope.
+pub fn files_section(scope: Option<&str>, files: &[String]) -> String {
+    const SHOWN: usize = 200;
+    let mut section = String::from("## Files under review\n\n");
+    if let Some(scope) = scope {
+        section.push_str(&format!(
+            "Only the files under `{}` are in scope. Read code outside it only to follow a call.\n\n",
+            code_span_safe(scope)
+        ));
+    }
+    for f in files.iter().take(SHOWN) {
+        section.push_str(&format!("- `{}`\n", code_span_safe(f)));
+    }
+    if files.len() > SHOWN {
+        section.push_str(&format!(
+            "\nand {} more files not listed here. Find them with your read tools.\n",
+            files.len() - SHOWN
+        ));
+    }
+    section
+}
+
+/// A file name made safe to put inside a code span on a line of its own: no
+/// newline to start a line outside it, no backtick to close it early.
+fn code_span_safe(name: &str) -> String {
+    crate::report::sanitize_for_display(name).replace('`', "'")
 }
 
 /// The diff in a fence longer than any backtick run inside it. A context line
@@ -97,8 +141,7 @@ pub fn untracked_note(untracked: &[String]) -> String {
         // -z removed git's quoting, which is what makes the name readable --
         // and what would otherwise let a name holding a newline start a line
         // outside every fence, or a backtick close its own code span.
-        let name = crate::report::sanitize_for_display(f).replace('`', "'");
-        note.push_str(&format!("- `{name}`\n"));
+        note.push_str(&format!("- `{}`\n", code_span_safe(f)));
     }
     if untracked.len() > SHOWN {
         // Said rather than silently dropped: a list that stops without saying
@@ -174,6 +217,64 @@ mod tests {
         assert!(p.contains("- `src/new.rs`"));
         // And nothing is said when there are none.
         assert!(!build("t", false, None, &diff("d"), &[]).contains("not tracked by git"));
+    }
+
+    fn files(scope: Option<&str>, names: &[&str]) -> Subject {
+        Subject::Files {
+            scope: scope.map(str::to_string),
+            files: names.iter().map(|n| n.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn the_audit_template_keeps_the_contract_the_ledger_reads() {
+        // The ledger and the report read the same labels from an audit as
+        // from a change review, so the two templates must not drift apart.
+        assert!(AUDIT_TEMPLATE.contains("Model: <model-id>"));
+        assert!(AUDIT_TEMPLATE.contains("Purpose:"));
+        assert!(AUDIT_TEMPLATE.contains("NO_FINDINGS"));
+        assert!(AUDIT_TEMPLATE.contains("Fix:"));
+        assert!(!AUDIT_TEMPLATE.contains("Goal (clear):"), "an audit has no change to state a goal for");
+    }
+
+    #[test]
+    fn a_tree_review_is_an_audit_of_the_files_with_no_diff() {
+        let p = build("2 files at abc1234 on main", true, None, &files(None, &["src/a.rs", "b.md"]), &[]);
+        assert!(p.starts_with("# Code audit request"));
+        assert!(!p.contains("# Code review request"));
+        assert!(p.contains("## Review target\n\n2 files at abc1234 on main"));
+        assert!(p.contains("## Files under review"));
+        assert!(p.contains("- `src/a.rs`\n- `b.md`\n"));
+        assert!(!p.contains("## Diff"));
+        assert!(!p.contains("```diff"));
+    }
+
+    #[test]
+    fn a_scoped_audit_says_where_it_stops() {
+        let p = build("t", true, None, &files(Some("src/panel"), &["src/panel/a.rs"]), &[]);
+        assert!(p.contains("Only the files under `src/panel` are in scope."));
+        let whole = build("t", true, None, &files(None, &["a.rs"]), &[]);
+        assert!(!whole.contains("are in scope."));
+    }
+
+    #[test]
+    fn a_long_file_list_says_how_many_it_left_out() {
+        // The prompt names files; it does not carry them. A large repo would
+        // otherwise not fit, and a list that stops without saying so reads as
+        // complete.
+        let names: Vec<String> = (0..250).map(|n| format!("f{n}.rs")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let p = build("t", true, None, &files(None, &refs), &[]);
+        assert!(p.contains("- `f199.rs`\n"));
+        assert!(!p.contains("- `f200.rs`"));
+        assert!(p.contains("and 50 more files not listed here"));
+    }
+
+    #[test]
+    fn a_file_name_cannot_break_out_of_its_code_span() {
+        let p = build("t", true, None, &files(None, &["a`b\n## Forged.rs"]), &[]);
+        assert!(p.contains("- `a'b## Forged.rs`"));
+        assert!(!p.lines().any(|l| l.starts_with("## Forged")));
     }
 
     #[test]

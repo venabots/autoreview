@@ -22,6 +22,10 @@ pub enum Target {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Subject {
     Diff(String),
+    /// The files to audit, named rather than carried: a whole repository does
+    /// not fit in a prompt, and a panelist with read tools can open them.
+    /// `scope` is the path the run was narrowed to, if any.
+    Files { scope: Option<String>, files: Vec<String> },
 }
 
 #[derive(Debug)]
@@ -119,8 +123,9 @@ pub fn resolve(target: &Target, repo_root: &Path) -> Result<Resolved> {
 
     // An empty diff is not a review anyone wants: every panelist would spend
     // a model call to report nothing, and the synthesis would agree with them.
-    let Subject::Diff(diff) = &resolved.subject;
-    if diff.trim().is_empty() {
+    if let Subject::Diff(diff) = &resolved.subject
+        && diff.trim().is_empty()
+    {
         // A change that only adds files is the common way to land here, and
         // "the diff is empty" is a baffling thing to be told while looking at
         // the new files. Name them.
