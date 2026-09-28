@@ -42,6 +42,10 @@ that finished, which the board scrolled away.
 - The view hides and shows the cursor itself, in `src/tui/terminal.rs`.
   `Ui` no longer writes cursor escapes; its `Drop` still gives the terminal
   back, so a `?` that returns early does not leave the alternate screen up.
+- The summary is the plain table everywhere: after a headless pass, and
+  after the view closes. The styled comfy-table summary and its OSC 8
+  links to each PR are gone. It was a third rendering of the same facts,
+  and the only one the suite could not grep.
 - `ui.ticking()` is whether the view is open. Without it the pass waits on
   its channel until the nearest deadline and follows no transcript, because
   no row would show what it read.
@@ -52,6 +56,10 @@ that finished, which the board scrolled away.
   plain lines, not a live display. Space, digits and esc no longer expand a
   running row; the view's detail pane is where that lives now.
 - The plain output contract is unchanged, byte for byte.
+- A `#N` in the summary no longer opens the PR on cmd-click. In the view,
+  `o` opens the selected PR in the browser.
+- The panel's models are named on the `panel #N:` lines, not in a table of
+  their own. comfy-table stays a dependency, for `autoreview stats`.
 - Decision 0006 (board rows carry no hyperlinks) and decision 0015 (the
   board is an inline ratatui viewport) are superseded: the thing they
   governed is gone.

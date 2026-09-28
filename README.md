@@ -319,31 +319,22 @@ what finished. To watch the reviews as they run, use
 The header only mentions concurrency when it actually holds reviews back: with
 five PRs and `--jobs 2` it reads `reviewing 5 PRs, 2 at a time`.
 
-The summary is a pair of tables -- what each review concluded, and which models
-did the reviewing. Every `#N` is an OSC 8 hyperlink to the PR, so a terminal
-that supports them (Ghostty, iTerm2, WezTerm, kitty, VS Code) opens it on
-cmd-click. Piped output, `$NO_COLOR` and `TERM=dumb` get plain text instead:
+The summary is one aligned table -- what each review concluded -- and the
+lines that explain it. It is the same text on a terminal, in a pipe and in a
+log:
 
 ```
-╭────┬────────┬────────────────┬────────┬──────────────┬───────┬───────┬────────────────╮
-│ PR ┆ RESULT ┆ VERDICT        ┆ RISK   ┆ FINDINGS     ┆ TIME  ┆ COST  ┆ MODEL          │
-╞════╪════════╪════════════════╪════════╪══════════════╪═══════╪═══════╪════════════════╡
-│ #9 ┆ done   ┆ approved       ┆ LOW    ┆ 1 polish     ┆ 4m12s ┆ $0.51 ┆ claude-fable-5 │
-│ #8 ┆ done   ┆ commented      ┆ MEDIUM ┆ 2 should-fix ┆ 6m03s ┆ $0.88 ┆ claude-fable-5 │
-│ #7 ┆ done   ┆ nothing posted ┆ LOW    ┆ none         ┆ 2m10s ┆ $0.31 ┆ claude-fable-5 │
-╰────┴────────┴────────────────┴────────┴──────────────┴───────┴───────┴────────────────╯
-╭────┬─────────────────┬──────────┬──────────┬────────╮
-│ PR ┆ MODEL           ┆ STATUS   ┆ FINDINGS ┆ TOP    │
-╞════╪═════════════════╪══════════╪══════════╪════════╡
-│ #9 ┆ gpt-5.5         ┆ answered ┆ 1        ┆ LOW    │
-│ #9 ┆ claude-opus-4.7 ┆ answered ┆ 0        ┆ -      │
-│ #8 ┆ gpt-5.5         ┆ answered ┆ 3        ┆ MEDIUM │
-│ #8 ┆ claude-opus-4.7 ┆ failed   ┆ -        ┆ -      │
-╰────┴─────────────────┴──────────┴──────────┴────────╯
-reopen any review with: claude --resume <SESSION>
-  #9  cc10f740-28c3-58c6-ae64-d9ff37df22a7
-  #8  fa5ced7b-32dd-578b-a3b9-d4d23195dce1
+PR  RESULT  VERDICT         RISK    FINDINGS      TIME   COST   MODEL           SESSION
+#9  done    approved        LOW     1 polish      4m12s  $0.51  claude-fable-5  cc10f740-28c3-58c6-ae64-d9ff37df22a7
+#8  done    commented       MEDIUM  2 should-fix  6m03s  $0.88  claude-fable-5  fa5ced7b-32dd-578b-a3b9-d4d23195dce1
+#7  done    nothing posted  LOW     none          2m10s  $0.31  claude-fable-5  0b6f1c2e-7d4a-5e9b-8c3f-1a2b3c4d5e6f
+#8 not approved yet because:
+  - [MEDIUM] (money, irreversible) src/pay.rs:88 — a retried checkout charges twice
+panel #9: codex (gpt-5.5) 1 finding, top LOW; claude (claude-opus-4.7) clean
+panel #8: codex (gpt-5.5) 3 findings, top MEDIUM; claude (claude-opus-4.7) failed
+
 logs: /tmp/autoreview.k3Xq8p/run-Qszknc/pass-1
+reopen any review with: claude --resume <SESSION>
 ```
 
 Two columns worth reading carefully:
@@ -360,16 +351,10 @@ harness's own words -- `error #9 #8: You've hit your session limit · resets
 reports a usage limit or an API error as its answer, and the exit code alone
 is only a number. Reviews that failed for the same reason share one line.
 
-The panel table's **STATUS** answers only "did this panelist come back with a
-review", not "did it like the PR" — `answered`, `failed`, or `-` when the
-reviewer did not say. The panelist's CLI name is dropped: the model identifies
-the row, and a panelist that never reported one falls back to its name
-(`opencode`).
-
-Without a TTY -- cron, CI, piped output -- the summary is a plain aligned
-table with the same columns, plus one `panel #N:` line per PR with panel data, which keeps both the CLI
-name and the model: `panel #9: codex (gpt-5.5) 1 finding, top LOW`. A failed
-review names its reason on its line: `FAILED  #9 (exit 10, 3s): You've hit
+Each `panel #N:` line names every panelist by its CLI and its model, with
+what it came back with: `clean`, a count of findings and the top severity,
+or `failed` when it returned no review at all. A failed review names its
+reason on its own line as it ends: `FAILED  #9 (exit 10, 3s): You've hit
 your session limit · resets 12pm (America/New_York)`.
 
 ### Orchestrators and the fallback
@@ -631,8 +616,8 @@ dropped as approved or closed.
 
 While the view is up, everything the run would have printed goes to
 `autoreview.log` in the run directory, byte for byte, and `l` shows it. A run
-that ends keeps the view until `q`, then prints one summary table for the
-whole run. Off a terminal, `--tui` says so and the run prints its plain lines.
+that ends keeps the view until `q`, then prints the plain summary for the
+whole run, the newest review of each PR. Off a terminal, `--tui` says so and the run prints its plain lines.
 
 ### Prompts
 

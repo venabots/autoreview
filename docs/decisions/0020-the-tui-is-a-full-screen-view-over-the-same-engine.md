@@ -136,7 +136,8 @@ as they were.
   reviews that PR fresh, as it does for any session open elsewhere.
 - The pass asks two questions where it asked one: `ui.ticking()` is whether
   it animates and follows activity, `ui.tty` whether output is styled for a
-  terminal. The view needs the first without the second.
+  terminal. The view needs the first without the second. (Decision 0022
+  removed `ui.tty`: nothing is styled for a terminal outside the view now.)
 - `Job` and `Tail` are `Clone`, for the summary at the end. An archived
   review drops its activity, so a day of watching does not keep every event.
 - The detail pane uses ratatui's `unstable-rendered-line-info` feature to

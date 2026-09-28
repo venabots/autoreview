@@ -515,7 +515,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     }
     let (tx, rx) = std::sync::mpsc::channel();
     signals::install(tx.clone());
-    let mut ui = ui::Ui::new(ui::pr_url_base(&ctx.owner, &ctx.name));
+    let mut ui = ui::Ui::new();
     // After everything the run says on its way in -- the selection, the
     // skills, the notes -- so that stays on the normal screen, above where
     // the summary lands.

@@ -12,9 +12,6 @@ use crate::tui::{Action, Screen};
 use crate::job::{Job, JobState};
 use crate::report::{Panelist, Trailer};
 use crate::why;
-use comfy_table::presets::UTF8_FULL_CONDENSED;
-use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
-use console::style;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
@@ -74,26 +71,9 @@ fn pass_headline(total: usize, jobs_max: u32) -> String {
     }
 }
 
-/// The base every PR hyperlink is built on. Owner and name come back from the
-/// GitHub API and end up inside an escape sequence, so they are stripped of
-/// anything that could close it early.
-pub fn pr_url_base(owner: &str, name: &str) -> String {
-    format!(
-        "https://github.com/{}/{}/pull",
-        crate::report::sanitize_for_display(owner),
-        crate::report::sanitize_for_display(name)
-    )
-}
-
-/// An OSC 8 hyperlink: the text stays the text, and the terminal makes it
-/// clickable. Terminals that do not understand the sequence swallow it.
-fn hyperlink(url: &str, text: &str) -> String {
-    format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
-}
-
-/// The RESULT cell, both modes. A reaped job's review already exited; only
-/// its verdict readback is still in flight, and an interrupt summary must
-/// not report it as a review that was cut short.
+/// The RESULT cell, in the summary and the view. A reaped job's review
+/// already exited; only its verdict readback is still in flight, and an
+/// interrupt summary must not report it as a review that was cut short.
 pub(crate) fn result_label(job: &Job) -> String {
     match job.state {
         JobState::Done => "done".to_string(),
@@ -136,15 +116,6 @@ pub fn findings_label(trailer: Option<&Trailer>) -> String {
 /// was posted".
 pub fn verdict_label(verdict: Option<&str>) -> &str {
     verdict.filter(|v| !v.is_empty()).unwrap_or("nothing posted")
-}
-
-/// Which panelist a row belongs to. The model is the identifying half; the
-/// CLI's own name is the fallback for a panelist that never reported one.
-pub fn panel_model_label(p: &Panelist) -> &str {
-    fn named(s: Option<&str>) -> Option<&str> {
-        s.filter(|v| !v.is_empty())
-    }
-    named(p.model.as_deref()).or_else(|| named(p.name.as_deref())).unwrap_or("unknown")
 }
 
 /// One panelist, in words: "codex (gpt-5.5) 3 findings, top MEDIUM".
@@ -223,13 +194,8 @@ fn opt_label(v: Option<&str>) -> String {
     v.filter(|s| !s.is_empty()).unwrap_or("-").to_string()
 }
 
+#[derive(Default)]
 pub struct Ui {
-    /// Whether stdout was a terminal when the run started, which is whether
-    /// the summary is drawn as styled tables.
-    tty: bool,
-    /// Where a "#9" links to, or None when hyperlinks are off (no terminal,
-    /// or a terminal that asked for plain output).
-    pr_url_base: Option<String>,
     /// PRs a person asked to have reviewed now that the current pass could
     /// not start, for the loop to put in the next one.
     requests: Vec<u64>,
@@ -253,24 +219,8 @@ pub struct Ui {
 }
 
 impl Ui {
-    pub fn new(pr_url_base: String) -> Ui {
-        let tty = on_a_terminal();
-        // Piped output must stay greppable, and a reader who set $NO_COLOR (or
-        // is on TERM=dumb) asked for text, not escape sequences -- which is
-        // exactly what console::colors_enabled already answers.
-        let linked = tty && console::colors_enabled();
-        Ui {
-            tty,
-            pr_url_base: linked.then_some(pr_url_base),
-            requests: Vec::new(),
-            watch_toggle: None,
-            focus_change: None,
-            screen: None,
-            run_root: None,
-            archive: Vec::new(),
-            pass_dir: PathBuf::new(),
-            final_note: None,
-        }
+    pub fn new() -> Ui {
+        Ui::default()
     }
 
     /// Whether the pass should tick: redraw ten times a second and follow
@@ -290,15 +240,6 @@ impl Ui {
     /// Every request kept since the last call, in the order asked.
     pub fn take_requests(&mut self) -> Vec<u64> {
         std::mem::take(&mut self.requests)
-    }
-
-    /// The "#9" a summary shows, clickable where the terminal allows it.
-    fn pr_label(&self, pr: u64) -> String {
-        let text = format!("#{pr}");
-        match &self.pr_url_base {
-            Some(base) => hyperlink(&format!("{base}/{pr}"), &text),
-            None => text,
-        }
     }
 
     /// A note the user should see now: spawn failures, session fallbacks.
@@ -401,15 +342,10 @@ impl Ui {
             .collect()
     }
 
+    /// The summary of a pass or a run: one aligned table, then the lines
+    /// that explain it. The same text on a terminal and in a log, so what a
+    /// person reads is what the suite pins.
     pub fn print_summary(&self, jobs: &[Job], pass_dir: &std::path::Path) {
-        if self.tty {
-            self.print_summary_tables(jobs, pass_dir);
-        } else {
-            self.print_summary_plain(jobs, pass_dir);
-        }
-    }
-
-    fn print_summary_plain(&self, jobs: &[Job], pass_dir: &std::path::Path) {
         let mut rows: Vec<Vec<String>> = vec![
             ["PR", "RESULT", "VERDICT", "RISK", "FINDINGS", "TIME", "COST", "MODEL", "SESSION"]
                 .map(String::from)
@@ -453,102 +389,6 @@ impl Ui {
         for hint in reopen_hints(jobs) {
             println!("{hint}");
         }
-    }
-
-    /// What each review concluded. Split out from the printing so a test can
-    /// read the rendered table back -- the PR cells carry hyperlinks, whose
-    /// whole risk is that a terminal counts them as visible width.
-    fn results_table(&self, jobs: &[Job]) -> Table {
-        let mut table = new_table();
-        table.set_header(vec!["PR", "RESULT", "VERDICT", "RISK", "FINDINGS", "TIME", "COST", "MODEL"]);
-        for job in jobs {
-            table.add_row(vec![
-                Cell::new(self.pr_label(job.pr)).add_attribute(Attribute::Bold),
-                result_cell(job),
-                verdict_cell(job.verdict.as_deref()),
-                risk_cell(job.trailer.as_ref().and_then(|t| t.risk.as_deref())),
-                Cell::new(findings_label(job.trailer.as_ref())),
-                Cell::new(fmt_dur(job.elapsed_secs)),
-                Cell::new(cost_str(job.cost)),
-                Cell::new(opt_label(job.model.as_deref())),
-            ]);
-        }
-        table
-    }
-
-    /// Which models did the reviewing, one row per panelist. None when no
-    /// review reported a panel.
-    fn panel_table(&self, jobs: &[Job]) -> Option<Table> {
-        if !jobs.iter().any(|j| j.trailer.as_ref().is_some_and(|t| !t.panel.is_empty())) {
-            return None;
-        }
-        let mut panel = new_table();
-        panel.set_header(vec!["PR", "MODEL", "STATUS", "FINDINGS", "TOP"]);
-        for job in jobs {
-            let Some(t) = &job.trailer else { continue };
-            for p in &t.panel {
-                panel.add_row(vec![
-                    Cell::new(self.pr_label(job.pr)).add_attribute(Attribute::Bold),
-                    Cell::new(panel_model_label(p)),
-                    // Whether the panelist came back with a review at all --
-                    // not whether it liked the PR. A panelist that never said
-                    // gets a "-" rather than being read as a success.
-                    match p.ok {
-                        Some(true) => Cell::new("answered").fg(Color::Green),
-                        Some(false) => Cell::new("failed").fg(Color::Red),
-                        None => Cell::new("-").add_attribute(Attribute::Dim),
-                    },
-                    Cell::new(p.findings.map_or("-".into(), |n| n.to_string())),
-                    risk_cell(p.top.as_deref().filter(|_| p.findings.unwrap_or(0) > 0)),
-                ]);
-            }
-        }
-        Some(panel)
-    }
-
-    fn print_summary_tables(&self, jobs: &[Job], pass_dir: &std::path::Path) {
-        println!();
-        println!("{}", self.results_table(jobs));
-        // Directly under the table, because this is what the VERDICT column
-        // does not have room to say.
-        for job in jobs {
-            let mut block = summary_why_lines(job).into_iter();
-            if let Some(header) = block.next() {
-                println!("{}", style(header).yellow());
-                for line in block {
-                    println!("{}", style(line).dim());
-                }
-            }
-        }
-        if let Some(panel) = self.panel_table(jobs) {
-            println!("{panel}");
-        }
-        for line in error_lines(jobs) {
-            println!("{}", style(line).red());
-        }
-
-        for line in jobs.iter().filter_map(fallback_line) {
-            println!("{}", style(line).yellow());
-        }
-        let resumable: Vec<&Job> = jobs.iter().filter(|j| j.sid.is_some()).collect();
-        if !resumable.is_empty() {
-            for hint in reopen_hints(jobs) {
-                println!("{}", style(hint).dim());
-            }
-            // Padded by the number's own width: the label may carry a
-            // hyperlink, whose bytes are not columns.
-            let widest =
-                resumable.iter().map(|j| j.pr.to_string().len()).max().unwrap_or(0);
-            for job in resumable {
-                println!(
-                    "  {}{}  {}",
-                    style(self.pr_label(job.pr)).cyan(),
-                    " ".repeat(widest - job.pr.to_string().len()),
-                    job.sid.as_deref().unwrap_or("-")
-                );
-            }
-        }
-        println!("{}", style(format!("logs: {}", pass_dir.display())).dim());
     }
 }
 
@@ -598,44 +438,6 @@ fn reopen_hints(jobs: &[Job]) -> Vec<String> {
             }
         })
         .collect()
-}
-
-pub fn new_table() -> Table {
-    let mut table = Table::new();
-    table
-        .load_style(UTF8_FULL_CONDENSED.with_rounded_corners())
-        .set_content_arrangement(ContentArrangement::Dynamic);
-    table
-}
-
-fn result_cell(job: &Job) -> Cell {
-    match job.state {
-        JobState::Done => Cell::new("done").fg(Color::Green),
-        JobState::Timeout => Cell::new("timed out").fg(Color::Yellow),
-        JobState::Failed => Cell::new(result_label(job)).fg(Color::Red),
-        _ => Cell::new(result_label(job)),
-    }
-}
-
-fn verdict_cell(verdict: Option<&str>) -> Cell {
-    match verdict {
-        Some("approved") => Cell::new("approved").fg(Color::Green).add_attribute(Attribute::Bold),
-        Some("changes requested") => Cell::new("changes requested").fg(Color::Yellow),
-        Some("commented") => Cell::new("commented").fg(Color::Cyan),
-        Some(other) if !other.is_empty() => Cell::new(other),
-        _ => Cell::new(verdict_label(None)).add_attribute(Attribute::Dim),
-    }
-}
-
-fn risk_cell(risk: Option<&str>) -> Cell {
-    match risk {
-        Some("LOW") => Cell::new("LOW").fg(Color::Green),
-        Some("MEDIUM") => Cell::new("MEDIUM").fg(Color::Yellow),
-        Some("HIGH") => Cell::new("HIGH").fg(Color::Red),
-        Some("CRITICAL") => Cell::new("CRITICAL").fg(Color::Red).add_attribute(Attribute::Bold),
-        Some(other) => Cell::new(other),
-        None => Cell::new("-").add_attribute(Attribute::Dim),
-    }
 }
 
 /// A `?` that returns early, or a panic that unwinds, must not leave the
@@ -928,98 +730,6 @@ mod tests {
         assert_eq!(verdict_label(None), "nothing posted");
         assert_eq!(verdict_label(Some("")), "nothing posted");
         assert_eq!(verdict_label(Some("approved")), "approved");
-    }
-
-    fn ui(tty: bool, pr_url_base: Option<&str>) -> Ui {
-        Ui {
-            tty,
-            pr_url_base: pr_url_base.map(String::from),
-            requests: Vec::new(),
-            watch_toggle: None,
-            focus_change: None,
-            screen: None,
-            run_root: None,
-            archive: Vec::new(),
-            pass_dir: PathBuf::new(),
-            final_note: None,
-        }
-    }
-
-    fn linked_ui() -> Ui {
-        ui(true, Some("https://github.com/acme/widgets/pull"))
-    }
-
-    fn done_job(pr: u64) -> Job {
-        let mut job = Job::new(pr);
-        job.state = JobState::Done;
-        job
-    }
-
-    #[test]
-    fn pr_cells_link_to_the_pull_request() {
-        let ui = linked_ui();
-        assert_eq!(
-            ui.pr_label(9),
-            "\x1b]8;;https://github.com/acme/widgets/pull/9\x1b\\#9\x1b]8;;\x1b\\"
-        );
-        // Off the terminal there is nothing to click and escapes would only
-        // break grep.
-        let plain = self::ui(false, None);
-        assert_eq!(plain.pr_label(9), "#9");
-    }
-
-    #[test]
-    fn a_linked_table_still_lines_up() {
-        // The whole risk of an in-cell hyperlink: 40-odd invisible bytes that
-        // a naive width count would pad around.
-        let out = linked_ui().results_table(&[done_job(9), done_job(123)]).to_string();
-        let widths: Vec<usize> =
-            out.lines().map(console::measure_text_width).collect();
-        let plain: Vec<usize> = ui(false, None)
-            .results_table(&[done_job(9), done_job(123)])
-            .to_string()
-            .lines()
-            .map(console::measure_text_width)
-            .collect();
-        assert_eq!(widths.len(), plain.len());
-        // Borders carry no links, so every border row must match exactly.
-        for (i, line) in out.lines().enumerate() {
-            if !line.contains('\x1b') {
-                assert_eq!(widths[i], plain[i], "row {i} changed width: {line}");
-            }
-        }
-    }
-
-    #[test]
-    fn the_panel_table_names_models_not_clis() {
-        let job = {
-            let mut j = done_job(9);
-            j.trailer = parse_trailer(
-                "```autoreview\n{\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":1,\"top\":\"LOW\"},{\"name\":\"opencode\",\"ok\":false}]}\n```",
-            );
-            j
-        };
-        let out = ui(false, None)
-            .panel_table(&[job])
-            .unwrap()
-            .to_string();
-        assert!(out.contains("MODEL") && !out.contains("PANELIST"));
-        assert!(out.contains("gpt-5.5"));
-        // A panelist that never reported a model still has to identify itself.
-        assert!(out.contains("opencode"));
-        // "ok" said nothing about whether the panelist actually replied.
-        assert!(out.contains("answered") && out.contains("failed") && !out.contains("ok"));
-    }
-
-    #[test]
-    fn panelists_fall_back_to_their_cli_name() {
-        let t = parse_trailer(
-            "```autoreview\n{\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\"},{\"name\":\"opencode\",\"model\":\"\"},{}]}\n```",
-        )
-        .unwrap();
-        assert_eq!(panel_model_label(&t.panel[0]), "gpt-5.5");
-        assert_eq!(panel_model_label(&t.panel[1]), "opencode");
-        assert_eq!(panel_model_label(&t.panel[2]), "unknown");
     }
 
     #[test]

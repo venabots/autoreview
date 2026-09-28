@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn without_the_view_waiting_is_a_plain_sleep() {
-        let mut ui = Ui::new(String::new());
+        let mut ui = Ui::new();
         let (_tx, rx) = std::sync::mpsc::channel();
         let started = Instant::now();
         assert_eq!(ui.wait(Duration::from_millis(30), &rx, true), Woke::Elapsed);
