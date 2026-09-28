@@ -1,17 +1,113 @@
 # autoreview
 
-An automated code review system. It watches a repo's pull requests, reviews
-each one with a panel of independent models, posts what they found, and
-approves the ones that come back clean — then keeps watching, so a PR opened or
-pushed to while it runs gets picked up too.
+Reviews the pull requests in a GitHub repo. A panel of models reviews each PR
+independently. autoreview posts the findings, and approves the PRs that come
+back clean.
 
-You can also drive every part of it by hand.
+- **Several models, one review.** Each model reviews the diff independently.
+  One more pass checks their findings against the code, and only the findings
+  that hold up are posted.
+- **Approval is gated.** It approves only when at least 75% of the panel
+  answered and nothing above LOW remains.
+- **It keeps watching.** New PRs and new pushes are reviewed as they arrive.
+  It waits for CI to pass first.
+- **It survives an outage.** If claude fails, codex retries the review, and
+  the other way round.
+- **Its results are true.** The verdict is read back from GitHub, not taken
+  from the agent. The exit status is nonzero when a review failed, so it is
+  safe to run from cron or CI.
+- **Its costs are bounded.** Concurrency, spend per review, time per review
+  and the number of passes all have limits.
+- **You can reopen any review.** Each review runs in a named session. Resume
+  it with `claude --resume <id>`, or press `r` in the full-screen view.
 
-| Command                     | Reviews                    | Use when                                                                 |
-| --------------------------- | -------------------------- | ------------------------------------------------------------------------ |
-| [`autoreview`](#autoreview) | a repo's PRs, headlessly   | the default: no terminal needed, and an exit status that means something |
-| [`panel`](#panel)           | one change, several models | you want independent second opinions on a single diff                    |
-| [`review-prs`](#review-prs) | a repo's PRs, one tab each | you want to watch a review happen and steer it mid-flight                |
+## Install
+
+```sh
+brew install venabots/tap/autoreview
+```
+
+Homebrew also installs `gh`, `gum` and `dash-p`. You also need at least one
+agent CLI (see [Which agents?](#which-agents)).
+
+Run it from inside a GitHub repo:
+
+```sh
+gh auth login            # once
+autoreview --tui --watch
+```
+
+## Upgrade
+
+```sh
+brew update && brew upgrade venabots/tap/autoreview
+```
+
+The review skills upgrade with the binary. If you installed your own copies,
+upgrade those too (see [Review skills](#review-skills)).
+
+## Which agents?
+
+Agents have two jobs in a review:
+
+| Job              | Agents                              | Default                           | Change it with                                         |
+| ---------------- | ----------------------------------- | --------------------------------- | ------------------------------------------------------ |
+| **Orchestrator** | `claude`, `codex`                   | `claude`                          | `--orchestrator codex`, `--orchestrator codex:gpt-5.5` |
+| **Fallback**     | the orchestrator you did not choose | the other one, if it is installed | `--fallback none`                                      |
+| **Panelists**    | `claude`, `codex`, `opencode`       | every one of them on your `PATH`  | `PANEL_REVIEW_PANELISTS="claude:opus-4.8 codex"`       |
+
+- The orchestrator runs the review. It starts the panel, merges the findings,
+  posts them and approves.
+- The panelists each review the diff, independently of each other.
+- Approval needs at least two panelists to answer. With only one agent
+  installed, reviews post but never approve.
+- Recommended: install `claude` and `codex`. Add `opencode` for a third
+  opinion.
+
+## Review skills
+
+The reviewer is a set of skills in [`skills/`](skills).
+
+- It uses the skills you installed, if you have them: `~/.claude/skills/`, or
+  the reviewed repo's `.claude/skills/`. The run prints a `note: ... shadow
+the staged copies` line when this happens.
+- If you did not install them, it uses the copy built into the binary. You do
+  not have to install anything.
+- Exception: codex cannot use the built-in copy. With `--orchestrator codex`,
+  install the skills in `~/.agents/skills/`. The run stops before it starts
+  if they are missing.
+
+Use the skills yourself, outside a run:
+
+```sh
+npx skills add venabots/autoreview --skill '*' --global
+```
+
+Or link them to a checkout, so that `git pull` keeps them current:
+
+```sh
+ln -sfn "$PWD/skills/"* ~/.claude/skills/
+ln -sfn "$PWD/skills/"* ~/.agents/skills/
+```
+
+## Troubleshooting
+
+| You see                                   | Cause and fix                                                                                                                                                         |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `note: ... shadow the staged copies`      | Your installed skills run, not the built-in ones. They can be older. Delete them, or link them to a checkout.                                                         |
+| `fallback: none (codex is not installed)` | There is no second provider to retry a failed review. Install `codex` (or `claude`).                                                                                  |
+| `error #9: You've hit your session limit` | The provider hit a usage limit. The fallback retries the review once under the other provider.                                                                        |
+| A PR is not reviewed                      | Its CI is failing or pending, it sits on another open PR, or nothing changed since your last review. `--skip-wait-for-ci` and `--stacked` remove the first two holds. |
+| Findings post, but no approval            | The gate held it: a finding above LOW, or fewer than 75% of the panel answered (often one provider is down). The next `--babysit` or `--watch` pass tries again.      |
+| VERDICT says `nothing posted`             | The review finished with nothing to submit, or GitHub has no record of a submission. It is not a rejection.                                                           |
+| A codex run refuses to start              | The skills are not in `~/.agents/skills/`. See [Review skills](#review-skills).                                                                                       |
+| You cannot select text in `--tui`         | The view has the mouse. Press `m` to give it back to the terminal.                                                                                                    |
+| `--continue` reviews fresh                | Another process still holds that session, usually a babysit run or tab.                                                                                               |
+| You need to know why a review failed      | Read `pr-N.log` in the logs directory the run prints. In `--tui`, press `l`.                                                                                          |
+
+---
+
+# Reference
 
 ## How a review happens
 
@@ -29,7 +125,7 @@ The panel in the middle is the [`auto-review`](skills/auto-review) skill,
 which each agent runs against its own PR. [`panel`](#panel) is that same idea
 as a binary you can point at any diff, with no PR and no skill involved.
 
-Four things that shape the whole design:
+Five things that shape the whole design:
 
 - **The exit status means the reviews succeeded**, not that the processes
   started. A cron job or a CI step can tell a finished sweep from a broken one.
@@ -46,6 +142,14 @@ Four things that shape the whole design:
   review is a choice (`--orchestrator`), and a review that fails because its
   provider did is retried under the other one. See
   [Orchestrators and the fallback](#orchestrators-and-the-fallback).
+
+The three binaries:
+
+| Command                     | Reviews                    | Use when                                                                 |
+| --------------------------- | -------------------------- | ------------------------------------------------------------------------ |
+| [`autoreview`](#autoreview) | a repo's PRs, headlessly   | the default: no terminal needed, and an exit status that means something |
+| [`panel`](#panel)           | one change, several models | you want independent second opinions on a single diff                    |
+| [`review-prs`](#review-prs) | a repo's PRs, one tab each | you want to watch a review happen and steer it mid-flight                |
 
 ## Requirements
 
@@ -70,26 +174,18 @@ Four things that shape the whole design:
   - [Ghostty](https://ghostty.org) 1.3+ on macOS (detected via `TERM_PROGRAM`,
     drives new tabs through AppleScript — needs Accessibility permission)
 
-## Install
-
-### Homebrew
-
-```sh
-brew install venabots/tap/autoreview
-```
-
-### Manual
+## Manual install
 
 ```sh
 git clone git@github.com:venabots/autoreview.git
 cargo install --path autoreview
 ```
 
-Either way you get all three binaries. All three are self-contained: nothing is
+You get all three binaries. All three are self-contained: nothing is
 read from the checkout at runtime, so a copy or a symlink anywhere on `$PATH`
 works.
 
-### Skills
+## Skills in detail
 
 The reviewer each agent runs is a set of skills, and they live in this repo
 under [`skills/`](skills). **The binaries carry them**: each build compiles
@@ -120,26 +216,8 @@ A skill you installed still wins over a staged one, as above, and the note
 says so. `--skills` does not reach a command override, which finds its own
 skills; the run notes that too.
 
-To use the skills interactively, outside a run, install them for every agent
-that supports the [Agent Skills](https://agentskills.io) layout:
-
-```sh
-npx skills add venabots/autoreview --skill '*' --global
-```
-
-Or point a skills directory at the checkout. Each agent reads its own:
-
-| Agent  | Reads                                                   |
-| ------ | ------------------------------------------------------- |
-| claude | `~/.claude/skills/`                                     |
-| codex  | `~/.agents/skills/` (and `~/.codex/skills`, deprecated) |
-
-```sh
-ln -s "$PWD/skills/"* ~/.claude/skills/
-ln -s "$PWD/skills/"* ~/.agents/skills/
-```
-
-**Staging reaches claude only, so a codex orchestrator needs the second line.**
+**Staging reaches claude only, so a codex orchestrator needs the skills
+installed** (see [Review skills](#review-skills)).
 What a run stages is a `.claude/skills` directory handed over with
 `--add-dir`. Claude Code resolves a skill from it; codex does not, because it
 reads its skills from its own roots and from its project root, never from a
@@ -401,7 +479,7 @@ asked for. `$AUTOREVIEW_ORCHESTRATOR` and `$AUTOREVIEW_FALLBACK` set both from
 the environment, which is where a cron line usually wants them.
 
 **During an outage you get reviews, not approvals.** The fallback rescues the
-*orchestrator*, but the panel is drawn from the same CLIs — so a provider
+_orchestrator_, but the panel is drawn from the same CLIs — so a provider
 being down also costs you its panelist. With three panelists and one down,
 coverage is 2/3, under the 75% the approval gate needs. The reviews still run,
 the findings still post; the stamp waits for a human or for the next
@@ -1244,7 +1322,7 @@ the code, and what each one rules out, are one file each under
 
 ### Layout
 
-One crate, one library, two binaries:
+One crate, one library, three binaries:
 
 ```
 src/lib.rs         the shared core all three binaries are built on
