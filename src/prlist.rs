@@ -268,7 +268,7 @@ impl Gates {
     }
 }
 
-/// What the board needs to say about a PR that is not in the Job itself:
+/// What the view needs to say about a PR that is not in the Job itself:
 /// who opened it, and why it is in the queue. Carried alongside the numbers
 /// from selection through to the pass, because the GraphQL answer is the only
 /// place any of it exists and re-fetching to render a line would be absurd.

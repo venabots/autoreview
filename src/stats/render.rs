@@ -5,7 +5,8 @@
 use super::{Cohort, Overview, Ratio};
 use crate::report::sanitize_for_display;
 use crate::ui::{align, count, fmt_dur};
-use comfy_table::{Attribute, Cell, Color};
+use comfy_table::presets::UTF8_FULL_CONDENSED;
+use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 use serde::Serialize;
 use std::path::Path;
 
@@ -168,13 +169,22 @@ fn availability_cell(c: &Cohort) -> Cell {
     }
 }
 
-/// The terminal rendering, in the summary's own style.
+/// A table with rounded corners that fits the terminal's width.
+fn new_table() -> Table {
+    let mut table = Table::new();
+    table
+        .load_style(UTF8_FULL_CONDENSED.with_rounded_corners())
+        .set_content_arrangement(ContentArrangement::Dynamic);
+    table
+}
+
+/// The terminal rendering, as a rounded table.
 pub fn table(r: &Report) -> String {
     let mut out = String::new();
     out.push_str(&console::style(headline(r)).bold().to_string());
     out.push('\n');
     if !r.cohorts.is_empty() {
-        let mut t = crate::ui::new_table();
+        let mut t = new_table();
         t.set_header(HEADER.to_vec());
         for c in &r.cohorts {
             let cells = row(c);
@@ -231,7 +241,7 @@ struct ReportJson<'a> {
 
 pub fn json(r: &Report) -> String {
     let doc = ReportJson {
-        generated_at: crate::ledger::now(),
+        generated_at: crate::clock::epoch_secs(),
         since: r.since,
         ledger: r.ledger.display().to_string(),
         overview: &r.overview,

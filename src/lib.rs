@@ -9,8 +9,8 @@
 //! one library -- not two implementations kept in step by hand.
 
 pub mod activity;
-pub mod board;
 pub mod ci;
+pub mod clock;
 pub mod findings;
 pub mod cli;
 pub mod interval;

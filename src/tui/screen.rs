@@ -8,13 +8,12 @@
 use super::actions;
 use super::detail::{self, Context};
 use super::input::{Edit, Input};
-use super::keys::{self, Armed, Intent, Pending, Press};
+use super::keys::{self, Action, Armed, Intent, Pending, Press};
 use super::layout;
 use super::list;
 use super::model::{self, Archived, Row, Section, Sources, Wait};
 use super::terminal::{self, Term};
 use super::text::expand_tabs;
-use crate::board::Action;
 use crate::job::{Job, JobState};
 use crate::prlist::PrInfo;
 use crate::report::{sanitize_block, sanitize_for_display};
@@ -114,13 +113,6 @@ fn inside(area: Rect, (column, row): (u16, u16)) -> bool {
         && column < area.x + area.width
         && row >= area.y
         && row < area.y + area.height
-}
-
-fn epoch_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 impl Screen {
@@ -257,7 +249,7 @@ impl Screen {
     }
 
     fn render_rows(&mut self, f: &mut Frame, rows: &[Row]) {
-        let now = epoch_now();
+        let now = crate::clock::epoch_secs();
         self.frame += 1;
         let spinner = SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()];
         let at = model::position(rows, self.selected);
@@ -918,7 +910,7 @@ mod tests {
     #[test]
     fn the_status_says_what_the_loop_is_doing() {
         let mut screen = Screen::new(None, header(true));
-        let now = epoch_now();
+        let now = crate::clock::epoch_secs();
         screen.set_next_check(Some(now + 100));
         let out = frame(&mut screen, &[], &[], 120);
         assert!(out.contains("nothing to review yet · next check in 1m"), "{out}");

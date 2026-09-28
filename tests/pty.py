@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Give a command a terminal, and answer for it.
 
-The suite runs the binaries through pipes, which never see the board: a row
-drawn in place needs a terminal, and a terminal that answers. `script(1)`
-gives a command a pty but is not a terminal emulator, so when the board asks
-where the cursor is (ESC [ 6 n) nobody replies and the board falls back to
-plain lines. This driver is the least terminal that can hold a board up: it
-answers the cursor query, sets a window size, can change that size mid-run
-with a SIGWINCH, can press keys, and reports whether the command gave the
-terminal back in cooked mode.
+The suite runs the binaries through pipes, which never see the full-screen
+view: it needs a terminal. `script(1)` gives a command a pty but is not a
+terminal emulator: a program that asks where the cursor is (ESC [ 6 n) gets
+no reply and waits. This driver is the least terminal that can hold the view
+up: it answers the cursor query, sets a window size, can change that size
+mid-run with a SIGWINCH, can press keys, and reports whether the command gave
+the terminal back in cooked mode.
 
 Usage:
   pty.py [--cols N] [--rows N] [--resize AT:COLSxROWS]... [--key AT:TEXT]...
@@ -20,9 +19,9 @@ terminal back, run it through a shell that prints `stty -a` afterwards: the
 slave is gone from this side once the session ends.
 
 The cursor row it reports back is an estimate from the newlines it has seen.
-That is enough for a board to anchor itself and redraw, and not enough to say
-which screen row a given part landed on, so assert on what the board writes
-rather than on where it went.
+That is enough to answer the query, and not enough to say which screen row a
+given part landed on, so assert on what the command writes rather than on
+where it went.
 """
 
 import argparse

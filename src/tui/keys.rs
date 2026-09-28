@@ -10,6 +10,25 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::time::{Duration, Instant};
 
+/// What a key asks the pass to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    /// Stop the reviews and print the summary, as ctrl-C did before raw
+    /// mode turned it into a key.
+    Stop,
+    /// Stop one running review, by its PR number, after a second press.
+    StopReview(u64),
+    /// Review this PR next: first among the reviews this pass has not
+    /// started, or first in the next pass.
+    ReviewNow(u64),
+    /// Keep looking for work after this pass, or stop looking. What
+    /// `--watch` decides at startup, decided again from the screen.
+    Watch(bool),
+    /// What the reviewers are told to look at from now on, or None to tell
+    /// them nothing in particular. What `--focus` sets at startup.
+    Focus(Option<String>),
+}
+
 /// How long a first press stays armed.
 pub const CONFIRM_FOR: Duration = Duration::from_secs(3);
 

@@ -34,7 +34,7 @@ Run it from inside a GitHub repo:
 
 ```sh
 gh auth login            # once
-autoreview --tui --watch
+autoreview --watch
 ```
 
 ## Upgrade
@@ -101,9 +101,9 @@ ln -sfn "$PWD/skills/"* ~/.agents/skills/
 | Findings post, but no approval            | The gate held it: a finding above LOW, or fewer than 75% of the panel answered (often one provider is down). The next `--babysit` or `--watch` pass tries again.      |
 | VERDICT says `nothing posted`             | The review finished with nothing to submit, or GitHub has no record of a submission. It is not a rejection.                                                           |
 | A codex run refuses to start              | The skills are not in `~/.agents/skills/`. See [Review skills](#review-skills).                                                                                       |
-| You cannot select text in `--tui`         | The view has the mouse. Press `m` to give it back to the terminal.                                                                                                    |
+| You cannot select text in the view        | The view has the mouse. Press `m` to give it back to the terminal.                                                                                                    |
 | `--continue` reviews fresh                | Another process still holds that session, usually a babysit run or tab.                                                                                               |
-| You need to know why a review failed      | Read `pr-N.log` in the logs directory the run prints. In `--tui`, press `l`.                                                                                          |
+| You need to know why a review failed      | Read `pr-N.log` in the logs directory the run prints. In the view, press `l`.                                                                                         |
 
 ---
 
@@ -242,10 +242,12 @@ binary passes down is a flag the skill has to understand.
 
 The default way to run all this. Each PR is reviewed by a
 [dash-p](https://github.com/venabots/dash-p) subprocess driving claude
-headlessly, `--jobs` at a time. The run shows a live per-PR board, reads each
-review's verdict back from GitHub when it finishes, and ends with a summary of
-verdicts, findings, models and cost. It exits nonzero if any review failed,
-which is what makes it safe to put in cron or CI.
+headlessly, `--jobs` at a time. On a terminal the run opens
+[the full-screen view](#the-full-screen-view); anywhere else, or with
+`--headless`, it prints a line as each review starts and ends. Either way it
+reads each review's verdict back from GitHub when it finishes, and ends with
+a summary of verdicts, findings, models and cost. It exits nonzero if any
+review failed, which is what makes it safe to put in cron or CI.
 
 ```sh
 autoreview                  # review every NEW/UPDATED PR
@@ -255,7 +257,8 @@ autoreview --continue       # resume earlier sessions for a second look
 autoreview --babysit=15     # re-run every 15 min, picking up new PRs as they open
 autoreview --skip-wait-for-ci # review a PR whatever its checks say
 autoreview --stacked        # review PRs stacked on another open PR too
-autoreview --tui --watch    # full screen: every PR on the left, its review on the right
+autoreview --watch          # stay on, and look for new PRs every 2 min
+autoreview --headless       # plain lines, even on a terminal
 autoreview --help           # usage
 ```
 
@@ -267,10 +270,10 @@ the point.) `--auto` / `-A` still parse —
 an old alias or cron line keeps working — they just name the default now.
 
 It takes the same selection flags as `review-prs` (`--continue`, `--all`,
-`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus thirteen
+`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus fourteen
 of its own: `--pick`, `--watch`, `--focus`, `--no-post`, `--jobs`,
 `--orchestrator`, `--fallback`, `--timeout`, `--budget`, `--log-dir`,
-`--max-passes`, `--max-idle` and `--tui`.
+`--max-passes`, `--max-idle`, `--tui` and `--headless`.
 
 **`--focus` steers a run.** It reaches every panelist as the reviewer focus:
 
@@ -294,76 +297,48 @@ alongside `$AUTOREVIEW_AUTO_CMD`, which decides for itself what it posts. The
 session stays resumable, so a later `--continue` run can pick the review up
 and post it.
 
-On a terminal the pass is a live board -- finished reviews settle into
-permanent result lines, running ones spin, and a progress bar tracks the
-pass:
+Off a terminal, or with `--headless`, the pass prints one plain line per
+state change:
 
 ```
 2 PRs to review: #9 #8
-reviewing 2 PRs · logs: /tmp/autoreview.k3Xq8p/run-Qszknc/pass-1
+reviewing 2 PRs
+logs: /tmp/autoreview.k3Xq8p/run-Qszknc/pass-1
 
-  ✓ #9 approved · risk LOW · 4m12s · $0.51  @alice Add retry logic
-  ⠹ #8 @bob Fix flaky test · rechecking 1m47s
-  ━━━━━━━━━━━━╸───────────  1/2 · 1 running
+start   #9 @alice (reviewing)
+start   #8 @bob (rechecking)
+done    #9 (4m12s)
+done    #8 (6m03s)
+        not approved yet because:
+        - [MEDIUM] (money, irreversible) src/pay.rs:88 — a retried checkout charges twice
 ```
 
-Each row says who opened the PR, and whether this is a first look
+Each `start` line says who opened the PR, and whether this is a first look
 (`reviewing`) or a second one against the findings already in that session
 (`rechecking`) — both questions you would otherwise open the PR to answer.
-
-The board redraws itself when the terminal is resized, in place: the rows
-refit to the new width, and the header and the reviews that already finished
-stay where they are. `q` (or ctrl-C) stops the pass, stops every running
-review, and prints the summary of what finished.
-
-A running row is not the whole story, so `space` (or `enter`) opens every
-running row: the session the review runs in, how many turns and tool calls
-it has made, and the last few things it did -- read from the transcript
-Claude Code writes as it works. `1` to `9` open one row by its position,
-`esc` closes them all. When the terminal is wide enough the row itself ends
-with the tool the review is in right now:
-
-```
-  ⠹ #8 @bob Fix flaky test · reviewing 1m47s · Bash
-      session fa5ced7b-32dd-578b-a3b9-d4d23195dce1
-      14 turns · 9 tool calls
-        40s ago  Read    pool.rs
-        12s ago  said    The retry path never re-arms the deadline.
-         3s ago  Bash    cargo test --quiet
-```
-
-Only the built-in reviewer in a session this run named has a transcript to
-follow. A session claude named itself is found when the review ends, and a
-command override has no transcript at all; its row follows its stderr.
+ctrl-C stops the pass, stops every running review, and prints the summary of
+what finished. To watch the reviews as they run, use
+[the full-screen view](#the-full-screen-view).
 
 The header only mentions concurrency when it actually holds reviews back: with
 five PRs and `--jobs 2` it reads `reviewing 5 PRs, 2 at a time`.
 
-The summary is a pair of tables -- what each review concluded, and which models
-did the reviewing. Every `#N` is an OSC 8 hyperlink to the PR, so a terminal
-that supports them (Ghostty, iTerm2, WezTerm, kitty, VS Code) opens it on
-cmd-click. Piped output, `$NO_COLOR` and `TERM=dumb` get plain text instead:
+The summary is one aligned table -- what each review concluded -- and the
+lines that explain it. It is the same text on a terminal, in a pipe and in a
+log:
 
 ```
-╭────┬────────┬────────────────┬────────┬──────────────┬───────┬───────┬────────────────╮
-│ PR ┆ RESULT ┆ VERDICT        ┆ RISK   ┆ FINDINGS     ┆ TIME  ┆ COST  ┆ MODEL          │
-╞════╪════════╪════════════════╪════════╪══════════════╪═══════╪═══════╪════════════════╡
-│ #9 ┆ done   ┆ approved       ┆ LOW    ┆ 1 polish     ┆ 4m12s ┆ $0.51 ┆ claude-fable-5 │
-│ #8 ┆ done   ┆ commented      ┆ MEDIUM ┆ 2 should-fix ┆ 6m03s ┆ $0.88 ┆ claude-fable-5 │
-│ #7 ┆ done   ┆ nothing posted ┆ LOW    ┆ none         ┆ 2m10s ┆ $0.31 ┆ claude-fable-5 │
-╰────┴────────┴────────────────┴────────┴──────────────┴───────┴───────┴────────────────╯
-╭────┬─────────────────┬──────────┬──────────┬────────╮
-│ PR ┆ MODEL           ┆ STATUS   ┆ FINDINGS ┆ TOP    │
-╞════╪═════════════════╪══════════╪══════════╪════════╡
-│ #9 ┆ gpt-5.5         ┆ answered ┆ 1        ┆ LOW    │
-│ #9 ┆ claude-opus-4.7 ┆ answered ┆ 0        ┆ -      │
-│ #8 ┆ gpt-5.5         ┆ answered ┆ 3        ┆ MEDIUM │
-│ #8 ┆ claude-opus-4.7 ┆ failed   ┆ -        ┆ -      │
-╰────┴─────────────────┴──────────┴──────────┴────────╯
-reopen any review with: claude --resume <SESSION>
-  #9  cc10f740-28c3-58c6-ae64-d9ff37df22a7
-  #8  fa5ced7b-32dd-578b-a3b9-d4d23195dce1
+PR  RESULT  VERDICT         RISK    FINDINGS      TIME   COST   MODEL           SESSION
+#9  done    approved        LOW     1 polish      4m12s  $0.51  claude-fable-5  cc10f740-28c3-58c6-ae64-d9ff37df22a7
+#8  done    commented       MEDIUM  2 should-fix  6m03s  $0.88  claude-fable-5  fa5ced7b-32dd-578b-a3b9-d4d23195dce1
+#7  done    nothing posted  LOW     none          2m10s  $0.31  claude-fable-5  0b6f1c2e-7d4a-5e9b-8c3f-1a2b3c4d5e6f
+#8 not approved yet because:
+  - [MEDIUM] (money, irreversible) src/pay.rs:88 — a retried checkout charges twice
+panel #9: codex (gpt-5.5) 1 finding, top LOW; claude (claude-opus-4.7) clean
+panel #8: codex (gpt-5.5) 3 findings, top MEDIUM; claude (claude-opus-4.7) failed
+
 logs: /tmp/autoreview.k3Xq8p/run-Qszknc/pass-1
+reopen any review with: claude --resume <SESSION>
 ```
 
 Two columns worth reading carefully:
@@ -380,17 +355,10 @@ harness's own words -- `error #9 #8: You've hit your session limit · resets
 reports a usage limit or an API error as its answer, and the exit code alone
 is only a number. Reviews that failed for the same reason share one line.
 
-The panel table's **STATUS** answers only "did this panelist come back with a
-review", not "did it like the PR" — `answered`, `failed`, or `-` when the
-reviewer did not say. The panelist's CLI name is dropped: the model identifies
-the row, and a panelist that never reported one falls back to its name
-(`opencode`).
-
-Without a TTY -- cron, CI, piped output -- the board becomes one plain line
-per state change and the summary a plain aligned table with the same columns,
-plus one `panel #N:` line per PR with panel data, which keeps both the CLI
-name and the model: `panel #9: codex (gpt-5.5) 1 finding, top LOW`. A failed
-review names its reason on its line: `FAILED  #9 (exit 10, 3s): You've hit
+Each `panel #N:` line names every panelist by its CLI and its model, with
+what it came back with: `clean`, a count of findings and the top severity,
+or `failed` when it returned no review at all. A failed review names its
+reason on its own line as it ends: `FAILED  #9 (exit 10, 3s): You've hit
 your session limit · resets 12pm (America/New_York)`.
 
 ### Orchestrators and the fallback
@@ -554,17 +522,18 @@ failed too.
 
 ### The full-screen view
 
-`--tui` draws the run full screen instead of the inline board. Every open PR is
-on the left, two lines each, most pressing first. The selected PR's details
-are on the right.
+On a terminal, `autoreview` draws the run full screen. Every open PR is on
+the left, two lines each, most pressing first. The selected PR's details are
+on the right. `--headless` keeps the plain lines instead; `--tui` asks for
+the view by name, and says so when there is no terminal to draw it on.
 
 The screen opens whenever there is a terminal, including on a repo with
 nothing to review: the PRs are all there, each saying why it is being left
 alone, and `R` reviews any of them on the spot.
 
-`--tui` is a view, not a mode: on its own it makes one pass and then waits.
-`w` is what turns a run into a watching one, so `autoreview --tui` and
-`autoreview --tui --watch=2` differ only in where you decide.
+The view is not a mode: on its own it makes one pass and then waits. `w` is
+what turns a run into a watching one, so `autoreview` and
+`autoreview --watch=2` differ only in where you decide.
 
 ```
 autoreview · acme/widgets · watching every 2m · a reviewed PR rests 30m · log …
@@ -652,8 +621,9 @@ dropped as approved or closed.
 
 While the view is up, everything the run would have printed goes to
 `autoreview.log` in the run directory, byte for byte, and `l` shows it. A run
-that ends keeps the view until `q`, then prints one summary table for the
-whole run. Off a terminal, `--tui` says so and the run prints its plain lines.
+that ends keeps the view until `q`, then prints the plain summary for the
+whole run, the newest review of each PR. Off a terminal the run prints its
+plain lines; `--tui` there says so first.
 
 ### Prompts
 
@@ -779,7 +749,6 @@ autoreview stats                 # every recorded review
 autoreview stats --since 2w      # or a date: --since 2026-08-01
 autoreview stats --repo widgets  # one repo, by substring
 autoreview stats --json          # the same numbers for another tool
-autoreview stats --import        # read past reviews out of Claude Code's transcripts first
 ```
 
 ```
@@ -822,12 +791,6 @@ A row is one model on one backend, however the trailer spelled it:
 
 Every rate carries its 95% Wilson interval, because ten runs and three hundred
 do not deserve the same confidence and a bare percentage hides which is which.
-
-`--import` is for the history from before the ledger existed. Every review
-autoreview ran left a Claude Code session transcript behind, with the synthesis
-and the trailer in it, and the import reads those into the ledger once. It is
-safe to repeat: a review already recorded is skipped, and so is any session
-autoreview recorded live. It takes a few seconds per gigabyte of transcripts.
 
 ### Overrides
 
@@ -1355,12 +1318,11 @@ src/pool.rs        autoreview: the event-driven job pool
 src/job.rs         autoreview: one review, spawned and classified
 src/report.rs      autoreview: verdict readback and the agent's trailer
 src/rundir.rs      autoreview: what one run writes under --log-dir
-src/ui.rs          autoreview: what every board row and summary says
-src/board.rs       autoreview: the live area, an inline viewport in raw mode
-src/tui/           autoreview --tui: the list, the detail pane, keys, the terminal
+src/ui.rs          autoreview: the plain lines and the summary
+src/tui/           autoreview's view: the list, the detail pane, keys, the terminal
 src/findings.rs    the findings a synthesized review attributes to each panelist
 src/ledger.rs      the append-only record of finished reviews, across runs
-src/stats/         autoreview stats: cli, per-model folding, rendering, import
+src/stats/         autoreview stats: cli, per-model folding, rendering
 ```
 
 The two tools have to agree on what counts as an actionable PR and which
@@ -1376,12 +1338,11 @@ parsing, session goldens, ranking, CLI validation, argv and tab-command
 shapes), then runs the bash suites — the real binaries against fake `gh`,
 `gum`, `cmux` and `dash-p` on `PATH`, inside a throwaway git repo, with
 `$CLAUDE_CONFIG_DIR` pointed at a throwaway session store. They never touch
-your repos, your Claude Code sessions, or GitHub. Two files,
-`tests/board.test.sh` and `tests/tui.test.sh`, run autoreview on a pty rather
-than a pipe, through `tests/pty.py`: a driver that answers the board's cursor
-query, resizes the terminal mid-pass and presses keys. They are the only times
-the live board and the full-screen view are drawn under test, and they need
-`python3`; without one they say so and skip.
+your repos, your Claude Code sessions, or GitHub. One file,
+`tests/tui.test.sh`, runs autoreview on a pty rather than a pipe, through
+`tests/pty.py`: a driver that answers a cursor query, resizes the terminal
+and presses keys. It is the only time the full-screen view is drawn under
+test, and it needs `python3`; without one it says so and skips.
 It finishes with `bash -n`
 and `shellcheck` over the suite itself and over the scripts in `skills/`, which
 is all the bash in the repo.

@@ -8,20 +8,24 @@ use crate::skills::Source;
 use crate::orchestrator::{Fallback, Orchestrator};
 use std::path::PathBuf;
 
-pub const HELP: &str = r#"autoreview: review open PRs headlessly, with progress and a real exit status.
+pub const HELP: &str = r#"autoreview: review open PRs, full screen or headless, with a real exit status.
 
 Usage: autoreview [--pick] [--watch[=MINUTES]] [--babysit[=MINUTES]]
                   [--focus TEXT] [--no-post] [--continue] [--jobs N]
                   [--orchestrator SPEC] [--fallback SPEC|none]
                   [--timeout SECONDS] [--budget USD] [--log-dir DIR]
                   [--skills DIR|installed] [--all] [--dependabot]
-                  [--stacked] [--skip-wait-for-ci] [--tui] [--help]
-       autoreview stats [--import] [--since WHEN] [--repo NAME] [--json]
+                  [--stacked] [--skip-wait-for-ci] [--tui | --headless]
+                  [--help]
+       autoreview stats [--since WHEN] [--repo NAME] [--json]
                   (how each model has done; `autoreview stats --help`)
 
 Every NEW or UPDATED PR is reviewed by default -- the actionable ones. SEEN
 PRs (nothing has changed since you last engaged) are left alone, and so is a
 PR whose checks have not passed yet (see --skip-wait-for-ci).
+
+On a terminal the run is shown full screen (see --tui). Anywhere else --
+a pipe, cron, CI -- or with --headless, it prints one plain line per step.
 
   --pick, -p          Choose from a list instead of reviewing every one.
                       The picker shows each PR's checks in a CI column and
@@ -29,15 +33,15 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
   --auto, -A          Accepted and ignored: it is the default now.
   --watch[=MIN], -w   Stay on: poll every MIN minutes for new PRs and never
                       stop (default 2, or $AUTOREVIEW_WATCH_INTERVAL). Only
-                      ctrl-C ends it, or q under --tui. Nothing to review is
-                      not a reason to exit, an idle stretch is not a reason
-                      to exit, and a failed refresh is retried rather than
-                      counted. With --pick there is nothing to pick from if
-                      the first fetch fails, so that one case still exits. A
-                      PR that goes quiet and then becomes actionable again
-                      was pushed to, so it gets a fresh set of passes. Use
-                      this to leave a terminal reviewing all day; use
-                      --babysit for cron.
+                      ctrl-C ends it, or q in the full-screen view. Nothing
+                      to review is not a reason to exit, an idle stretch is
+                      not a reason to exit, and a failed refresh is retried
+                      rather than counted. With --pick there is nothing to
+                      pick from if the first fetch fails, so that one case
+                      still exits. A PR that goes quiet and then becomes
+                      actionable again was pushed to, so it gets a fresh set
+                      of passes. Use this to leave a terminal reviewing all
+                      day; use --babysit for cron.
   --babysit[=MIN], -b Re-run the pass every MIN minutes (default 30, or
                       $AUTOREVIEW_BABYSIT_INTERVAL), dropping PRs as they are
                       approved or closed and picking up PRs opened or updated
@@ -131,23 +135,26 @@ PR whose checks have not passed yet (see --skip-wait-for-ci).
                       again on its next poll, and so does the refresh between
                       --babysit passes. A PR with no checks at all is never
                       held.
-  --tui               Show the run full screen: every open PR on the left
-                      (running, queued, waiting, finished), and on the right
-                      what the selected review is doing or what its last
-                      review found. A PR the sweep is leaving alone is
-                      listed too, saying why, so the screen opens even when
-                      there is nothing to review. Keys: j/k move, r resumes
-                      the review in a new terminal tab, o opens the PR, x x
-                      stops a running review, R reviews the selected PR now,
-                      w starts or stops looking for work (what --watch does,
-                      as a key), f types what the reviewers are told to look
-                      at (--focus, changed mid-run), l shows the run log, q
-                      quits. The mouse works too: the wheel scrolls whichever
-                      pane it points at and a click selects a row; m hands
-                      the mouse back to the terminal for selecting text.
-                      While it is up the plain lines go to autoreview.log in
-                      the run directory. Off a terminal the run prints its
-                      plain lines as ever.
+  --tui               Show the run full screen, the default on a terminal:
+                      every open PR on the left (running, queued, waiting,
+                      finished), and on the right what the selected review is
+                      doing or what its last review found. A PR the sweep is
+                      leaving alone is listed too, saying why, so the screen
+                      opens even when there is nothing to review. Keys: j/k
+                      move, r resumes the review in a new terminal tab, o
+                      opens the PR, x x stops a running review, R reviews the
+                      selected PR now, w starts or stops looking for work
+                      (what --watch does, as a key), f types what the
+                      reviewers are told to look at (--focus, changed
+                      mid-run), l shows the run log, q quits. The mouse works
+                      too: the wheel scrolls whichever pane it points at and a
+                      click selects a row; m hands the mouse back to the
+                      terminal for selecting text. While it is up the plain
+                      lines go to autoreview.log in the run directory. Off a
+                      terminal the run says so and prints its plain lines.
+  --headless          Print plain lines even on a terminal: one line per
+                      step, and the summary at the end. What a pipe or cron
+                      gets anyway.
   --help, -h          Show this help.
   --version, -V       Show the version.
 
@@ -256,9 +263,9 @@ pub struct Config {
     /// Printed to stderr before the run starts, e.g. the silent-fallback
     /// warning when an unattended run ignores $AUTOREVIEW_CMD.
     pub startup_notes: Vec<String>,
-    /// Show the run full screen. Whether there is a terminal to show it on
-    /// is decided when the run starts, not here.
-    pub tui: bool,
+    /// Which front-end the run asked for. Whether there is a terminal to
+    /// show the view on is decided when the run starts, not here.
+    pub view: View,
     /// How often the full-screen view's `w` polls when it turns watching on,
     /// and how long a reviewed PR then rests. Resolved here so the key has
     /// the same defaults the flags would have given it -- leniently, because
@@ -266,6 +273,33 @@ pub struct Config {
     /// run over it would be refusing it for something it is not doing.
     pub watch_default: Interval,
     pub rest_default: Interval,
+}
+
+/// Which front-end a run asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// No flag: the full-screen view on a terminal, plain lines anywhere
+    /// else. A pipe or cron gets its plain lines without a note, because
+    /// nobody asked it for a screen.
+    Auto,
+    /// `--tui`: the full-screen view. Off a terminal the run says why there
+    /// is none, because somebody asked for one.
+    Screen,
+    /// `--headless`: plain lines, even on a terminal.
+    Plain,
+}
+
+impl View {
+    /// Whether the run tries to open the view, given whether stdout is a
+    /// terminal. `--tui` tries even off one, so that the try can say why it
+    /// did not open.
+    pub fn tries_screen(self, terminal: bool) -> bool {
+        match self {
+            View::Auto => terminal,
+            View::Screen => true,
+            View::Plain => false,
+        }
+    }
 }
 
 impl Config {
@@ -445,6 +479,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     let mut include_stacked = false;
     let mut skip_wait_for_ci = false;
     let mut tui = false;
+    let mut headless = false;
 
     let mut jobs_raw = env_nonempty(env, "AUTOREVIEW_JOBS").unwrap_or_else(|| "2".into());
     let ci_wait_raw = env_nonempty(env, "AUTOREVIEW_CI_WAIT").unwrap_or_else(|| "30".into());
@@ -483,6 +518,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             "--stacked" | "-s" => include_stacked = true,
             "--skip-wait-for-ci" => skip_wait_for_ci = true,
             "--tui" => tui = true,
+            "--headless" => headless = true,
             "--help" | "-h" => return Ok(Parsed::Help),
             "--version" | "-V" => return Ok(Parsed::Version),
             "--focus" => {
@@ -663,6 +699,15 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         }
     }
 
+    // Each asks for the opposite of the other, and neither is a default the
+    // other could quietly win over.
+    let view = match (tui, headless) {
+        (true, true) => return Err(err("error: --tui and --headless cannot be used together".into())),
+        (true, false) => View::Screen,
+        (false, true) => View::Plain,
+        (false, false) => View::Auto,
+    };
+
     // --no-post works by choosing the reviewer, and an override is not ours
     // to choose. Every other flag that cannot reach an override settles for a
     // note; this one refuses, because a safety flag that silently does not
@@ -698,7 +743,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         orchestrator,
         fallback,
         startup_notes,
-        tui,
+        view,
         watch_default,
         rest_default,
     })))
@@ -810,6 +855,25 @@ mod tests {
             Err(e) => e.msg,
             Ok(_) => panic!("expected an error"),
         }
+    }
+
+    #[test]
+    fn the_view_is_chosen_by_the_terminal_unless_a_flag_says() {
+        assert_eq!(cfg(&[]).view, View::Auto);
+        assert_eq!(cfg(&["--tui"]).view, View::Screen);
+        assert_eq!(cfg(&["--headless"]).view, View::Plain);
+        // The default opens the view only where there is a terminal; --tui
+        // tries anywhere, so it can say why it did not open.
+        assert!(View::Auto.tries_screen(true));
+        assert!(!View::Auto.tries_screen(false));
+        assert!(View::Screen.tries_screen(false));
+        assert!(!View::Plain.tries_screen(true));
+    }
+
+    #[test]
+    fn tui_and_headless_are_refused_together() {
+        assert_eq!(msg(&["--tui", "--headless"]), "error: --tui and --headless cannot be used together");
+        assert_eq!(msg(&["--headless", "--tui"]), "error: --tui and --headless cannot be used together");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # Board rows carry no hyperlinks
 
 Recorded: 2026-09-01
-Status: accepted
+Status: superseded by 0022
 
 ## Context
 

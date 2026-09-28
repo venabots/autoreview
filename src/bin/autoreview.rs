@@ -13,6 +13,7 @@
 // you want to watch a review happen and steer it mid-flight.
 
 use autoreview::ci::Ci;
+use autoreview::clock;
 use autoreview::cli::Config;
 use autoreview::interval::Interval;
 use autoreview::queue::Queue;
@@ -78,7 +79,7 @@ fn select_prs(cfg: &Config) -> select::Opts<'static> {
     }
 }
 
-/// What a refresh saw: the PRs the sweep would review now, what the board
+/// What a refresh saw: the PRs the sweep would review now, what the view
 /// needs to say about every PR it saw, and the PRs it is leaving alone, so
 /// the loop can say so once.
 struct Looked {
@@ -99,14 +100,11 @@ struct Looked {
 
 /// What the sweep would pick up right now, said quietly -- a babysit loop
 /// that re-announced the whole list on every interval would be noise. Also
-/// returns what the board needs, so a PR that joined mid-run is not a bare
+/// returns what the view needs, so a PR that joined mid-run is not a bare
 /// number on it.
 fn actionable_now(cfg: &Config, ctx: &repo::RepoContext, status: &Status) -> anyhow::Result<Looked> {
     let found = prlist::fetch(ctx, cfg.include_approved, cfg.include_dependabot, status)?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let now = clock::epoch_secs();
     let rows = prlist::build_rows(&found.prs, &ctx.me, now);
     // Everything open, ranked: the view lists approved PRs too, and the
     // sweep still reviews only the rows above.
@@ -212,10 +210,7 @@ fn waiting_on(watching: &[u64]) -> String {
 /// steps backwards would only ever end a rest early, which costs one review
 /// and never a stuck loop, so the wall clock is good enough here.
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    clock::epoch_secs().max(0) as u64
 }
 
 /// Which of these PRs are still worth watching. Approved, merged and closed
@@ -342,7 +337,6 @@ fn set_watching(
 fn close(ui: &mut ui::Ui) {
     ui.shutdown();
     ui.print_final(&[]);
-    ui.show_cursor();
 }
 
 /// The run has nothing left of its own to do. With the view up it stays,
@@ -499,10 +493,19 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // reviews them as their checks pass. Exiting here would leave every PR
     // opened in the last half hour unreviewed until the next cron run.
     let babysitting_held = cfg.babysit.is_some() && !held_at_start.is_empty();
-    // --tui asks for a screen, and a repo with nothing to review is the
-    // quiet morning it is most worth looking at: the PRs are all there,
-    // each saying why it is being left alone, and R reviews any of them.
-    let screening = cfg.tui && ui::on_a_terminal();
+    // A screen, and a repo with nothing to review is the quiet morning it is
+    // most worth looking at: the PRs are all there, each saying why it is
+    // being left alone, and R reviews any of them.
+    let terminal = ui::on_a_terminal();
+    // Not for an empty --pick: the person chose nothing, and a screen whose
+    // R refuses every PR outside the pick has nothing to offer them.
+    let screening = terminal && cfg.view.tries_screen(terminal) && !(cfg.pick && numbers.is_empty());
+    // Said before the run can end with nothing to do: whoever passed --tui
+    // off a terminal asked for a screen, and an empty run that exits
+    // silently would leave them wondering why none opened.
+    if cfg.view.tries_screen(terminal) && !terminal {
+        eprintln!("note: --tui needs a terminal; printing plain lines");
+    }
     if numbers.is_empty() && !sweeping && !babysitting_held && !screening {
         return Ok(0);
     }
@@ -521,12 +524,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     }
     let (tx, rx) = std::sync::mpsc::channel();
     signals::install(tx.clone());
-    let mut ui = ui::Ui::new(ui::pr_url_base(&ctx.owner, &ctx.name));
-    ui.hide_cursor();
+    let mut ui = ui::Ui::new();
     // After everything the run says on its way in -- the selection, the
     // skills, the notes -- so that stays on the normal screen, above where
     // the summary lands.
-    if cfg.tui {
+    if screening {
         ui.open_screen(screen_header(cfg, &ctx, &rundir), &rundir.root);
         ui.show_focus(cfg.focus.as_deref());
         if cfg.no_post {

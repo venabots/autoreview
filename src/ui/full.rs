@@ -9,7 +9,7 @@
 
 use super::Ui;
 use crate::activity::Tail;
-use crate::board::Action;
+use crate::tui::Action;
 use crate::job::{Job, JobState};
 use crate::pool;
 use crate::prlist::PrInfo;
@@ -49,19 +49,13 @@ fn latest(archive: &[Archived], jobs: &[Job]) -> Vec<Job> {
 }
 
 impl Ui {
-    /// Open the full-screen view over `run_root`'s log. Off a terminal there
-    /// is nothing to open it on, and the run prints its plain lines as ever.
+    /// Open the full-screen view over `run_root`'s log. The caller has
+    /// already checked for a terminal.
     pub fn open_screen(&mut self, header: Header, run_root: &Path) {
-        if !self.terminal {
-            eprintln!("note: --tui needs a terminal; printing plain lines");
-            return;
-        }
         match Screen::open(header) {
             Ok(screen) => {
                 self.screen = Some(screen);
                 self.run_root = Some(run_root.to_path_buf());
-                // The plain lines, from here on, are the log's.
-                self.tty = false;
             }
             Err(e) => eprintln!("note: could not open the full-screen view ({e}); using the ordinary output"),
         }
@@ -163,7 +157,7 @@ impl Ui {
     pub fn wait(&mut self, dur: Duration, rx: &Receiver<pool::Event>, wake_on_request: bool) -> Woke {
         let deadline = Instant::now() + dur;
         let asked = self.requests.len();
-        let next = super::epoch_now() + dur.as_secs() as i64;
+        let next = crate::clock::epoch_secs() + dur.as_secs() as i64;
         if let Some(screen) = &mut self.screen {
             screen.set_next_check(Some(next));
         }
@@ -243,13 +237,10 @@ impl Ui {
         }
     }
 
-    /// Give the terminal back: the board, the view, and the plain lines to
-    /// stdout. Safe to call twice.
+    /// Give the terminal back: the view, and the plain lines to stdout.
+    /// Safe to call twice.
     pub fn shutdown(&mut self) {
-        self.end_pass();
-        if self.screen.take().is_some() {
-            self.tty = self.terminal;
-        }
+        self.screen = None;
     }
 
     /// A line to print under the whole-run summary. A line the loop prints
@@ -288,7 +279,6 @@ impl Ui {
         println!();
         eprintln!("interrupted; stopping running reviews");
         self.print_final(jobs);
-        self.show_cursor();
         std::process::exit(130);
     }
 }
@@ -325,7 +315,7 @@ mod tests {
 
     #[test]
     fn without_the_view_waiting_is_a_plain_sleep() {
-        let mut ui = Ui::new(String::new());
+        let mut ui = Ui::new();
         let (_tx, rx) = std::sync::mpsc::channel();
         let started = Instant::now();
         assert_eq!(ui.wait(Duration::from_millis(30), &rx, true), Woke::Elapsed);

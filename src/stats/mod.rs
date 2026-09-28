@@ -10,7 +10,6 @@
 //! the same confidence and a bare percentage hides which is which.
 
 pub mod cli;
-pub mod import;
 pub mod render;
 
 use crate::findings::Finding;
@@ -421,10 +420,10 @@ pub fn attention(cohorts: &[Cohort]) -> Vec<String> {
         .collect()
 }
 
-/// The subcommand: parse, maybe import, read, fold, print. Returns the exit
+/// The subcommand: parse, read, fold, print. Returns the exit
 /// status; everything it has to say is already on stdout or stderr.
 pub fn main(args: &[String]) -> i32 {
-    let opts = match cli::parse(args, crate::ledger::now()) {
+    let opts = match cli::parse(args, crate::clock::epoch_secs()) {
         Ok(cli::Parsed::Help) => {
             print!("{}", cli::HELP);
             return 0;
@@ -442,42 +441,20 @@ pub fn main(args: &[String]) -> i32 {
         eprintln!("error: the ledger is off ($AUTOREVIEW_LEDGER=off); pass --ledger PATH to read one anyway");
         return 1;
     };
-    let mut runs = match crate::ledger::read(&path) {
+    let runs = match crate::ledger::read(&path) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: could not read the ledger at {}: {e}", path.display());
             return 1;
         }
     };
-    if opts.import {
-        let dir = opts.transcripts.clone().unwrap_or_else(crate::session::projects_dir);
-        match import::from_transcripts(&dir, &path, &runs) {
-            Ok(done) => {
-                eprintln!(
-                    "imported {} from {} under {} ({} already recorded)",
-                    crate::ui::count(done.added, "review"),
-                    crate::ui::count(done.files, "transcript"),
-                    dir.display(),
-                    done.skipped
-                );
-                if done.added > 0 {
-                    runs = crate::ledger::read(&path).unwrap_or(runs);
-                }
-            }
-            Err(e) => {
-                eprintln!("error: import failed: {e}");
-                return 1;
-            }
-        }
-    }
     let selected = select(&runs, opts.since, opts.repo.as_deref());
     // An empty result under --json is still JSON: a tool reading the output
     // must not get a friendly sentence where it expected an object.
     if selected.is_empty() && !opts.json {
         if runs.is_empty() {
             println!("no reviews recorded yet in {}", path.display());
-            println!("every autoreview pass and panel run is recorded from now on;");
-            println!("`autoreview stats --import` reads past reviews out of Claude Code's transcripts");
+            println!("every autoreview pass and panel run is recorded from now on");
         } else {
             println!("no reviews match ({} recorded in {})", crate::ui::count(runs.len(), "review"), path.display());
         }

@@ -285,8 +285,8 @@ pub fn parse_trailer(answer: &str) -> Option<Trailer> {
 /// with panel, whose model names land in headings.
 pub const MAX_FIELD_CHARS: usize = 80;
 /// A blocker's gist is a sentence, not a label, so it gets more room than the
-/// one-word fields -- but still a bound, because it lands on the board under a
-/// finished row.
+/// one-word fields -- but still a bound, because it lands on the terminal
+/// under a finished review's line.
 pub const MAX_GIST_CHARS: usize = 120;
 const MAX_PANELISTS: usize = 16;
 /// Enough to explain any review a person would read. A trailer that claims
@@ -808,8 +808,8 @@ mod tests {
 
     #[test]
     fn blockers_are_sanitized_and_bounded() {
-        // A blocker is agent text headed for the terminal under a board row,
-        // and the board is in raw mode while it lands.
+        // A blocker is agent text headed for the terminal under a finished
+        // review's line, and the view is in raw mode while it lands.
         let long = "x".repeat(400);
         let answer = format!(
             "```autoreview\n{{\"blockers\":[{{\"domain\":\"mo\\u001b[31mney\",\"gist\":\"{long}\"}}]}}\n```"

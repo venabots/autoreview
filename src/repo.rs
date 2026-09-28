@@ -3,7 +3,7 @@
 
 use crate::status::Status;
 use anyhow::{Result, bail};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// A failure whose message already went to stderr at the site that understood
@@ -195,6 +195,37 @@ pub fn load(status: &Status) -> Result<RepoContext> {
     Ok(RepoContext { owner, name, repo_root, me })
 }
 
+
+/// A repository's `owner/name`, from the origin remote when the checkout is
+/// still there to ask, and the directory basename otherwise. The ledger names
+/// a repository this way, so one repository is one row in `autoreview stats`
+/// -- a worktree's own directory name does not become a second.
+pub fn repo_slug(dir: &Path) -> String {
+    let basename =
+        dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.display().to_string());
+    if !dir.is_dir() {
+        return basename;
+    }
+    std::process::Command::new("git")
+        .args(["-C", &dir.display().to_string(), "config", "--get", "remote.origin.url"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| slug_of_remote(String::from_utf8_lossy(&o.stdout).trim()))
+        .unwrap_or(basename)
+}
+
+/// `git@github.com:acme/widgets.git` and `https://github.com/acme/widgets`
+/// are both `acme/widgets`.
+fn slug_of_remote(url: &str) -> Option<String> {
+    let trimmed = url.trim().trim_end_matches('/').trim_end_matches(".git");
+    let tail = trimmed.rsplit(['/', ':']).take(2).collect::<Vec<_>>();
+    if tail.len() != 2 || tail.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+    Some(format!("{}/{}", tail[1], tail[0]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +269,12 @@ mod tests {
         assert_eq!(repo_root_from(&output(0, b"/repo \n", "")).unwrap(), PathBuf::from("/repo "));
         assert_eq!(repo_root_from(&output(0, b"/repo\n\n", "")).unwrap(), PathBuf::from("/repo\n"));
         assert_eq!(repo_root_from(&output(0, b"/repo\r\n", "")).unwrap(), PathBuf::from("/repo\r"));
+    }
+    #[test]
+    fn remote_urls_become_slugs() {
+        assert_eq!(slug_of_remote("git@github.com:acme/widgets.git").as_deref(), Some("acme/widgets"));
+        assert_eq!(slug_of_remote("https://github.com/acme/widgets").as_deref(), Some("acme/widgets"));
+        assert_eq!(slug_of_remote("https://github.com/acme/widgets.git/").as_deref(), Some("acme/widgets"));
+        assert_eq!(slug_of_remote(""), None);
     }
 }
