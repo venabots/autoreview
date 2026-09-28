@@ -283,6 +283,23 @@ out="$(run_panel --tree no-such-dir)"
 assert_equals "a path with no files at HEAD is refused" "$(last_status)" "1"
 assert_contains "...saying so" "$out" 'nothing to review: no file under "no-such-dir" at HEAD'
 
+out="$(run_panel --tree "$SANDBOX/repo/gone")"
+assert_contains "an absolute path that is not on disk is still inside the repository" \
+  "$out" 'nothing to review: no file under "gone" at HEAD'
+
+# Pathspec magic is a name like any other, not an instruction to git.
+out="$(run_panel --tree ':(top)sub')"
+assert_contains "a scope is matched literally" \
+  "$out" 'nothing to review: no file under ":(top)sub" at HEAD'
+
+# A submodule is a gitlink with an empty directory in each worktree.
+git -C "$SANDBOX/repo" update-index --add --cacheinfo "160000,$(git -C "$SANDBOX/repo" rev-parse HEAD),sub/vendored"
+git -C "$SANDBOX/repo" -c user.name=t -c user.email=t@e.com commit -q -m "add a submodule"
+out="$(run_panel --tree sub)"
+assert_contains "a submodule is not counted as a file" "$out" "Target: 1 file under sub at "
+prompt="$(cat "$SANDBOX"/out/stdin-codex-* 2>/dev/null)"
+assert_not_contains "...or named in the prompt" "$prompt" "sub/vendored"
+
 out="$(run_panel --tree ..)"
 assert_equals "a path outside the repository is refused" "$(last_status)" "1"
 assert_contains "...saying so" "$out" "is outside this repository"

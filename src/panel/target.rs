@@ -177,15 +177,15 @@ fn tree(repo_root: &Path, path: Option<&str>) -> Result<Resolved> {
         Some(path) => scope_for(repo_root, path)?,
         None => None,
     };
-    let mut args = vec!["ls-tree", "-r", "-z", "--name-only", "--full-tree", "HEAD"];
+    // The SHA, not HEAD: a commit landing between the two calls would
+    // otherwise list one commit's files and pin the worktrees to another.
+    // Literal pathspecs, so a directory named like git's pathspec magic, such
+    // as `:(top)src`, names that directory and nothing else.
+    let mut args = vec!["--literal-pathspecs", "ls-tree", "-r", "-z", "--full-tree", sha.as_str()];
     if let Some(scope) = &scope {
         args.extend(["--", scope.as_str()]);
     }
-    let files: Vec<String> = git_stdout(repo_root, &args)?
-        .split('\0')
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect();
+    let files = blob_paths(&git_stdout(repo_root, &args)?);
     if files.is_empty() {
         match &scope {
             Some(scope) => bail!("nothing to review: no file under \"{}\" at HEAD", crate::report::sanitize_for_display(scope)),
@@ -210,15 +210,24 @@ fn tree(repo_root: &Path, path: Option<&str>) -> Result<Resolved> {
     })
 }
 
+/// The file paths in `ls-tree -r -z` output, without submodules. A submodule
+/// is a gitlink whose directory is empty in every worktree, so a panelist told
+/// to read it has nothing to open.
+fn blob_paths(raw: &str) -> Vec<String> {
+    raw.split('\0')
+        .filter_map(|entry| entry.split_once('\t'))
+        .filter(|(meta, _)| meta.split(' ').nth(1) == Some("blob"))
+        .map(|(_, path)| path.to_string())
+        .collect()
+}
+
 /// The path the user named, as a path from the repository root. Relative
 /// paths are read from where the user stands, so `panel --tree .` inside
 /// `src/` means `src/`, not the whole repository.
 fn scope_for(repo_root: &Path, path: &str) -> Result<Option<String>> {
     let as_path = Path::new(path);
     if as_path.is_absolute() {
-        // Canonical when it exists: git reports the root at its realpath, and
-        // on macOS a path under /var is really under /private/var.
-        let real = as_path.canonicalize().unwrap_or_else(|_| as_path.to_path_buf());
+        let real = real_path(as_path);
         let Ok(inside) = real.strip_prefix(repo_root) else {
             bail!("--tree: \"{path}\" is outside this repository");
         };
@@ -226,11 +235,33 @@ fn scope_for(repo_root: &Path, path: &str) -> Result<Option<String>> {
     }
     // From the process's own directory, not the root: that is where the user
     // typed the path.
+    // Checked: an empty prefix from a failed call would read the path from the
+    // root, and audit the wrong directory without a word.
     let prefix = Command::new("git")
         .args(["rev-parse", "--show-prefix"])
         .output()
         .context("running git rev-parse --show-prefix")?;
+    if !prefix.status.success() {
+        bail!(
+            "git rev-parse --show-prefix failed: {}",
+            String::from_utf8_lossy(&prefix.stderr).trim()
+        );
+    }
     scope_within(String::from_utf8_lossy(&prefix.stdout).trim(), path)
+}
+
+/// The path with its longest existing ancestor made canonical. git reports
+/// the root at its realpath, and on macOS a path under /var is really under
+/// /private/var. The path names something at HEAD, which need not exist on
+/// disk, so the part that does not exist is kept as typed.
+fn real_path(path: &Path) -> std::path::PathBuf {
+    path.ancestors()
+        .find_map(|ancestor| {
+            let real = ancestor.canonicalize().ok()?;
+            let rest = path.strip_prefix(ancestor).ok()?;
+            Some(real.join(rest))
+        })
+        .unwrap_or_else(|| path.to_path_buf())
 }
 
 /// Join a relative path onto the directory the user stands in, both relative
@@ -309,6 +340,16 @@ mod tests {
         // The root itself is the whole repository, which has no scope.
         assert_eq!(scope("", "."), None);
         assert_eq!(scope("src/", ".."), None);
+    }
+
+    #[test]
+    fn only_files_are_listed_not_submodules() {
+        // A submodule is a gitlink, and its worktree directory is empty, so
+        // no panelist could read it.
+        let raw = "100644 blob aaa\tsrc/a.rs\x00160000 commit bbb\tvendor/lib\x00100755 blob ccc\tbin/run\x00";
+        assert_eq!(blob_paths(raw), vec!["src/a.rs".to_string(), "bin/run".to_string()]);
+        // A name may hold a tab; only the first one ends the metadata.
+        assert_eq!(blob_paths("100644 blob aaa\ta\tb.rs\x00"), vec!["a\tb.rs".to_string()]);
     }
 
     #[test]
