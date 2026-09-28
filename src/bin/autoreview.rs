@@ -497,7 +497,9 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // most worth looking at: the PRs are all there, each saying why it is
     // being left alone, and R reviews any of them.
     let terminal = ui::on_a_terminal();
-    let screening = terminal && cfg.view.tries_screen(terminal);
+    // Not for an empty --pick: the person chose nothing, and a screen whose
+    // R refuses every PR outside the pick has nothing to offer them.
+    let screening = terminal && cfg.view.tries_screen(terminal) && !(cfg.pick && numbers.is_empty());
     // Said before the run can end with nothing to do: whoever passed --tui
     // off a terminal asked for a screen, and an empty run that exits
     // silently would leave them wondering why none opened.

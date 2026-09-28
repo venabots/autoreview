@@ -37,6 +37,9 @@ they had to know a flag to get it.
   stages its skills on a terminal, because the view opens and `R` may ask
   for a review. Off a terminal, or with `--headless`, it still prints one
   line and exits before either.
+- An empty `--pick` still exits at once, on a terminal too. The person chose
+  nothing, and under `--pick` `R` refuses every PR outside the pick, so the
+  view would have nothing to offer.
 - A script that runs `autoreview` with stdout on a terminal and expects it
   to exit on its own now waits for `q`. It has to pass `--headless`, or
   send stdout somewhere other than the terminal.

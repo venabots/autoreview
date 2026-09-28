@@ -106,6 +106,14 @@ assert_contains "...and the plain summary" "$out" "PR  RESULT"
 assert_contains "...and exits when the pass ends" "$out" "autoreview-exit=0"
 check_cooked "...and leaves the terminal cooked"
 
+# --- An empty --pick on a terminal exits at once ---------------------------
+# The person chose nothing, and R refuses every PR outside a pick, so there
+# is no view to open. A view here would wait for a q nobody sends, and the
+# driver would time out before the exit line.
+out="$(VIEW_FLAG='' run_tui -- --pick)"
+assert_not_contains "an empty --pick keeps the view closed" "$out" $'\e[?1049h'
+assert_contains "...and exits 0 without waiting for q" "$out" "autoreview-exit=0"
+
 # Under --no-post every VERDICT reads "nothing posted". The line that says
 # why goes under the whole-run summary, not only into the log.
 out="$(run_tui --key 3.0:q -- --no-post)"
