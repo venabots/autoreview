@@ -66,7 +66,8 @@ fn interrupt(jobs: &[Job], ui: &mut Ui) -> ! {
             stop_group(pgid);
         }
     }
-    // Then the terminal: the full-screen view holds it in raw mode, and the summary must land on a terminal that has been given back.
+    // Then the terminal: the full-screen view holds it in raw mode, and the
+    // summary must land on a terminal that has been given back.
     ui.interrupted(jobs)
 }
 
