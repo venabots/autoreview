@@ -13,7 +13,7 @@ a decision changes: mark it superseded and point at the new file.
 # Title, as a sentence
 
 Recorded: YYYY-MM-DD
-Status: accepted | superseded by NNNN
+Status: proposed | accepted | superseded by NNNN
 
 ## Context
 
@@ -56,3 +56,4 @@ comments and the commit history, not written at the time of the decision.
 - [0021](0021-a-tree-review-audits-head.md) A tree review audits HEAD
 - [0022](0022-the-inline-board-is-removed.md) The inline board is removed
 - [0023](0023-a-terminal-gets-the-full-screen-view.md) A terminal gets the full-screen view
+- [0024](0024-one-engine-two-sinks.md) One engine on its own thread, and two sinks (proposed)
