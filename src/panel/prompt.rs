@@ -6,6 +6,8 @@
 //! runtime -- and a panel whose prompt silently changed under it would make
 //! two runs incomparable for no visible reason.
 
+use crate::panel::target::Subject;
+
 const TEMPLATE: &str = include_str!("../../prompts/review.md");
 
 /// What the panelist may do, spelled out. It calibrates the findings: a
@@ -41,7 +43,7 @@ pub fn build(
     target_label: &str,
     isolated: bool,
     focus: Option<&str>,
-    diff: &str,
+    subject: &Subject,
     untracked: &[String],
 ) -> String {
     let mut p = String::from(TEMPLATE);
@@ -57,20 +59,24 @@ pub fn build(
         p.push_str("\n\n## Reviewer focus\n\n");
         p.push_str(focus);
     }
-    // A fence longer than any backtick run inside the diff. A context line
-    // that is itself ``` would otherwise close the block early and the rest of
-    // the diff would read as prose.
-    let fence = fence_for(diff);
+    let Subject::Diff(diff) = subject;
     p.push_str("\n\n## Diff\n\n");
-    p.push_str(&fence);
-    p.push_str("diff\n");
-    p.push_str(diff);
-    if !diff.ends_with('\n') {
-        p.push('\n');
-    }
-    p.push_str(&fence);
-    p.push('\n');
+    p.push_str(&fenced_diff(diff));
     p
+}
+
+/// The diff in a fence longer than any backtick run inside it. A context line
+/// that is itself ``` would otherwise close the block early and the rest of
+/// the diff would read as prose. Shared with the synthesis prompt.
+pub fn fenced_diff(diff: &str) -> String {
+    let fence = fence_for(diff);
+    let mut block = format!("{fence}diff\n{diff}");
+    if !diff.ends_with('\n') {
+        block.push('\n');
+    }
+    block.push_str(&fence);
+    block.push('\n');
+    block
 }
 
 /// What to say about the files git is not tracking. Shared with the synthesis
@@ -129,6 +135,10 @@ fn longest_backtick_run(s: &str) -> usize {
 mod tests {
     use super::*;
 
+    fn diff(text: &str) -> Subject {
+        Subject::Diff(text.into())
+    }
+
     #[test]
     fn the_template_is_compiled_in_and_carries_its_contract() {
         // The labels the report and the synthesis both match on.
@@ -140,13 +150,13 @@ mod tests {
 
     #[test]
     fn a_run_says_what_it_is_reviewing_and_what_the_reviewer_may_do() {
-        let p = build("3 commits on feat/x vs main", true, Some("the auth path"), "diff --git a b\n", &[]);
+        let p = build("3 commits on feat/x vs main", true, Some("the auth path"), &diff("diff --git a b\n"), &[]);
         assert!(p.contains("## Review target\n\n3 commits on feat/x vs main"));
         assert!(p.contains("dedicated git worktree"));
         assert!(p.contains("## Reviewer focus\n\nthe auth path"));
         assert!(p.contains("```diff\ndiff --git a b\n```"));
 
-        let ro = build("uncommitted changes on main", false, None, "d", &[]);
+        let ro = build("uncommitted changes on main", false, None, &diff("d"), &[]);
         assert!(ro.contains("**read-only**"));
         assert!(!ro.contains("## Reviewer focus"));
         // An unterminated diff still closes its fence.
@@ -155,7 +165,7 @@ mod tests {
 
     #[test]
     fn untracked_files_are_named_because_no_diff_covers_them() {
-        let p = build("uncommitted changes on main", false, None, "d", &["src/new.rs".into()]);
+        let p = build("uncommitted changes on main", false, None, &diff("d"), &["src/new.rs".into()]);
         assert!(p.contains("not tracked by git"));
         assert!(
             !p.contains("are part of the change"),
@@ -163,15 +173,14 @@ mod tests {
         );
         assert!(p.contains("- `src/new.rs`"));
         // And nothing is said when there are none.
-        assert!(!build("t", false, None, "d", &[]).contains("not tracked by git"));
+        assert!(!build("t", false, None, &diff("d"), &[]).contains("not tracked by git"));
     }
 
     #[test]
     fn a_diff_containing_a_fence_cannot_close_the_block() {
         // A markdown file whose own fences are in the diff is the ordinary
         // case here -- this repo's prompts are markdown.
-        let diff = "+```rust\n+code\n+```\n";
-        let p = build("t", false, None, diff, &[]);
+        let p = build("t", false, None, &diff("+```rust\n+code\n+```\n"), &[]);
         assert!(p.contains("````diff\n"), "fence must outgrow the diff: {p}");
         assert!(p.ends_with("````\n"));
         assert_eq!(longest_backtick_run("no ticks"), 0);

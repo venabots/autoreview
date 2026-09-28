@@ -17,11 +17,18 @@ pub enum Target {
     Base(String),
 }
 
+/// What the panelists are shown. A diff says what changed; without one there
+/// is nothing to hand over but the names of the files to read.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Subject {
+    Diff(String),
+}
+
 #[derive(Debug)]
 pub struct Resolved {
     /// What the report says it reviewed.
     pub label: String,
-    pub diff: String,
+    pub subject: Subject,
     /// True when each panelist gets its own worktree and may run commands.
     pub isolated: bool,
     /// The commit every worktree pins to; None for working-tree targets.
@@ -58,14 +65,14 @@ pub fn resolve(target: &Target, repo_root: &Path) -> Result<Resolved> {
         // whole of it, not the half that happens to be staged.
         Target::Uncommitted => Resolved {
             label: format!("uncommitted changes on {}", branch(repo_root)),
-            diff: git_stdout(repo_root, &["diff", "HEAD"])?,
+            subject: Subject::Diff(git_stdout(repo_root, &["diff", "HEAD"])?),
             isolated: false,
             sha: None,
             untracked: untracked_files(repo_root)?,
         },
         Target::Staged => Resolved {
             label: format!("staged changes on {}", branch(repo_root)),
-            diff: git_stdout(repo_root, &["diff", "--cached"])?,
+            subject: Subject::Diff(git_stdout(repo_root, &["diff", "--cached"])?),
             isolated: false,
             sha: None,
             // Nothing untracked is in the index, so nothing untracked is part
@@ -100,7 +107,7 @@ pub fn resolve(target: &Target, repo_root: &Path) -> Result<Resolved> {
                     crate::ui::count(commits, "commit"),
                     branch(repo_root)
                 ),
-                diff,
+                subject: Subject::Diff(diff),
                 isolated: true,
                 // A committed target is what the worktrees are pinned to;
                 // anything untracked is not part of it.
@@ -112,7 +119,8 @@ pub fn resolve(target: &Target, repo_root: &Path) -> Result<Resolved> {
 
     // An empty diff is not a review anyone wants: every panelist would spend
     // a model call to report nothing, and the synthesis would agree with them.
-    if resolved.diff.trim().is_empty() {
+    let Subject::Diff(diff) = &resolved.subject;
+    if diff.trim().is_empty() {
         // A change that only adds files is the common way to land here, and
         // "the diff is empty" is a baffling thing to be told while looking at
         // the new files. Name them.
