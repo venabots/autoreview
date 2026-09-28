@@ -27,8 +27,8 @@ back clean.
 brew install venabots/tap/autoreview
 ```
 
-Homebrew also installs `gh`, `gum` and `dash-p`. You also need `claude`,
-`codex`, or both. Install both to get the fallback.
+Homebrew also installs `gh`, `gum` and `dash-p`. You also need at least one
+agent CLI (see [Which agents?](#which-agents)).
 
 Run it from inside a GitHub repo:
 
@@ -45,6 +45,24 @@ brew update && brew upgrade venabots/tap/autoreview
 
 The review skills upgrade with the binary. If you installed your own copies,
 upgrade those too (see [Review skills](#review-skills)).
+
+## Which agents?
+
+Agents have two jobs in a review:
+
+| Job              | Agents                              | Default                           | Change it with                                         |
+| ---------------- | ----------------------------------- | --------------------------------- | ------------------------------------------------------ |
+| **Orchestrator** | `claude`, `codex`                   | `claude`                          | `--orchestrator codex`, `--orchestrator codex:gpt-5.5` |
+| **Fallback**     | the orchestrator you did not choose | the other one, if it is installed | `--fallback none`                                      |
+| **Panelists**    | `claude`, `codex`, `opencode`       | every one of them on your `PATH`  | `PANEL_REVIEW_PANELISTS="claude:opus-4.8 codex"`       |
+
+- The orchestrator runs the review. It starts the panel, merges the findings,
+  posts them and approves.
+- The panelists each review the diff, independently of each other.
+- Approval needs at least two panelists to answer. With only one agent
+  installed, reviews post but never approve.
+- Recommended: install `claude` and `codex`. Add `opencode` for a third
+  opinion.
 
 ## Review skills
 
@@ -461,7 +479,7 @@ asked for. `$AUTOREVIEW_ORCHESTRATOR` and `$AUTOREVIEW_FALLBACK` set both from
 the environment, which is where a cron line usually wants them.
 
 **During an outage you get reviews, not approvals.** The fallback rescues the
-*orchestrator*, but the panel is drawn from the same CLIs — so a provider
+_orchestrator_, but the panel is drawn from the same CLIs — so a provider
 being down also costs you its panelist. With three panelists and one down,
 coverage is 2/3, under the 75% the approval gate needs. The reviews still run,
 the findings still post; the stamp waits for a human or for the next
