@@ -31,7 +31,8 @@ pub struct Run {
     pub id: String,
     /// When the review finished, as an epoch second.
     pub at: i64,
-    /// `autoreview`, `panel`, or `transcript` for an imported one.
+    /// `autoreview`, `panel`, or `transcript` for one an older version
+    /// imported from Claude Code's session transcripts.
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,

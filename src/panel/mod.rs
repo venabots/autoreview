@@ -209,7 +209,7 @@ pub fn run(cfg: &Config) -> Result<i32> {
         // owner/name from the remote, so a panel run and an autoreview run of
         // the same repo count as one, and a run in a worktree does not record
         // the worktree's own directory name as a new repo.
-        let repo = crate::stats::import::repo_slug(&repo_root);
+        let repo = crate::repo::repo_slug(&repo_root);
         let run = crate::ledger::panel_run(Some(repo), started_epoch, &panelled, synthesis, cfg.synth_model.as_deref());
         if let Err(e) = crate::ledger::append(&path, &run) {
             eprintln!("panel: could not record this run in the ledger at {}: {e}", path.display());

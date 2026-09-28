@@ -779,7 +779,6 @@ autoreview stats                 # every recorded review
 autoreview stats --since 2w      # or a date: --since 2026-08-01
 autoreview stats --repo widgets  # one repo, by substring
 autoreview stats --json          # the same numbers for another tool
-autoreview stats --import        # read past reviews out of Claude Code's transcripts first
 ```
 
 ```
@@ -822,12 +821,6 @@ A row is one model on one backend, however the trailer spelled it:
 
 Every rate carries its 95% Wilson interval, because ten runs and three hundred
 do not deserve the same confidence and a bare percentage hides which is which.
-
-`--import` is for the history from before the ledger existed. Every review
-autoreview ran left a Claude Code session transcript behind, with the synthesis
-and the trailer in it, and the import reads those into the ledger once. It is
-safe to repeat: a review already recorded is skipped, and so is any session
-autoreview recorded live. It takes a few seconds per gigabyte of transcripts.
 
 ### Overrides
 
@@ -1360,7 +1353,7 @@ src/board.rs       autoreview: the live area, an inline viewport in raw mode
 src/tui/           autoreview --tui: the list, the detail pane, keys, the terminal
 src/findings.rs    the findings a synthesized review attributes to each panelist
 src/ledger.rs      the append-only record of finished reviews, across runs
-src/stats/         autoreview stats: cli, per-model folding, rendering, import
+src/stats/         autoreview stats: cli, per-model folding, rendering
 ```
 
 The two tools have to agree on what counts as an actionable PR and which

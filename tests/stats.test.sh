@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# autoreview stats: the ledger read back per model, and the transcript import.
+# autoreview stats: the ledger read back per model.
 
 set -euo pipefail
 # shellcheck source=helpers.sh
@@ -21,7 +21,6 @@ run_stats() {
 out="$(run_stats)"
 assert_equals "an empty ledger is not an error" "$(last_status)" "0"
 assert_contains "...and says where the history will go" "$out" "no reviews recorded yet in $AUTOREVIEW_LEDGER"
-assert_contains "...and how to read the past in" "$out" "autoreview stats --import"
 
 out="$(run_stats --json)"
 assert_equals "an empty ledger under --json is still JSON" \
@@ -64,37 +63,6 @@ out="$(run_stats --since 2999-01-01)"
 assert_contains "--since a future date matches nothing" "$out" "no reviews match"
 out="$(run_stats --since 7d)"
 assert_contains "--since a span includes today's review" "$out" "gpt-5.5"
-
-# --- Import from transcripts -------------------------------------------------
-# A transcript in the shape Claude Code writes: the review text, then the
-# fenced trailer, in assistant messages of a session started by /auto-review.
-mkdir -p "$SANDBOX/claude/projects/-w-gadgets"
-cat >"$SANDBOX/claude/projects/-w-gadgets/11111111-1111-4111-8111-111111111111.jsonl" <<'EOF'
-{"type":"user","sessionId":"11111111-1111-4111-8111-111111111111","cwd":"/w/gadgets","uuid":"u0","timestamp":"2026-08-20T10:00:00.000Z","message":{"role":"user","content":"<command-message>auto-review</command-message>\n<command-name>/auto-review</command-name>\n<command-args>42</command-args>"}}
-{"type":"assistant","sessionId":"11111111-1111-4111-8111-111111111111","cwd":"/w/gadgets","uuid":"u1","timestamp":"2026-08-20T10:05:00.000Z","message":{"role":"assistant","model":"claude-fable-5","content":[{"type":"text","text":"### Risk\nHIGH\n### must-fix\n- [HIGH] src/pay.ts:10 — double charge. Fix: guard. Flagged by 2: codex (gpt-5.5), opencode (xai/grok-4.6)\n### polish\n- [LOW] src/a.ts:1 — nit. Flagged by: codex (gpt-5.5)"}]}}
-{"type":"assistant","sessionId":"11111111-1111-4111-8111-111111111111","cwd":"/w/gadgets","uuid":"u2","timestamp":"2026-08-20T10:06:00.000Z","message":{"role":"assistant","model":"claude-fable-5","content":[{"type":"text","text":"Posted.\n\n```autoreview\n{\"decision\":\"changes-requested\",\"risk\":\"HIGH\",\"findings\":{\"must_fix\":1,\"should_fix\":0,\"polish\":1},\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":3,\"top\":\"HIGH\"},{\"name\":\"opencode\",\"model\":\"xai/grok-4.6\",\"ok\":true,\"findings\":1,\"top\":\"HIGH\"}]}\n```"}]}}
-EOF
-out="$(run_stats --import)"
-assert_equals "an import reports cleanly" "$(last_status)" "0"
-assert_contains "it says what it read" "$out" "imported 1 review from 1 transcript under $SANDBOX/claude/projects (0 already recorded)"
-assert_contains "the imported review joins the count" "$out" "2 reviews from 2026-08-20 to "
-assert_contains "...from its own repo" "$out" "across 2 repos"
-assert_contains "a provider prefix folds into the model" "$out" "grok-4.6"
-assert_not_contains "...leaving no raw spelling behind" "$out" "xai/"
-assert_contains "the imported decision is counted" "$out" "1 changes-requested"
-
-out="$(run_stats --import)"
-assert_contains "a second import adds nothing" "$out" "imported 0 reviews from 1 transcript"
-assert_contains "...because it was already recorded" "$out" "(1 already recorded)"
-assert_contains "...and the count holds" "$out" "2 reviews from"
-
-out="$(run_stats --json --repo gadgets)"
-assert_equals "the imported run carries its PR and session" \
-  "$(printf '%s' "$out" | jq -r '.cohorts[] | select(.key.model == "gpt-5.5") | "kept=\(.kept) unique=\(.kept_unique) high=\(.kept_high) raw=\(.raw_findings)"')" \
-  "kept=2 unique=1 high=1 raw=3"
-assert_equals "...and grok is credited with the shared finding only" \
-  "$(printf '%s' "$out" | jq -r '.cohorts[] | select(.key.model == "grok-4.6") | "kept=\(.kept) unique=\(.kept_unique)"')" \
-  "kept=1 unique=0"
 
 # --- Bad input ----------------------------------------------------------------
 out="$(run_stats --bogus)"

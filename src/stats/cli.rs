@@ -6,26 +6,20 @@ use std::path::PathBuf;
 
 pub const HELP: &str = r#"autoreview stats: how each panelist model has done, across every recorded review.
 
-Usage: autoreview stats [--import] [--since WHEN] [--repo NAME] [--json]
-                        [--ledger PATH] [--transcripts DIR] [--help]
+Usage: autoreview stats [--since WHEN] [--repo NAME] [--json]
+                        [--ledger PATH] [--help]
 
 Every finished review is appended to a ledger -- one JSON line per review
 with the panel, what each panelist reported, and which findings the synthesis
 kept after checking them against the code. This reads that ledger back and
 folds it per model.
 
-  --import            First read past reviews out of Claude Code's session
-                      transcripts (~/.claude/projects) into the ledger. Safe to
-                      repeat: a review already recorded is skipped.
   --since WHEN        Only reviews after WHEN: a span (7d, 2w) or a date
                       (2026-08-01).
   --repo NAME         Only reviews of a repo whose name contains NAME.
   --json              The same numbers as JSON, for another tool.
-  --ledger PATH       Read (and import into) this ledger instead of
+  --ledger PATH       Read this ledger instead of
                       $AUTOREVIEW_LEDGER or ~/.local/state/autoreview/ledger.jsonl.
-  --transcripts DIR   Where --import looks for transcripts (default: Claude
-                      Code's projects directory, under $CLAUDE_CONFIG_DIR when
-                      set).
   --help, -h          Show this help.
 
 Columns:
@@ -47,13 +41,11 @@ the synthesis credited, say) is not scored; the footer says how many.
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Opts {
-    pub import: bool,
     /// An epoch second; runs before it are left out.
     pub since: Option<i64>,
     pub repo: Option<String>,
     pub json: bool,
     pub ledger: Option<PathBuf>,
-    pub transcripts: Option<PathBuf>,
 }
 
 pub enum Parsed {
@@ -110,12 +102,10 @@ pub fn parse(args: &[String], now: i64) -> Result<Parsed, String> {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--help" | "-h" => return Ok(Parsed::Help),
-            "--import" => opts.import = true,
             "--json" => opts.json = true,
             "--since" => opts.since = Some(parse_since(&value("--since", it.next())?, now)?),
             "--repo" => opts.repo = Some(value("--repo", it.next())?),
             "--ledger" => opts.ledger = Some(PathBuf::from(value("--ledger", it.next())?)),
-            "--transcripts" => opts.transcripts = Some(PathBuf::from(value("--transcripts", it.next())?)),
             other => {
                 if let Some(v) = other.strip_prefix("--since=") {
                     opts.since = Some(parse_since(&value("--since", Some(v.to_string()))?, now)?);
@@ -123,8 +113,6 @@ pub fn parse(args: &[String], now: i64) -> Result<Parsed, String> {
                     opts.repo = Some(value("--repo", Some(v.to_string()))?);
                 } else if let Some(v) = other.strip_prefix("--ledger=") {
                     opts.ledger = Some(PathBuf::from(value("--ledger", Some(v.to_string()))?));
-                } else if let Some(v) = other.strip_prefix("--transcripts=") {
-                    opts.transcripts = Some(PathBuf::from(value("--transcripts", Some(v.to_string()))?));
                 } else {
                     return Err(format!("unknown arg: {other}"));
                 }
@@ -178,17 +166,15 @@ mod tests {
 
     #[test]
     fn flags_in_both_spellings() {
-        let o = opts("--import --json --since 7d --repo widgets --ledger /l --transcripts /t");
-        assert!(o.import && o.json);
+        let o = opts("--json --since 7d --repo widgets --ledger /l");
+        assert!(o.json);
         assert_eq!(o.since, Some(1_000_000 - 7 * 86_400));
         assert_eq!(o.repo.as_deref(), Some("widgets"));
         assert_eq!(o.ledger, Some(PathBuf::from("/l")));
-        assert_eq!(o.transcripts, Some(PathBuf::from("/t")));
-        let o = opts("--since=2w --repo=acme --ledger=/x --transcripts=/y");
+        let o = opts("--since=2w --repo=acme --ledger=/x");
         assert_eq!(o.since, Some(1_000_000 - 14 * 86_400));
         assert_eq!(o.repo.as_deref(), Some("acme"));
         assert_eq!(o.ledger, Some(PathBuf::from("/x")));
-        assert_eq!(o.transcripts, Some(PathBuf::from("/y")));
     }
 
     #[test]
