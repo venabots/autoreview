@@ -493,10 +493,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // reviews them as their checks pass. Exiting here would leave every PR
     // opened in the last half hour unreviewed until the next cron run.
     let babysitting_held = cfg.babysit.is_some() && !held_at_start.is_empty();
-    // --tui asks for a screen, and a repo with nothing to review is the
-    // quiet morning it is most worth looking at: the PRs are all there,
-    // each saying why it is being left alone, and R reviews any of them.
-    let screening = cfg.tui && ui::on_a_terminal();
+    // A screen, and a repo with nothing to review is the quiet morning it is
+    // most worth looking at: the PRs are all there, each saying why it is
+    // being left alone, and R reviews any of them.
+    let terminal = ui::on_a_terminal();
+    let screening = terminal && cfg.view.tries_screen(terminal);
     if numbers.is_empty() && !sweeping && !babysitting_held && !screening {
         return Ok(0);
     }
@@ -519,7 +520,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     // After everything the run says on its way in -- the selection, the
     // skills, the notes -- so that stays on the normal screen, above where
     // the summary lands.
-    if cfg.tui {
+    if cfg.view.tries_screen(terminal) {
         ui.open_screen(screen_header(cfg, &ctx, &rundir), &rundir.root);
         ui.show_focus(cfg.focus.as_deref());
         if cfg.no_post {

@@ -55,3 +55,4 @@ comments and the commit history, not written at the time of the decision.
 - [0020](0020-the-tui-is-a-full-screen-view-over-the-same-engine.md) The TUI is a full-screen view over the same engine
 - [0021](0021-a-tree-review-audits-head.md) A tree review audits HEAD
 - [0022](0022-the-inline-board-is-removed.md) The inline board is removed
+- [0023](0023-a-terminal-gets-the-full-screen-view.md) A terminal gets the full-screen view

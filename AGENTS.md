@@ -22,7 +22,8 @@ cargo clippy --all-targets      # clean today; keep it clean
 ## Facts
 
 - One crate, Rust 2024 edition, three binaries over one library:
-  `autoreview` (headless pool), `review-prs` (one terminal tab per PR) and
+  `autoreview` (a review pool, full screen on a terminal and plain lines
+  elsewhere), `review-prs` (one terminal tab per PR) and
   `panel` (one diff, several models).
 - Every built-in review runs through `dash-p`, which owns the timeout and
   exits 0 ok, 10 agent-error, 20 timeout.
@@ -46,7 +47,7 @@ cargo clippy --all-targets      # clean today; keep it clean
   unknown flags only that way, and a silently dropped `--max-budget-usd` is
   the failure the flag exists to prevent.
 - Count in English through `ui::count`. "1 PR(s)" is the shape to avoid.
-- While `--tui` is up, fds 1 and 2 point at the run log and the view draws
+- While the view is up, fds 1 and 2 point at the run log and the view draws
   through its own `/dev/tty` handle. Nothing may ask crossterm for the cursor
   then: the query goes to the log and stalls for two seconds.
 - The view captures the mouse, so a drag no longer selects text. `m` hands it

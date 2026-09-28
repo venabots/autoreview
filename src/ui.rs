@@ -2,8 +2,8 @@
 //!
 //! Two front-ends over the same pass. With the full-screen view up
 //! (`crate::tui`), the view draws the run and every plain line goes to the
-//! run log. Without it -- cron, CI, piped output, or a terminal nobody
-//! asked the view for -- state changes print one plain line each.
+//! run log. Without it -- cron, CI, piped output, or `--headless` on a
+//! terminal -- state changes print one plain line each.
 //!
 //! The plain strings are a contract: the test suite greps for them verbatim,
 //! and so do people's eyes -- keep them byte-identical across refactors.

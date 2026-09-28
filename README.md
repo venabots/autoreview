@@ -34,7 +34,7 @@ Run it from inside a GitHub repo:
 
 ```sh
 gh auth login            # once
-autoreview --tui --watch
+autoreview --watch
 ```
 
 ## Upgrade
@@ -101,9 +101,9 @@ ln -sfn "$PWD/skills/"* ~/.agents/skills/
 | Findings post, but no approval            | The gate held it: a finding above LOW, or fewer than 75% of the panel answered (often one provider is down). The next `--babysit` or `--watch` pass tries again.      |
 | VERDICT says `nothing posted`             | The review finished with nothing to submit, or GitHub has no record of a submission. It is not a rejection.                                                           |
 | A codex run refuses to start              | The skills are not in `~/.agents/skills/`. See [Review skills](#review-skills).                                                                                       |
-| You cannot select text in `--tui`         | The view has the mouse. Press `m` to give it back to the terminal.                                                                                                    |
+| You cannot select text in the view        | The view has the mouse. Press `m` to give it back to the terminal.                                                                                                    |
 | `--continue` reviews fresh                | Another process still holds that session, usually a babysit run or tab.                                                                                               |
-| You need to know why a review failed      | Read `pr-N.log` in the logs directory the run prints. In `--tui`, press `l`.                                                                                          |
+| You need to know why a review failed      | Read `pr-N.log` in the logs directory the run prints. In the view, press `l`.                                                                                         |
 
 ---
 
@@ -242,10 +242,12 @@ binary passes down is a flag the skill has to understand.
 
 The default way to run all this. Each PR is reviewed by a
 [dash-p](https://github.com/venabots/dash-p) subprocess driving claude
-headlessly, `--jobs` at a time. The run prints a line as each review starts
-and ends, reads each review's verdict back from GitHub when it finishes, and ends with a summary of
-verdicts, findings, models and cost. It exits nonzero if any review failed,
-which is what makes it safe to put in cron or CI.
+headlessly, `--jobs` at a time. On a terminal the run opens
+[the full-screen view](#the-full-screen-view); anywhere else, or with
+`--headless`, it prints a line as each review starts and ends. Either way it
+reads each review's verdict back from GitHub when it finishes, and ends with
+a summary of verdicts, findings, models and cost. It exits nonzero if any
+review failed, which is what makes it safe to put in cron or CI.
 
 ```sh
 autoreview                  # review every NEW/UPDATED PR
@@ -255,7 +257,8 @@ autoreview --continue       # resume earlier sessions for a second look
 autoreview --babysit=15     # re-run every 15 min, picking up new PRs as they open
 autoreview --skip-wait-for-ci # review a PR whatever its checks say
 autoreview --stacked        # review PRs stacked on another open PR too
-autoreview --tui --watch    # full screen: every PR on the left, its review on the right
+autoreview --watch          # stay on, and look for new PRs every 2 min
+autoreview --headless       # plain lines, even on a terminal
 autoreview --help           # usage
 ```
 
@@ -267,10 +270,10 @@ the point.) `--auto` / `-A` still parse —
 an old alias or cron line keeps working — they just name the default now.
 
 It takes the same selection flags as `review-prs` (`--continue`, `--all`,
-`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus thirteen
+`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus fourteen
 of its own: `--pick`, `--watch`, `--focus`, `--no-post`, `--jobs`,
 `--orchestrator`, `--fallback`, `--timeout`, `--budget`, `--log-dir`,
-`--max-passes`, `--max-idle` and `--tui`.
+`--max-passes`, `--max-idle`, `--tui` and `--headless`.
 
 **`--focus` steers a run.** It reaches every panelist as the reviewer focus:
 
@@ -294,7 +297,8 @@ alongside `$AUTOREVIEW_AUTO_CMD`, which decides for itself what it posts. The
 session stays resumable, so a later `--continue` run can pick the review up
 and post it.
 
-The pass prints one plain line per state change, on a terminal or not:
+Off a terminal, or with `--headless`, the pass prints one plain line per
+state change:
 
 ```
 2 PRs to review: #9 #8
@@ -518,17 +522,18 @@ failed too.
 
 ### The full-screen view
 
-`--tui` draws the run full screen. Every open PR is
-on the left, two lines each, most pressing first. The selected PR's details
-are on the right.
+On a terminal, `autoreview` draws the run full screen. Every open PR is on
+the left, two lines each, most pressing first. The selected PR's details are
+on the right. `--headless` keeps the plain lines instead; `--tui` asks for
+the view by name, and says so when there is no terminal to draw it on.
 
 The screen opens whenever there is a terminal, including on a repo with
 nothing to review: the PRs are all there, each saying why it is being left
 alone, and `R` reviews any of them on the spot.
 
-`--tui` is a view, not a mode: on its own it makes one pass and then waits.
-`w` is what turns a run into a watching one, so `autoreview --tui` and
-`autoreview --tui --watch=2` differ only in where you decide.
+The view is not a mode: on its own it makes one pass and then waits. `w` is
+what turns a run into a watching one, so `autoreview` and
+`autoreview --watch=2` differ only in where you decide.
 
 ```
 autoreview · acme/widgets · watching every 2m · a reviewed PR rests 30m · log …
@@ -617,7 +622,8 @@ dropped as approved or closed.
 While the view is up, everything the run would have printed goes to
 `autoreview.log` in the run directory, byte for byte, and `l` shows it. A run
 that ends keeps the view until `q`, then prints the plain summary for the
-whole run, the newest review of each PR. Off a terminal, `--tui` says so and the run prints its plain lines.
+whole run, the newest review of each PR. Off a terminal the run prints its
+plain lines; `--tui` there says so first.
 
 ### Prompts
 
@@ -1313,7 +1319,7 @@ src/job.rs         autoreview: one review, spawned and classified
 src/report.rs      autoreview: verdict readback and the agent's trailer
 src/rundir.rs      autoreview: what one run writes under --log-dir
 src/ui.rs          autoreview: the plain lines and the summary
-src/tui/           autoreview --tui: the list, the detail pane, keys, the terminal
+src/tui/           autoreview's view: the list, the detail pane, keys, the terminal
 src/findings.rs    the findings a synthesized review attributes to each panelist
 src/ledger.rs      the append-only record of finished reviews, across runs
 src/stats/         autoreview stats: cli, per-model folding, rendering

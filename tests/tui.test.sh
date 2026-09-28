@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tui: autoreview --tui on a terminal. The full-screen view draws on the
+# tui: autoreview on a terminal. The full-screen view draws on the
 # alternate screen and sends the plain lines to the run log while it is up,
 # so this file reads both: what reached the terminal, and what the log kept.
 # Every run presses q, or the driver would wait out its timeout.
@@ -18,7 +18,8 @@ setup_sandbox
 trap teardown_sandbox EXIT
 
 # Run autoreview --tui under the pty driver. The driver's own arguments come
-# first; autoreview's follow the --.
+# first; autoreview's follow the --. $VIEW_FLAG replaces --tui: set it empty
+# for the default, or to --headless.
 run_tui() {
   local driver=()
   while [[ $# -gt 0 && "$1" != "--" ]]; do
@@ -32,8 +33,8 @@ run_tui() {
   set +e
   python3 "$TESTS_DIR/pty.py" --timeout 40 --cols 120 --rows 30 --out "$SANDBOX/out/pty" \
     ${driver[@]+"${driver[@]}"} -- \
-    bash -c 'cd "$1" && TERM=xterm-256color "$2" --log-dir "$3" --tui "${@:4}"; echo "autoreview-exit=$?"; stty -a' \
-    _ "$SANDBOX/repo" "$AUTOREVIEW" "$SANDBOX/out/logs" "$@"
+    bash -c 'cd "$1" && TERM=xterm-256color "$2" --log-dir "$3" ${4:+"$4"} "${@:5}"; echo "autoreview-exit=$?"; stty -a' \
+    _ "$SANDBOX/repo" "$AUTOREVIEW" "$SANDBOX/out/logs" "${VIEW_FLAG---tui}" "$@"
   set -e
   cat "$SANDBOX/out/pty"
 }
@@ -90,6 +91,20 @@ assert_not_contains "the plain lines stay off the screen" "$out" "start   #9"
 assert_contains "...and go to the run log" "$(run_log)" "start   #9 @alice (reviewing)"
 assert_contains "...with the pass summary" "$(run_log)" "SESSION"
 check_cooked "the terminal is given back cooked"
+
+# --- No flag: a terminal gets the view -------------------------------------
+out="$(VIEW_FLAG='' run_tui --key 3.0:q --)"
+assert_contains "without a flag a terminal gets the view" "$out" $'\e[?1049h'
+assert_contains "...and q closes it" "$out" "autoreview-exit=0"
+assert_contains "...and the plain lines go to the run log" "$(run_log)" "start   #9"
+
+# --- --headless: plain lines on a terminal ---------------------------------
+out="$(VIEW_FLAG=--headless run_tui --)"
+assert_not_contains "--headless keeps the view closed" "$out" $'\e[?1049h'
+assert_contains "...and prints the plain lines on the terminal" "$out" "start   #9"
+assert_contains "...and the plain summary" "$out" "PR  RESULT"
+assert_contains "...and exits when the pass ends" "$out" "autoreview-exit=0"
+check_cooked "...and leaves the terminal cooked"
 
 # Under --no-post every VERDICT reads "nothing posted". The line that says
 # why goes under the whole-run summary, not only into the log.
