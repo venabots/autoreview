@@ -53,7 +53,8 @@ that finished, which the board scrolled away.
 ## Consequences
 
 - A person at a terminal who runs `autoreview` without `--tui` sees the
-  plain lines, not a live display. Space, digits and esc no longer expand a
+  plain lines, not a live display. Decision 0023 changed this the same day:
+  a terminal now gets the full-screen view unless `--headless` is passed. Space, digits and esc no longer expand a
   running row; the view's detail pane is where that lives now.
 - The plain output contract is unchanged, byte for byte.
 - A `#N` in the summary no longer opens the PR on cmd-click. In the view,
