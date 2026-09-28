@@ -508,7 +508,7 @@ impl Ui {
         let width = board.width();
         let spinner = SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()];
         self.frame += 1;
-        let now = epoch_now();
+        let now = crate::clock::epoch_secs();
         let mut running = 0usize;
         let mut finishing = 0usize;
         let mut queued = 0usize;
@@ -1040,14 +1040,6 @@ fn running_line(label: String, job: &Job, width: usize, spinner: &'static str) -
         Span::from(tool).dim(),
     ]));
     fit(Line::from(spans), width)
-}
-
-/// Seconds since the epoch, for the ages in a details block.
-fn epoch_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 /// How long ago an event was, in the clock's own words, or nothing when the

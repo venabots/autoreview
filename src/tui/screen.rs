@@ -116,13 +116,6 @@ fn inside(area: Rect, (column, row): (u16, u16)) -> bool {
         && row < area.y + area.height
 }
 
-fn epoch_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
 impl Screen {
     /// Take the terminal. See `terminal` for what that does to fds 1 and 2.
     pub fn open(header: Header) -> std::io::Result<Screen> {
@@ -257,7 +250,7 @@ impl Screen {
     }
 
     fn render_rows(&mut self, f: &mut Frame, rows: &[Row]) {
-        let now = epoch_now();
+        let now = crate::clock::epoch_secs();
         self.frame += 1;
         let spinner = SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()];
         let at = model::position(rows, self.selected);
@@ -918,7 +911,7 @@ mod tests {
     #[test]
     fn the_status_says_what_the_loop_is_doing() {
         let mut screen = Screen::new(None, header(true));
-        let now = epoch_now();
+        let now = crate::clock::epoch_secs();
         screen.set_next_check(Some(now + 100));
         let out = frame(&mut screen, &[], &[], 120);
         assert!(out.contains("nothing to review yet · next check in 1m"), "{out}");

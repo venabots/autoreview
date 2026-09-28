@@ -207,13 +207,6 @@ pub fn read(path: &Path) -> std::io::Result<Vec<Run>> {
         .collect())
 }
 
-pub fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
 /// What a finished autoreview job knows, gathered for the record.
 pub struct Reviewed<'a> {
     pub repo: &'a str,
@@ -239,7 +232,7 @@ pub fn autoreview_run(r: Reviewed) -> Run {
     Run {
         v: VERSION,
         id,
-        at: now(),
+        at: crate::clock::epoch_secs(),
         source: "autoreview".into(),
         repo: Some(r.repo.to_string()),
         pr: Some(r.pr),
@@ -288,7 +281,7 @@ pub fn panel_run(
     Run {
         v: VERSION,
         id: format!("panel:{started_epoch}:{}", std::process::id()),
-        at: now(),
+        at: crate::clock::epoch_secs(),
         source: "panel".into(),
         repo,
         pr: None,
@@ -297,7 +290,7 @@ pub fn panel_run(
         risk: findings::risk(synthesis),
         counts: None,
         cost_usd: None,
-        duration_secs: Some((now() - started_epoch).max(0) as u64),
+        duration_secs: Some((crate::clock::epoch_secs() - started_epoch).max(0) as u64),
         driver_model: driver_model.map(str::to_string),
         panel: panel
             .iter()
@@ -326,7 +319,7 @@ mod tests {
     }
 
     fn tmp() -> PathBuf {
-        let d = std::env::temp_dir().join(format!("ar-ledger-{}-{}", std::process::id(), now()));
+        let d = std::env::temp_dir().join(format!("ar-ledger-{}-{}", std::process::id(), crate::clock::epoch_secs()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

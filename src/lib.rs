@@ -11,6 +11,7 @@
 pub mod activity;
 pub mod board;
 pub mod ci;
+pub mod clock;
 pub mod findings;
 pub mod cli;
 pub mod interval;

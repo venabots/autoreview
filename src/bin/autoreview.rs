@@ -13,6 +13,7 @@
 // you want to watch a review happen and steer it mid-flight.
 
 use autoreview::ci::Ci;
+use autoreview::clock;
 use autoreview::cli::Config;
 use autoreview::interval::Interval;
 use autoreview::queue::Queue;
@@ -103,10 +104,7 @@ struct Looked {
 /// number on it.
 fn actionable_now(cfg: &Config, ctx: &repo::RepoContext, status: &Status) -> anyhow::Result<Looked> {
     let found = prlist::fetch(ctx, cfg.include_approved, cfg.include_dependabot, status)?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let now = clock::epoch_secs();
     let rows = prlist::build_rows(&found.prs, &ctx.me, now);
     // Everything open, ranked: the view lists approved PRs too, and the
     // sweep still reviews only the rows above.
@@ -212,10 +210,7 @@ fn waiting_on(watching: &[u64]) -> String {
 /// steps backwards would only ever end a rest early, which costs one review
 /// and never a stuck loop, so the wall clock is good enough here.
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    clock::epoch_secs().max(0) as u64
 }
 
 /// Which of these PRs are still worth watching. Approved, merged and closed

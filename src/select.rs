@@ -103,7 +103,7 @@ pub fn run(ctx: &RepoContext, opts: &Opts, status: &Status) -> Result<Selection>
     }
     // Every open PR, ranked, before the sweep's own filters: what the
     // full-screen view lists. Worked out here so one query serves both.
-    let seen = prlist::build_rows(&found.shown, &ctx.me, now_epoch());
+    let seen = prlist::build_rows(&found.shown, &ctx.me, crate::clock::epoch_secs());
     let shown: HashMap<u64, prlist::PrInfo> = seen.iter().map(|r| (r.number, r.info())).collect();
     let ranked: Vec<u64> = seen.iter().map(|r| r.number).collect();
     let Some(prs) = prlist::explain_if_empty(found.prs, opts.include_approved, opts.include_dependabot)
@@ -124,7 +124,7 @@ pub fn run(ctx: &RepoContext, opts: &Opts, status: &Status) -> Result<Selection>
         )?,
         _ => prs,
     };
-    let mut rows = prlist::build_rows(&prs, &ctx.me, now_epoch());
+    let mut rows = prlist::build_rows(&prs, &ctx.me, crate::clock::epoch_secs());
     let numbers = if opts.pick {
         mark_resumable(&mut rows, ctx);
         // Cleared before the picker: gum owns the terminal from here, and a
@@ -136,11 +136,4 @@ pub fn run(ctx: &RepoContext, opts: &Opts, status: &Status) -> Result<Selection>
         prlist::select_auto(&rows, opts.sweep_empty_hint, opts.gates())
     };
     Ok(Selection { numbers: numbers.unwrap_or_default(), info: shown, ranked })
-}
-
-fn now_epoch() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }

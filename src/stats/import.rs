@@ -208,7 +208,7 @@ pub fn runs_in_transcript(text: &str, repo_of: &mut dyn FnMut(&str) -> String) -
                     continue;
                 }
                 let uuid = entry.get("uuid").and_then(Value::as_str).unwrap_or("").to_string();
-                let at = epoch_of(&entry).unwrap_or_else(ledger::now);
+                let at = epoch_of(&entry).unwrap_or_else(crate::clock::epoch_secs);
                 let model = entry.pointer("/message/model").and_then(Value::as_str).map(str::to_string);
                 let mut cursor = 0;
                 for (i, (trailer, end)) in blocks.iter().enumerate() {
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn importing_skips_what_the_ledger_has() {
-        let dir = std::env::temp_dir().join(format!("ar-import-{}-{}", std::process::id(), ledger::now()));
+        let dir = std::env::temp_dir().join(format!("ar-import-{}-{}", std::process::id(), crate::clock::epoch_secs()));
         let projects = dir.join("projects/-w-widgets");
         std::fs::create_dir_all(&projects).unwrap();
         let text = [

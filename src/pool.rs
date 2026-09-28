@@ -19,7 +19,7 @@ use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 pub enum Event {
     /// The child was reaped. Sent the moment wait() returns, before the
@@ -189,10 +189,7 @@ fn launch(
             let started = Instant::now();
             jobs[idx].pgid = Some(child.id() as i32);
             jobs[idx].started = Some(started);
-            jobs[idx].started_epoch = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
+            jobs[idx].started_epoch = crate::clock::epoch_secs();
             jobs[idx].state = JobState::Running;
             jobs[idx].activity = follow(&jobs[idx], is_override, rundir);
             deadlines[idx] = deadline_for(cfg, is_override).map(|d| Deadline { at: Instant::now() + d });

@@ -231,7 +231,7 @@ struct ReportJson<'a> {
 
 pub fn json(r: &Report) -> String {
     let doc = ReportJson {
-        generated_at: crate::ledger::now(),
+        generated_at: crate::clock::epoch_secs(),
         since: r.since,
         ledger: r.ledger.display().to_string(),
         overview: &r.overview,

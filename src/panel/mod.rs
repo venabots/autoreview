@@ -42,7 +42,7 @@ pub fn run(cfg: &Config) -> Result<i32> {
     repo::require_deps(&[dashp.as_str()])?;
 
     let mut cfg = cfg.clone();
-    let started_epoch = crate::ledger::now();
+    let started_epoch = crate::clock::epoch_secs();
 
     let specs = if cfg.panelists.is_empty() {
         let found = panelist::autodetect();

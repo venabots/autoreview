@@ -424,7 +424,7 @@ pub fn attention(cohorts: &[Cohort]) -> Vec<String> {
 /// The subcommand: parse, maybe import, read, fold, print. Returns the exit
 /// status; everything it has to say is already on stdout or stderr.
 pub fn main(args: &[String]) -> i32 {
-    let opts = match cli::parse(args, crate::ledger::now()) {
+    let opts = match cli::parse(args, crate::clock::epoch_secs()) {
         Ok(cli::Parsed::Help) => {
             print!("{}", cli::HELP);
             return 0;

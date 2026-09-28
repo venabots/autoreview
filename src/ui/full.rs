@@ -163,7 +163,7 @@ impl Ui {
     pub fn wait(&mut self, dur: Duration, rx: &Receiver<pool::Event>, wake_on_request: bool) -> Woke {
         let deadline = Instant::now() + dur;
         let asked = self.requests.len();
-        let next = super::epoch_now() + dur.as_secs() as i64;
+        let next = crate::clock::epoch_secs() + dur.as_secs() as i64;
         if let Some(screen) = &mut self.screen {
             screen.set_next_check(Some(next));
         }
