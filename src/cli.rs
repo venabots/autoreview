@@ -17,7 +17,7 @@ Usage: autoreview [--pick] [--watch[=MINUTES]] [--babysit[=MINUTES]]
                   [--skills DIR|installed] [--all] [--dependabot]
                   [--stacked] [--skip-wait-for-ci] [--tui | --headless]
                   [--help]
-       autoreview stats [--import] [--since WHEN] [--repo NAME] [--json]
+       autoreview stats [--since WHEN] [--repo NAME] [--json]
                   (how each model has done; `autoreview stats --help`)
 
 Every NEW or UPDATED PR is reviewed by default -- the actionable ones. SEEN
