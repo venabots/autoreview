@@ -794,6 +794,27 @@ run_autoreview_bounded() {
   printf '%s' "$status" >"$SANDBOX/out/status"
 }
 
+# Stop the background run $1 and wait until it is gone.
+#
+# $1 is the subshell around autoreview, so killing it and waiting for it does
+# not wait for autoreview: that process answers TERM by stopping its reviews
+# and taking its reactions off the PRs, which takes a second. A test that
+# went on at once would share the sandbox with it -- its last lines land in
+# the next run's output file, and its last gh calls in the next run's counts.
+stop_run() {
+  local pid="$1" kids kid waited=0
+  kids="$(pgrep -P "$pid" 2>/dev/null || true)"
+  pkill -P "$pid" >/dev/null 2>&1 || true
+  kill "$pid" >/dev/null 2>&1 || true
+  wait "$pid" 2>/dev/null || true
+  for kid in $kids; do
+    while kill -0 "$kid" 2>/dev/null && [[ "$waited" -lt 200 ]]; do
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+  done
+}
+
 # Run autoreview in the background, wait for $1 to appear in the file $3, up to
 # $2 seconds, then kill it. For the babysit loop, whose whole point is that it
 # does not exit -- the shortest interval it accepts is a minute, and no test
@@ -817,9 +838,7 @@ run_autoreview_watching() {
     sleep 0.1
     waited=$((waited + 1))
   done
-  pkill -P "$pid" >/dev/null 2>&1 || true
-  kill "$pid" >/dev/null 2>&1 || true
-  wait "$pid" 2>/dev/null || true
+  stop_run "$pid"
   cat "$out"
 }
 

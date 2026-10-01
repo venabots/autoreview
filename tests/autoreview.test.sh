@@ -701,9 +701,7 @@ while [[ "$waited" -lt 1800 ]]; do
   sleep 0.1
   waited=$((waited + 1))
 done
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_contains "a PR opened mid-run joins the queue" "$out" "joined the queue: #12"
@@ -739,9 +737,7 @@ while [[ "$waited" -lt 1200 ]]; do
   sleep 0.1
   waited=$((waited + 1))
 done
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_contains "a failed refresh is announced" "$out" "could not refresh the PR list"
@@ -834,9 +830,7 @@ while [[ "$waited" -lt 900 ]]; do
 done
 still_running=no
 kill -0 "$bg" 2>/dev/null && still_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_equals "an all-approved watch run keeps running" "$still_running" "yes"
@@ -855,9 +849,7 @@ bg=$!
 sleep 2
 empty_running=no
 kill -0 "$bg" 2>/dev/null && empty_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 assert_equals "a watch run on an empty repo waits rather than exiting" \
   "$empty_running" "yes"
 
@@ -882,9 +874,7 @@ while [[ "$waited" -lt 1800 ]]; do
 done
 failing_running=no
 kill -0 "$bg" 2>/dev/null && failing_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_equals "a watch run survives a failing PR list" "$failing_running" "yes"
@@ -922,9 +912,7 @@ while [[ "$waited" -lt 1800 ]]; do
 done
 idle_running=no
 kill -0 "$bg" 2>/dev/null && idle_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_equals "--max-idle does not stop a watch run" "$idle_running" "yes"
@@ -962,9 +950,7 @@ while [[ "$waited" -lt 600 ]]; do
 done
 first_fail_running=no
 kill -0 "$bg" 2>/dev/null && first_fail_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_equals "a failed first fetch does not end a watch run" "$first_fail_running" "yes"
@@ -1174,9 +1160,7 @@ while [[ "$waited" -lt 1800 ]]; do
   sleep 0.1
   waited=$((waited + 1))
 done
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 out="$(cat "$SANDBOX/out/bg")"
 assert_contains "a watch run holds the pending PR at the start" \
   "$out" "holding 1 PR until CI passes: #9 (pending)"
@@ -1277,9 +1261,7 @@ while [[ "$waited" -lt 300 ]]; do
   sleep 0.1
   waited=$((waited + 1))
 done
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 out="$(cat "$SANDBOX/out/bg")"
 # The whole line, not its tail: the sweep's own held line ends the same way,
 # so a partial match would pass without the drop line existing at all.
