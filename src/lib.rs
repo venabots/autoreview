@@ -12,6 +12,7 @@ pub mod activity;
 pub mod ci;
 pub mod clock;
 pub mod findings;
+pub mod gh;
 pub mod cli;
 pub mod interval;
 pub mod job;
