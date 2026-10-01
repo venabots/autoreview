@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" width="96" height="96" alt="The auto mark: three rows of dots, joined across three, then two, then none">
+</p>
+
 # autoreview
 
 Reviews the pull requests in a GitHub repo. A panel of models reviews each PR
