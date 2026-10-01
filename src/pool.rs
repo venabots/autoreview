@@ -8,6 +8,7 @@ use crate::cli::Config;
 use crate::job::{self, GUARD_GRACE_SECS, Job, JobState};
 use crate::ledger;
 use crate::orchestrator::Fallback;
+use crate::reaction::{self, Marks};
 use crate::report;
 use crate::repo::RepoContext;
 use crate::rundir::RunDir;
@@ -55,7 +56,7 @@ pub fn stop_group(pgid: i32) {
 /// Ctrl-C (or a dropped ssh session) must not leave reviews running, and the
 /// reviews that already finished are still worth reopening -- so hand back
 /// their session ids on the way out rather than dropping them.
-fn interrupt(jobs: &[Job], ui: &mut Ui) -> ! {
+fn interrupt(jobs: &[Job], marks: &mut Marks, ui: &mut Ui) -> ! {
     // The reviews before anything prints. A hangup leaves no terminal to
     // print to, and a print that fails panics, which would end the process
     // with the reviewers still running and still spending.
@@ -66,6 +67,11 @@ fn interrupt(jobs: &[Job], ui: &mut Ui) -> ! {
             stop_group(pgid);
         }
     }
+    // Then the marks, while the process is still here to remove them: a
+    // review that was stopped is not being read any more, and nothing later
+    // would take its reaction off the PR.
+    marks.clear_all();
+    marks.settle();
     // Then the terminal: the full-screen view holds it in raw mode, and the
     // summary must land on a terminal that has been given back.
     ui.interrupted(jobs)
@@ -176,6 +182,7 @@ fn launch(
     idx: usize,
     jobs: &mut [Job],
     deadlines: &mut [Option<Deadline>],
+    marks: &mut Marks,
     cfg: &Config,
     ctx: &RepoContext,
     rundir: &RunDir,
@@ -194,6 +201,7 @@ fn launch(
             jobs[idx].activity = follow(&jobs[idx], is_override, rundir);
             deadlines[idx] = deadline_for(cfg, is_override).map(|d| Deadline { at: Instant::now() + d });
             ui.note_transition(&jobs[idx]);
+            marks.show(jobs[idx].pr);
             let tx = tx.clone();
             let pr = jobs[idx].pr;
             let me = ctx.me.clone();
@@ -226,6 +234,8 @@ fn launch(
             // this run never reviewed.
             rundir.mark_failed(jobs[idx].pr);
             ui.note_transition(&jobs[idx]);
+            // Only a retry has a mark by now, from its first attempt.
+            marks.clear(jobs[idx].pr);
             false
         }
     }
@@ -322,6 +332,9 @@ pub fn run_pass(
         })
         .collect();
     let mut deadlines: Vec<Option<Deadline>> = queue.iter().map(|_| None).collect();
+    // The eyes reaction each PR carries while its review runs. Not under
+    // --no-post: that run promised to leave the PR alone.
+    let mut marks = Marks::new(&ctx.owner, &ctx.name, !cfg.no_post);
     let total = jobs.len();
     let jobs_max = cfg.jobs as usize;
 
@@ -356,7 +369,7 @@ pub fn run_pass(
             if unplanned {
                 plan_job(&mut jobs[idx], cfg, ctx, rundir, ui);
             }
-            if launch(idx, &mut jobs, &mut deadlines, cfg, ctx, rundir, dashp, tx, ui) {
+            if launch(idx, &mut jobs, &mut deadlines, &mut marks, cfg, ctx, rundir, dashp, tx, ui) {
                 running += 1;
             } else {
                 finished += 1;
@@ -453,6 +466,9 @@ pub fn run_pass(
                 // The slot and the deadline were released at JobReaped;
                 // this event only finishes the bookkeeping.
                 finished += 1;
+                // The review is over, whichever way it went. A retry never
+                // reaches here, so its mark stays on between the attempts.
+                marks.clear(job.pr);
 
                 let ok = job.state == JobState::Done;
                 if ok {
@@ -559,7 +575,7 @@ pub fn run_pass(
                 }
                 ui.note_transition(job);
             }
-            Ok(Event::Signal) => interrupt(&jobs, ui),
+            Ok(Event::Signal) => interrupt(&jobs, &mut marks, ui),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
@@ -568,7 +584,7 @@ pub fn run_pass(
         // rather than a signal. Read here, on this thread, after every wake.
         for action in ui.poll_input() {
             match action {
-                Action::Stop => interrupt(&jobs, ui),
+                Action::Stop => interrupt(&jobs, &mut marks, ui),
                 Action::StopReview(pr) => stop_review(&mut jobs, &mut deadlines, pr, ui),
                 // Started next if this pass has it waiting; otherwise the
                 // loop takes it into the next pass.
@@ -606,6 +622,15 @@ pub fn run_pass(
     }
 
     ui.render(&jobs);
+    // The last review's mark is still coming off. The view keeps drawing
+    // while it does, so a slow GitHub reads as a wait and not a hang.
+    while ui.ticking() && marks.clearing() {
+        std::thread::sleep(Duration::from_millis(100));
+        ui.render(&jobs);
+    }
+    for pr in marks.settle() {
+        ui.note(reaction::failed_note(pr));
+    }
     jobs
 }
 

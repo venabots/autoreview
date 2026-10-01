@@ -11,6 +11,8 @@ back clean.
   answered and nothing above LOW remains.
 - **It keeps watching.** New PRs and new pushes are reviewed as they arrive.
   It waits for CI to pass first.
+- **It says when it is looking.** A PR carries an eyes reaction while its
+  review runs.
 - **It survives an outage.** If claude fails, codex retries the review, and
   the other way round.
 - **Its results are true.** The verdict is read back from GitHub, not taken
@@ -119,6 +121,7 @@ autoreview             picks every PR that is NEW or UPDATED, once CI passes
   └─ dash-p → claude   one headless agent per PR, --jobs at a time
        └─ /auto-review a panel of models reviews the diff independently,
                        their findings are synthesized, verified, and posted
+  + eyes reaction      on the PR while its review runs, off when it ends
   ← verdict            read back from GitHub, not taken from the agent's word
   ↻ fallback → codex   the agent's provider failed; the other one retries it
   ↻ --babysit          watch on an interval: new PRs join, fixed ones leave
@@ -145,6 +148,12 @@ Five things that shape the whole design:
   review is a choice (`--orchestrator`), and a review that fails because its
   provider did is retried under the other one. See
   [Orchestrators and the fallback](#orchestrators-and-the-fallback).
+
+A PR under review carries an eyes reaction from your login. `autoreview` adds
+it when the review starts and removes it when the review ends, however it
+ends: done, failed, timed out, stopped or interrupted. A `--no-post` run sets
+none. A reaction that fails is a note, and does not change the review or the
+exit status.
 
 The three binaries:
 

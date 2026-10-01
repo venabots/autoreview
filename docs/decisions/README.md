@@ -58,3 +58,4 @@ comments and the commit history, not written at the time of the decision.
 - [0023](0023-a-terminal-gets-the-full-screen-view.md) A terminal gets the full-screen view
 - [0024](0024-one-engine-two-sinks.md) One engine on its own thread, and two sinks (proposed)
 - [0025](0025-the-full-screen-view-watches.md) The full-screen view watches
+- [0026](0026-a-review-marks-its-pr-with-a-reaction.md) A review marks its PR with a reaction
