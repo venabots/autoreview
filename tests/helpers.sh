@@ -116,7 +116,7 @@ setup_sandbox() {
         FAKE_CLAUDE_GARBAGE FAKE_CLAUDE_KILL_JOB FAKE_CLAUDE_TRAILER \
         FAKE_CLAUDE_TRANSCRIPT FAKE_CLAUDE_ERROR_MSG \
         FAKE_GH_APPROVED FAKE_GH_CLOSED FAKE_GH_MY_REVIEW \
-        FAKE_GH_VIEW_FAIL FAKE_GH_GRAPHQL_FAIL_AFTER || true
+        FAKE_GH_VIEW_FAIL FAKE_GH_GRAPHQL_FAIL_AFTER FAKE_GH_REACTION_FAIL || true
   # The host may have a real dash-p and an inherited override for it; the
   # sandbox must only ever see its fake on PATH.
   unset DASHP_BIN || true
@@ -142,6 +142,12 @@ reset_spawn_log() {
   : >"$CLAUDE_LOG"
   : >"$CLAUDE_LOG.events"
   : >"$SANDBOX/out/override"
+  : >"$SANDBOX/out/reactions"
+}
+
+# Every reaction call the fake gh saw, one per line: the method and the path.
+reaction_calls() {
+  cat "$SANDBOX/out/reactions" 2>/dev/null || true
 }
 
 # The command the script sent to the tab for PR $1 (first match wins).
@@ -191,9 +197,11 @@ case "$sub" in
   api)
     target="${1:-}"; shift || true
     jq_filter=""
+    method="GET"
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --jq) jq_filter="${2:-}"; shift 2 ;;
+        --method) method="${2:-}"; shift 2 ;;
         *)    shift ;;
       esac
     done
@@ -218,6 +226,19 @@ case "$sub" in
         else
           cat "$SANDBOX/fixtures/prs.json"
         fi
+        ;;
+      repos/*/issues/*/reactions|repos/*/issues/*/reactions/*)
+        # The eyes reaction a review leaves on its PR while it runs: a POST
+        # to set it, which answers with the reaction's id, and a DELETE of
+        # that id to take it off. Recorded, one call per line, for the tests
+        # to read back. PRs named in $FAKE_GH_REACTION_FAIL cannot be marked.
+        pr="${target#repos/*/issues/}"
+        pr="${pr%%/*}"
+        case " ${FAKE_GH_REACTION_FAIL:-} " in
+          *" $pr "*) exit 1 ;;
+        esac
+        printf '%s %s\n' "$method" "$target" >>"$SANDBOX/out/reactions"
+        if [[ "$method" == "POST" ]]; then printf '77\n'; fi
         ;;
       *)
         echo "fake gh: unhandled api target: $target" >&2
@@ -794,6 +815,27 @@ run_autoreview_bounded() {
   printf '%s' "$status" >"$SANDBOX/out/status"
 }
 
+# Stop the background run $1 and wait until it is gone.
+#
+# $1 is the subshell around autoreview, so killing it and waiting for it does
+# not wait for autoreview: that process answers TERM by stopping its reviews
+# and taking its reactions off the PRs, which takes a second. A test that
+# went on at once would share the sandbox with it -- its last lines land in
+# the next run's output file, and its last gh calls in the next run's counts.
+stop_run() {
+  local pid="$1" kids kid waited=0
+  kids="$(pgrep -P "$pid" 2>/dev/null || true)"
+  pkill -P "$pid" >/dev/null 2>&1 || true
+  kill "$pid" >/dev/null 2>&1 || true
+  wait "$pid" 2>/dev/null || true
+  for kid in $kids; do
+    while kill -0 "$kid" 2>/dev/null && [[ "$waited" -lt 200 ]]; do
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+  done
+}
+
 # Run autoreview in the background, wait for $1 to appear in the file $3, up to
 # $2 seconds, then kill it. For the babysit loop, whose whole point is that it
 # does not exit -- the shortest interval it accepts is a minute, and no test
@@ -817,9 +859,7 @@ run_autoreview_watching() {
     sleep 0.1
     waited=$((waited + 1))
   done
-  pkill -P "$pid" >/dev/null 2>&1 || true
-  kill "$pid" >/dev/null 2>&1 || true
-  wait "$pid" 2>/dev/null || true
+  stop_run "$pid"
   cat "$out"
 }
 

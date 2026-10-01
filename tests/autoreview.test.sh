@@ -701,9 +701,7 @@ while [[ "$waited" -lt 1800 ]]; do
   sleep 0.1
   waited=$((waited + 1))
 done
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_contains "a PR opened mid-run joins the queue" "$out" "joined the queue: #12"
@@ -739,9 +737,7 @@ while [[ "$waited" -lt 1200 ]]; do
   sleep 0.1
   waited=$((waited + 1))
 done
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_contains "a failed refresh is announced" "$out" "could not refresh the PR list"
@@ -834,9 +830,7 @@ while [[ "$waited" -lt 900 ]]; do
 done
 still_running=no
 kill -0 "$bg" 2>/dev/null && still_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_equals "an all-approved watch run keeps running" "$still_running" "yes"
@@ -855,9 +849,7 @@ bg=$!
 sleep 2
 empty_running=no
 kill -0 "$bg" 2>/dev/null && empty_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 assert_equals "a watch run on an empty repo waits rather than exiting" \
   "$empty_running" "yes"
 
@@ -882,9 +874,7 @@ while [[ "$waited" -lt 1800 ]]; do
 done
 failing_running=no
 kill -0 "$bg" 2>/dev/null && failing_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_equals "a watch run survives a failing PR list" "$failing_running" "yes"
@@ -922,9 +912,7 @@ while [[ "$waited" -lt 1800 ]]; do
 done
 idle_running=no
 kill -0 "$bg" 2>/dev/null && idle_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_equals "--max-idle does not stop a watch run" "$idle_running" "yes"
@@ -962,9 +950,7 @@ while [[ "$waited" -lt 600 ]]; do
 done
 first_fail_running=no
 kill -0 "$bg" 2>/dev/null && first_fail_running=yes
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 
 out="$(cat "$SANDBOX/out/bg")"
 assert_equals "a failed first fetch does not end a watch run" "$first_fail_running" "yes"
@@ -1174,9 +1160,7 @@ while [[ "$waited" -lt 1800 ]]; do
   sleep 0.1
   waited=$((waited + 1))
 done
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 out="$(cat "$SANDBOX/out/bg")"
 assert_contains "a watch run holds the pending PR at the start" \
   "$out" "holding 1 PR until CI passes: #9 (pending)"
@@ -1277,9 +1261,7 @@ while [[ "$waited" -lt 300 ]]; do
   sleep 0.1
   waited=$((waited + 1))
 done
-pkill -P "$bg" >/dev/null 2>&1 || true
-kill "$bg" >/dev/null 2>&1 || true
-wait "$bg" 2>/dev/null || true
+stop_run "$bg"
 out="$(cat "$SANDBOX/out/bg")"
 # The whole line, not its tail: the sweep's own held line ends the same way,
 # so a partial match would pass without the drop line existing at all.
@@ -1306,5 +1288,53 @@ out="$(run_autoreview --tui)"
 assert_equals "--tui off a terminal with nothing to do exits 0" "$(last_status)" "0"
 assert_contains "...and still says there is no screen" "$out" \
   "note: --tui needs a terminal; printing plain lines"
+
+# --- The eyes reaction ----------------------------------------------------
+# A review says nothing on its PR until it posts, so the PR carries an eyes
+# reaction while the review runs: set when it starts, taken off when it ends,
+# however it ends.
+default_prs
+count_reactions() {
+  local n
+  n="$(reaction_calls | grep -cE -- "^$1 repos/acme/widgets/issues/$2/reactions" || true)"
+  printf '%s' "${n:-0}"
+}
+
+run_autoreview --auto >/dev/null
+assert_contains "a review marks its PR with a reaction" "$(reaction_calls)" \
+  "POST repos/acme/widgets/issues/9/reactions"
+assert_contains "...and takes that reaction off when it ends" "$(reaction_calls)" \
+  "DELETE repos/acme/widgets/issues/9/reactions/77"
+assert_equals "...once for each PR reviewed" "$(count_reactions DELETE 8)" "1"
+assert_equals "a PR the sweep left alone is never marked" "$(count_reactions POST 6)" "0"
+
+# A failed review is over too. The mark must not outlive it.
+FAKE_CLAUDE_FAIL="9" run_autoreview --auto --fallback none >/dev/null
+assert_equals "a failed review still takes its reaction off" "$(count_reactions DELETE 9)" "1"
+
+# A retry under the fallback is the same review: one mark, on throughout.
+FAKE_HARNESS_FAIL="9:claude" run_autoreview --auto >/dev/null
+assert_equals "a retried review is marked once" "$(count_reactions POST 9)" "1"
+assert_equals "...and unmarked once, at the end" "$(count_reactions DELETE 9)" "1"
+
+FAKE_CLAUDE_SLEEP=30 run_autoreview --auto --jobs 2 --timeout 1 >/dev/null
+assert_equals "a timed-out review takes its reaction off" "$(count_reactions DELETE 9)" "1"
+
+# --no-post promises to leave the PR alone, and a reaction is not alone.
+run_autoreview --auto --no-post >/dev/null
+assert_equals "--no-post sets no reaction" "$(reaction_calls)" ""
+
+# A reaction that cannot be set is a note. The review is what matters.
+out="$(FAKE_GH_REACTION_FAIL="9" run_autoreview --auto)"
+assert_equals "a reaction that fails does not fail the run" "$(last_status)" "0"
+assert_contains "...and the run says which PR" "$out" \
+  "note: could not set or remove the eyes reaction on PR #9; the review is unaffected"
+assert_not_contains "...and only that one" "$out" "eyes reaction on PR #8"
+assert_contains "...and the review still ran" "$out" "done    #9"
+
+# An interrupted run stops its reviews, so nothing later would unmark them.
+FAKE_CLAUDE_SLEEP=30 run_autoreview_watching "POST" 20 "$SANDBOX/out/reactions" 2 --auto >/dev/null
+assert_equals "an interrupted review takes its reaction off" "$(count_reactions DELETE 9)" "1"
+assert_equals "...and so does the other one running" "$(count_reactions DELETE 8)" "1"
 
 finish

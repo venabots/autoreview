@@ -76,7 +76,7 @@ reviews_of() {
 
 # --- One pass: the screen, the log, and the summary after it ---------------
 # The pass is over in a second or so. The view stays up, saying so, until q.
-out="$(FAKE_CLAUDE_TRAILER=9 run_tui --key 3.0:j --key 4.0:q --)"
+out="$(FAKE_CLAUDE_TRAILER=9 run_tui --key 3.0:j --key 4.0:q -- --once)"
 assert_contains "a one-pass run exits 0" "$out" "autoreview-exit=0"
 assert_contains "the view opens on the alternate screen" "$out" $'\e[?1049h'
 assert_contains "...and leaves it" "$out" $'\e[?1049l'
@@ -92,11 +92,34 @@ assert_contains "...and go to the run log" "$(run_log)" "start   #9 @alice (revi
 assert_contains "...with the pass summary" "$(run_log)" "SESSION"
 check_cooked "the terminal is given back cooked"
 
-# --- No flag: a terminal gets the view -------------------------------------
-out="$(VIEW_FLAG='' run_tui --key 3.0:q --)"
+# --- No flag: a terminal gets the view, and the view watches ---------------
+# The screen stays up until q, so it keeps looking for work without being
+# asked: the run is a --watch run at the default intervals. q ends it the
+# way it ends any watch run.
+out="$(VIEW_FLAG='' run_tui --key 6.0:q --)"
 assert_contains "without a flag a terminal gets the view" "$out" $'\e[?1049h'
-assert_contains "...and q closes it" "$out" "autoreview-exit=0"
+assert_contains "...and the view watches" "$out" "watching"
+assert_contains "...resting each PR it reviewed" "$out" "rests"
 assert_contains "...and the plain lines go to the run log" "$(run_log)" "start   #9"
+assert_contains "...which shows it polling" "$(run_log)" "next check in 2m"
+assert_contains "q ends it like any watch run" "$out" "autoreview-exit=130"
+check_cooked "the terminal is given back after a default run"
+
+# --tui asks for the same view, and gets the same run.
+out="$(run_tui --key 4.0:q --)"
+assert_contains "--tui watches too" "$(run_log)" "next check in 2m"
+
+# --once is one pass in the view: it waits for q and exits 0.
+out="$(VIEW_FLAG='' run_tui --key 3.0:q -- --once)"
+assert_not_contains "--once keeps the view to one pass" "$out" "watching"
+assert_not_contains "...and does not poll" "$(run_log)" "next check in"
+assert_contains "...and q closes it" "$out" "autoreview-exit=0"
+
+# --once and a loop ask for opposite things.
+out="$(VIEW_FLAG='' run_tui -- --once --watch)"
+assert_contains "--once with --watch is refused" "$out" \
+  "error: --once and --watch cannot be used together"
+assert_contains "...with exit 1" "$out" "autoreview-exit=1"
 
 # --- --headless: plain lines on a terminal ---------------------------------
 out="$(VIEW_FLAG=--headless run_tui --)"
@@ -116,14 +139,14 @@ assert_contains "...and exits 0 without waiting for q" "$out" "autoreview-exit=0
 
 # Under --no-post every VERDICT reads "nothing posted". The line that says
 # why goes under the whole-run summary, not only into the log.
-out="$(run_tui --key 3.0:q -- --no-post)"
+out="$(run_tui --key 3.0:q -- --once --no-post)"
 assert_contains "--no-post says why nothing landed, under the summary" "$out" \
   "nothing was posted to any PR; the reviews are in $SANDBOX/out/logs/run-"
 
 # --- r opens the review in a new tab, o opens the PR ----------------------
 # The sandbox drives the cmux spawner, whose fake records the command a tab
 # was sent. The fake gh records a --web call.
-out="$(run_tui --key 3.0:r --key 3.5:o --key 4.5:q --)"
+out="$(run_tui --key 3.0:r --key 3.5:o --key 4.5:q -- --once)"
 assert_contains "r opens a tab" "$(spawned_labels)" "Resume"
 assert_contains "...running the review's session in its repo" "$(cat "$SPAWN_LOG")" "&& claude --resume "
 assert_contains "o opens the PR in the browser" "$(cat "$SANDBOX/out/web")" "view"
@@ -182,7 +205,7 @@ click_row2="$(printf '\033[<0;5;4M')"
 unclick_row2="$(printf '\033[<0;5;4m')"
 out="$(FAKE_CLAUDE_TRAILER=9 run_tui \
   --key 3.0:"$wheel_down" --key 3.2:"$wheel_down" \
-  --key 4.0:"$click_row2" --key 4.1:"$unclick_row2" --key 5.0:q --)"
+  --key 4.0:"$click_row2" --key 4.1:"$unclick_row2" --key 5.0:q -- --once)"
 assert_contains "the screen asks the terminal for the mouse" "$out" $'\e[?1000h'
 # The detail pane's title, which only the selected PR draws.
 assert_contains "a click selects the row it lands on" "$out" "Add retry logic"
@@ -192,10 +215,10 @@ check_cooked "the terminal is given back after a mouse run"
 set_ci 8 SUCCESS
 
 # --- w turns the looking for work on and off -------------------------------
-# A one-shot run starts watching when w is pressed, and stops when it is
+# A one-pass run starts watching when w is pressed, and stops when it is
 # pressed again, which leaves it waiting for q like any run with nothing
 # left to do.
-out="$(run_tui --key 3.0:w --key 6.0:w --key 8.0:q --)"
+out="$(run_tui --key 3.0:w --key 6.0:w --key 8.0:q -- --once)"
 assert_contains "w starts the run watching" "$(run_log)" "watching: looking for work every 2m"
 assert_contains "...and it polls" "$(run_log)" "next check in 2m"
 assert_contains "...and the view says so" "$out" "watching"
@@ -220,7 +243,7 @@ assert_contains "q ends the run" "$out" "autoreview-exit=130"
 # The view opens on it instead: every open PR is there, saying why it is
 # being left alone, and R reviews one on the spot.
 seen_everything
-out="$(run_tui --key 3.0:R --key 8.0:q --)"
+out="$(run_tui --key 3.0:R --key 8.0:q -- --once)"
 assert_contains "a quiet repo has nothing for the sweep" "$out" "no NEW or UPDATED PRs to review"
 assert_contains "...and the view opens all the same" "$out" $'\e[?1049h'
 assert_contains "...listing the PRs it is leaving alone" "$out" "seen"

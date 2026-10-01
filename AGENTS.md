@@ -66,6 +66,9 @@ cargo clippy --all-targets      # clean today; keep it clean
 
 - Stop a background test run by its pid. A broad `pkill -f` on a name that
   also appears in a panelist's argv has killed live panelists mid-review.
+- A test that kills a background run ends it with `stop_run`. The run needs
+  about a second to stop its reviews and remove its reactions, and a test
+  that continues before then shares the sandbox with it.
 - The fake `gh` in `tests/helpers.sh` dispatches on exact argv shapes. A new
   `gh` call needs a matching fake before its test can pass.
 - The session id derivation in `src/session.rs` is pinned by golden tests.

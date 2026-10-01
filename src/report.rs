@@ -12,7 +12,6 @@
 //! "approved" for an approval that never landed.
 
 use serde::Deserialize;
-use std::process::Command;
 
 /// The agent's self-reported outcome, parsed leniently: every field is
 /// optional, unknown fields are ignored, and a malformed block reads as no
@@ -381,12 +380,6 @@ pub enum Readback {
 /// immediately-preceding run could read as this run's.
 const SKEW_GRACE_SECS: i64 = 10;
 
-/// How long the readback may take before it is killed. It runs off the event
-/// loop (on the job's monitor thread), so this bounds how long a finished job
-/// can hold its pool slot, not how long the pass stalls -- the pass never
-/// waits on it directly.
-const GH_TIMEOUT_SECS: u64 = 15;
-
 pub fn github_verdict(pr: u64, me: &str, since_epoch: i64) -> Readback {
     let Some(stdout) = gh_latest_reviews(pr) else {
         return Readback::Failed;
@@ -403,47 +396,12 @@ pub fn github_verdict(pr: u64, me: &str, since_epoch: i64) -> Readback {
     }
 }
 
-/// Run the gh query with a hard deadline: a hung network call must not hold a
-/// pool slot forever, in a tool built for cron. Stdout is drained on its own
-/// thread so a child blocked writing can never deadlock against our wait.
+/// The gh query, under `gh::output`'s deadline. It runs off the event loop
+/// (on the job's monitor thread), so the deadline bounds how long a finished
+/// job can hold its pool slot, not how long the pass stalls -- the pass never
+/// waits on it directly.
 fn gh_latest_reviews(pr: u64) -> Option<Vec<u8>> {
-    use std::io::Read;
-    let mut child = Command::new("gh")
-        .args(["pr", "view", &pr.to_string(), "--json", "latestReviews"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
-    let mut stdout = child.stdout.take()?;
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stdout.read_to_end(&mut buf);
-        let _ = tx.send(buf);
-    });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(GH_TIMEOUT_SECS);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => {
-                return rx.recv_timeout(std::time::Duration::from_secs(1)).ok();
-            }
-            Ok(Some(_)) => return None,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
+    crate::gh::output(&["pr", "view", &pr.to_string(), "--json", "latestReviews"])
 }
 
 fn verdict_from_reviews(v: &serde_json::Value, me: &str, since_epoch: i64) -> Option<String> {

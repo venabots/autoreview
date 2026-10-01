@@ -426,6 +426,7 @@ mod tests {
             pick,
             babysit: None,
             watch: None,
+            once: false,
             focus: None,
             no_post: false,
             continue_sessions: false,
