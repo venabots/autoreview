@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 pub const HELP: &str = r#"autoreview: review open PRs, full screen or headless, with a real exit status.
 
-Usage: autoreview [--pick] [--watch[=MINUTES]] [--babysit[=MINUTES]]
+Usage: autoreview [--pick] [--watch[=MINUTES]] [--once] [--babysit[=MINUTES]]
                   [--focus TEXT] [--no-post] [--continue] [--jobs N]
                   [--orchestrator SPEC] [--fallback SPEC|none]
                   [--timeout SECONDS] [--budget USD] [--log-dir DIR]
@@ -24,8 +24,9 @@ Every NEW or UPDATED PR is reviewed by default -- the actionable ones. SEEN
 PRs (nothing has changed since you last engaged) are left alone, and so is a
 PR whose checks have not passed yet (see --skip-wait-for-ci).
 
-On a terminal the run is shown full screen (see --tui). Anywhere else --
-a pipe, cron, CI -- or with --headless, it prints one plain line per step.
+On a terminal the run is shown full screen (see --tui) and keeps looking for
+work, as --watch does. Anywhere else -- a pipe, cron, CI -- or with --headless,
+it makes one pass, prints one plain line per step, and exits.
 
   --pick, -p          Choose from a list instead of reviewing every one.
                       The picker shows each PR's checks in a CI column and
@@ -41,7 +42,13 @@ a pipe, cron, CI -- or with --headless, it prints one plain line per step.
                       still exits. A PR that goes quiet and then becomes
                       actionable again was pushed to, so it gets a fresh set
                       of passes. Use this to leave a terminal reviewing all
-                      day; use --babysit for cron.
+                      day; use --babysit for cron. The full-screen view
+                      watches without the flag, at the default interval;
+                      --pick, --babysit and --once are the runs that do not.
+  --once              One pass, then stop looking for work: what a run off a
+                      terminal does anyway. In the full-screen view the pass
+                      is made and the screen waits for q. Refused alongside
+                      --watch and --babysit, which ask for the opposite.
   --babysit[=MIN], -b Re-run the pass every MIN minutes (default 30, or
                       $AUTOREVIEW_BABYSIT_INTERVAL), dropping PRs as they are
                       approved or closed and picking up PRs opened or updated
@@ -143,7 +150,7 @@ a pipe, cron, CI -- or with --headless, it prints one plain line per step.
                       opens even when there is nothing to review. Keys: j/k
                       move, r resumes the review in a new terminal tab, o
                       opens the PR, x x stops a running review, R reviews the
-                      selected PR now, w starts or stops looking for work
+                      selected PR now, w stops or starts looking for work
                       (what --watch does, as a key), f types what the
                       reviewers are told to look at (--focus, changed
                       mid-run), l shows the run log, q quits. The mouse works
@@ -220,6 +227,9 @@ pub struct Config {
     /// Always on: poll this often for new PRs and never stop. Only a signal
     /// ends a watch run, so none of the bounds --babysit respects apply.
     pub watch: Option<Interval>,
+    /// `--once`: one pass, even where the full-screen view would otherwise
+    /// keep looking for work.
+    pub once: bool,
     /// What the reviewers should pay attention to this run, handed to the
     /// review skill as --focus. Per-run and ad hoc: anything a repo always
     /// cares about belongs in its CLAUDE.md, which the panelists already read.
@@ -309,6 +319,42 @@ impl Config {
     pub fn unattended(&self) -> bool {
         !self.pick || self.babysit.is_some() || self.watch.is_some()
     }
+
+    /// The run as it is once it is known whether the full-screen view will
+    /// open. A person who starts `autoreview` at a terminal is looking at a
+    /// screen that stays up until `q`, and a screen that made one pass and
+    /// then sat there would miss the next PR with somebody watching it. So
+    /// the view watches, at the intervals `w` would have used.
+    ///
+    /// Off a screen nothing changes: a pipe or cron job must still end, and
+    /// its exit status must still describe a pass. Nor under --pick, whose
+    /// queue may only hold what was picked, under --babysit, which is a loop
+    /// already, or under --once, which says so.
+    ///
+    /// The CI wait goes with it: a watch run holds a PR and looks again, so
+    /// the view opens at once instead of after the checks.
+    pub fn watching_on_a_screen(self, screen: bool) -> Config {
+        if !screen || self.once || self.pick || self.watch.is_some() || self.babysit.is_some() {
+            return self;
+        }
+        // parse() says this for --watch. A run that came to watch by
+        // default re-reviews from scratch just the same.
+        let fresh_every_pass = self.review_cmd.is_none()
+            && !self.orchestrator.supports_sessions()
+            && !self.continue_sessions;
+        let note = fresh_every_pass.then(|| resume_note(&self.orchestrator));
+        Config {
+            watch: Some(self.watch_default.clone()),
+            babysit: Some(self.rest_default.clone()),
+            ci_wait: None,
+            startup_notes: self.startup_notes.iter().cloned().chain(note).collect(),
+            ..self
+        }
+    }
+}
+
+fn resume_note(orchestrator: &Orchestrator) -> String {
+    format!("note: {} cannot resume a review session; every pass reviews fresh", orchestrator.label())
 }
 
 /// How much focus text a prompt will carry. It is one argv element travelling
@@ -471,6 +517,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
     let mut pick = false;
     let mut babysit = false;
     let mut watch = false;
+    let mut once = false;
     let mut focus: Option<String> = None;
     let mut no_post = false;
     let mut continue_sessions = false;
@@ -511,6 +558,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             "--auto" | "-A" => {}
             "--babysit" | "-b" => babysit = true,
             "--watch" | "-w" => watch = true,
+            "--once" => once = true,
             "--continue" | "-C" => continue_sessions = true,
             "--no-post" | "-n" => no_post = true,
             "--all" | "-a" => include_approved = true,
@@ -615,6 +663,13 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         )));
     }
 
+    // One pass and a loop are opposite answers to the same question, and
+    // neither is a default the other could quietly win over.
+    if once && (watch || babysit) {
+        let other = if watch { "--watch" } else { "--babysit" };
+        return Err(err(format!("error: --once and {other} cannot be used together")));
+    }
+
     // Validated only when babysitting is actually on, so an unrelated bad env
     // var never blocks a plain run.
     let watch_interval = if watch {
@@ -692,10 +747,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
             ));
         }
         if !orchestrator.supports_sessions() && (continue_sessions || babysit || watch) {
-            startup_notes.push(format!(
-                "note: {} cannot resume a review session; every pass reviews fresh",
-                orchestrator.label()
-            ));
+            startup_notes.push(resume_note(&orchestrator));
         }
     }
 
@@ -724,6 +776,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I, env: EnvFn) -> Result<Pars
         pick,
         babysit: babysit_interval,
         watch: watch_interval,
+        once,
         focus,
         no_post,
         continue_sessions,
@@ -880,6 +933,65 @@ mod tests {
     fn watch_is_off_unless_asked_for() {
         assert!(cfg(&[]).watch.is_none());
         assert!(cfg(&["--babysit"]).watch.is_none(), "--babysit is not --watch");
+    }
+
+    #[test]
+    fn the_full_screen_view_watches_without_being_asked() {
+        // The screen stays up until q, so it keeps looking for work: the
+        // intervals are the ones `w` would have turned on.
+        let c = cfg(&[]).watching_on_a_screen(true);
+        assert_eq!(c.watch.unwrap().normalized, "2m");
+        assert_eq!(c.babysit.unwrap().normalized, "30m", "a reviewed PR rests");
+        assert!(c.ci_wait.is_none(), "a watch run holds and looks again");
+        // Off a screen a run is one pass, as it always was: cron has to end.
+        let c = cfg(&[]).watching_on_a_screen(false);
+        assert!(c.watch.is_none() && c.babysit.is_none());
+        assert!(c.ci_wait.is_some());
+    }
+
+    #[test]
+    fn the_view_leaves_a_run_that_said_what_it_is_alone() {
+        assert!(cfg(&["--once"]).watching_on_a_screen(true).watch.is_none());
+        assert!(cfg(&["--pick"]).watching_on_a_screen(true).watch.is_none());
+        let c = cfg(&["--babysit=15"]).watching_on_a_screen(true);
+        assert!(c.watch.is_none(), "--babysit is a loop already");
+        assert_eq!(c.babysit.unwrap().normalized, "15m");
+        let c = cfg(&["--watch=5", "--babysit=1h"]).watching_on_a_screen(true);
+        assert_eq!(c.watch.unwrap().normalized, "5m", "the flag's interval stands");
+        assert_eq!(c.babysit.unwrap().normalized, "1h");
+    }
+
+    #[test]
+    fn the_default_watch_takes_its_intervals_from_the_environment_leniently() {
+        let vars = &[("AUTOREVIEW_WATCH_INTERVAL", "10"), ("AUTOREVIEW_BABYSIT_INTERVAL", "junk")];
+        let Ok(Parsed::Run(c)) = run_env(&[], vars) else { panic!("expected a run") };
+        let c = c.watching_on_a_screen(true);
+        assert_eq!(c.watch.unwrap().normalized, "10m");
+        // A bad value belongs to a flag this run never passed.
+        assert_eq!(c.babysit.unwrap().normalized, "30m");
+    }
+
+    #[test]
+    fn a_default_watch_under_codex_says_every_pass_is_fresh() {
+        let c = cfg(&["--orchestrator=codex"]);
+        assert!(c.startup_notes.is_empty());
+        let c = c.watching_on_a_screen(true);
+        assert_eq!(
+            c.startup_notes,
+            vec!["note: codex cannot resume a review session; every pass reviews fresh"]
+        );
+        // Said once: --continue already said it.
+        let c = cfg(&["--orchestrator=codex", "--continue"]).watching_on_a_screen(true);
+        assert_eq!(c.startup_notes.len(), 1);
+    }
+
+    #[test]
+    fn once_is_refused_alongside_a_loop() {
+        assert!(cfg(&["--once"]).once);
+        assert!(!cfg(&[]).once);
+        assert_eq!(msg(&["--once", "--watch"]), "error: --once and --watch cannot be used together");
+        assert_eq!(msg(&["--watch=5", "--once"]), "error: --once and --watch cannot be used together");
+        assert_eq!(msg(&["--once", "--babysit"]), "error: --once and --babysit cannot be used together");
     }
 
     #[test]

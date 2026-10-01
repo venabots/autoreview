@@ -34,8 +34,11 @@ Run it from inside a GitHub repo:
 
 ```sh
 gh auth login            # once
-autoreview --watch
+autoreview
 ```
+
+On a terminal that opens the full-screen view and keeps looking for new PRs
+until you press `q`.
 
 ## Upgrade
 
@@ -250,14 +253,15 @@ a summary of verdicts, findings, models and cost. It exits nonzero if any
 review failed, which is what makes it safe to put in cron or CI.
 
 ```sh
-autoreview                  # review every NEW/UPDATED PR
+autoreview                  # on a terminal: full screen, and keep watching
+autoreview --once           # review every NEW/UPDATED PR, one pass
 autoreview --jobs 3         # ...three at a time (default 2)
 autoreview --pick           # picker, then review each selection headlessly
 autoreview --continue       # resume earlier sessions for a second look
 autoreview --babysit=15     # re-run every 15 min, picking up new PRs as they open
 autoreview --skip-wait-for-ci # review a PR whatever its checks say
 autoreview --stacked        # review PRs stacked on another open PR too
-autoreview --watch          # stay on, and look for new PRs every 2 min
+autoreview --watch=5        # stay on, and look for new PRs every 5 min
 autoreview --headless       # plain lines, even on a terminal
 autoreview --help           # usage
 ```
@@ -270,8 +274,8 @@ the point.) `--auto` / `-A` still parse —
 an old alias or cron line keeps working — they just name the default now.
 
 It takes the same selection flags as `review-prs` (`--continue`, `--all`,
-`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus fourteen
-of its own: `--pick`, `--watch`, `--focus`, `--no-post`, `--jobs`,
+`--dependabot`, `--stacked`, `--skip-wait-for-ci`, `--babysit`) plus fifteen
+of its own: `--pick`, `--watch`, `--once`, `--focus`, `--no-post`, `--jobs`,
 `--orchestrator`, `--fallback`, `--timeout`, `--budget`, `--log-dir`,
 `--max-passes`, `--max-idle`, `--tui` and `--headless`.
 
@@ -531,9 +535,12 @@ The screen opens whenever there is a terminal, including on a repo with
 nothing to review: the PRs are all there, each saying why it is being left
 alone, and `R` reviews any of them on the spot.
 
-The view is not a mode: on its own it makes one pass and then waits. `w` is
-what turns a run into a watching one, so `autoreview` and
-`autoreview --watch=2` differ only in where you decide.
+The view watches. It stays up until `q`, so it keeps looking for work the
+whole time, as `autoreview --watch` does: `autoreview` on a terminal and
+`autoreview --watch=2` are the same run. `w` stops the looking and starts it
+again. `--once` makes one pass and then waits for `q`. `--pick` and
+`--babysit` runs are not changed by the view. Off a terminal, or with
+`--headless`, a run without `--watch` is one pass and then exits.
 
 ```
 autoreview · acme/widgets · watching every 2m · a reviewed PR rests 30m · log …
@@ -605,10 +612,10 @@ header shows it until it changes again.
 `codex resume <session>` for a review codex drove. It refuses a review that
 is still running. `x` ends a review as a failure, reported as "stopped"; the
 fallback does not retry it, and the next pass reviews that PR from scratch.
-`w` starts the run looking for work on its own, on the `--watch` interval
+`w` stops the run looking for work: the reviews running finish and the
+screen waits for `q`. `w` again starts it, on the `--watch` interval
 (`$AUTOREVIEW_WATCH_INTERVAL`, default 2m), resting each reviewed PR for the
-`--babysit` one (default 30m). `w` again stops it: the reviews running finish
-and the screen waits for `q`. A `--babysit` run turned off and on again comes
+`--babysit` one (default 30m). A `--babysit` run turned off and on again comes
 back watching, because the key asks one question -- keep looking for work? --
 and watching is the answer that suits somebody at a screen.
 

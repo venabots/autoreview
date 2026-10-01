@@ -1002,6 +1002,11 @@ fn main() {
             std::process::exit(1);
         }
     };
+    // Whether the view will open is known only here, where there is a stdout
+    // to ask, and it decides whether the run keeps looking for work.
+    let terminal = ui::on_a_terminal();
+    let screen = terminal && cfg.view.tries_screen(terminal);
+    let cfg = cfg.watching_on_a_screen(screen);
     for note in &cfg.startup_notes {
         eprintln!("{note}");
     }
