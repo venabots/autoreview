@@ -133,7 +133,8 @@ fn ended(job: &Job) -> i64 {
 fn last_reviews<'a>(src: &Sources<'a>) -> HashMap<u64, Review<'a>> {
     let archived = src.archive.iter().map(|a| Review { job: &a.job, pass_dir: a.pass_dir.as_path() });
     let current = src.jobs.iter().map(|job| Review { job, pass_dir: src.pass_dir });
-    archived.chain(current).filter(|r| finished(r.job)).map(|r| (r.job.pr, r)).collect()
+    // A task on your own PR is the My PRs tab's, not a review of this one.
+    archived.chain(current).filter(|r| finished(r.job) && r.job.task.is_review()).map(|r| (r.job.pr, r)).collect()
 }
 
 /// The list, top to bottom.
@@ -155,7 +156,7 @@ pub fn rows<'a>(src: &Sources<'a>) -> Vec<Row<'a>> {
         }
     };
     let mut out: Vec<Row<'a>> = Vec::new();
-    for job in src.jobs {
+    for job in src.jobs.iter().filter(|j| j.task.is_review()) {
         let listed = match job.state {
             JobState::Running => row(job.pr, Section::Running, Some(job), None),
             JobState::Queued => row(job.pr, Section::Queued, Some(job), None),

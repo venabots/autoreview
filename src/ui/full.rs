@@ -119,6 +119,13 @@ impl Ui {
         }
     }
 
+    /// Your open PRs, as the latest look found them, for the My PRs tab.
+    pub fn mine(&mut self, mine: Vec<crate::mine::MyPr>) {
+        if let Some(screen) = &mut self.screen {
+            screen.set_mine(mine);
+        }
+    }
+
     /// What the latest PR list said about each PR: titles and authors.
     pub fn know(&mut self, info: &HashMap<u64, PrInfo>) {
         if let Some(screen) = &mut self.screen {

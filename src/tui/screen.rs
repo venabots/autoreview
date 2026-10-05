@@ -12,6 +12,7 @@ use super::keys::{self, Action, Armed, Intent, Pending, Press};
 use super::layout;
 use super::list;
 use super::help;
+use super::mine_view::{self, MineRow, Tab};
 use super::model::{self, Archived, Row, Section, Sources, Wait};
 use super::terminal::{self, Term};
 use super::text::expand_tabs;
@@ -46,6 +47,29 @@ pub struct Header {
     pub log: PathBuf,
     /// Whether the run looks for work again after a pass.
     pub looping: bool,
+    /// The tasks this run will not start, and why: a skill that is not
+    /// installed, a run under --no-post. Said at the key, before a pass is
+    /// spent finding out.
+    pub task_refusals: Vec<(crate::task::Task, String)>,
+}
+
+/// What a tab remembers while the other one is shown: which row was
+/// selected and how far its panes were scrolled.
+#[derive(Debug, Clone, Default)]
+struct TabState {
+    selected: Option<u64>,
+    drawn_for: Option<(u64, Section)>,
+    list_offset: usize,
+    scroll: usize,
+    follow: bool,
+}
+
+/// The selected one of your PRs, as `b` and `c` would ask for it.
+#[derive(Clone)]
+struct TaskPick {
+    babysit: crate::task::Request,
+    comments: crate::task::Request,
+    busy: bool,
 }
 
 /// What the right pane shows.
@@ -122,6 +146,12 @@ pub struct Screen {
     focus: Option<String>,
     /// The focus being typed. While this is open every key belongs to it.
     editing: Option<Input>,
+    /// Which list is shown, and what the other one remembers.
+    tab: Tab,
+    stash: TabState,
+    /// Your own open PRs, as the latest look found them.
+    mine: Vec<crate::mine::MyPr>,
+    task_pick: Option<TaskPick>,
 }
 
 /// Whether a point is inside an area. The pointer arrives in screen
@@ -173,7 +203,35 @@ impl Screen {
             mouse: true,
             focus: None,
             editing: None,
+            tab: Tab::Review,
+            stash: TabState::default(),
+            mine: Vec::new(),
+            task_pick: None,
         }
+    }
+
+    /// Your open PRs, replacing the last list: one merged or closed since
+    /// must leave the tab.
+    pub fn set_mine(&mut self, mine: Vec<crate::mine::MyPr>) {
+        self.mine = mine;
+    }
+
+    /// Show the other tab, and pick up where it was left.
+    fn switch_tab(&mut self) {
+        let now = TabState {
+            selected: self.selected,
+            drawn_for: self.drawn_for,
+            list_offset: self.list_offset,
+            scroll: self.scroll,
+            follow: self.follow,
+        };
+        let back = std::mem::replace(&mut self.stash, now);
+        self.selected = back.selected;
+        self.drawn_for = back.drawn_for;
+        self.list_offset = back.list_offset;
+        self.scroll = back.scroll;
+        self.follow = back.follow;
+        self.tab = self.tab.other();
     }
 
     pub fn set_waiting(&mut self, waiting: Vec<(u64, Wait)>) {
@@ -259,55 +317,37 @@ impl Screen {
         // rest of the screen's state changes.
         let waiting = std::mem::take(&mut self.waiting);
         let info = std::mem::take(&mut self.info);
+        let mine = std::mem::take(&mut self.mine);
         {
             let src = Sources { jobs, pass_dir, archive, waiting: &waiting, info: &info };
             let rows = model::rows(&src);
-            self.render_rows(f, &rows);
+            // Counted from every review and every task, whichever tab is
+            // shown: q on My PRs must not quit past a running review.
+            self.running = rows.iter().filter(|r| r.running()).count() + mine_view::running(jobs);
+            let counts = (rows.len(), mine.len());
+            match self.tab {
+                Tab::Review => self.render_rows(f, &rows, counts),
+                Tab::Mine => {
+                    let mine_rows = mine_view::rows(&mine, jobs, pass_dir, archive);
+                    self.render_mine(f, &rows, &mine_rows, counts);
+                }
+            }
         }
         self.waiting = waiting;
         self.info = info;
+        self.mine = mine;
     }
 
-    fn render_rows(&mut self, f: &mut Frame, rows: &[Row]) {
-        let now = crate::clock::epoch_secs();
-        self.frame += 1;
-        let spinner = SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()];
-        let at = model::position(rows, self.selected);
-        let row = at.map(|i| &rows[i]);
-        self.selected = row.map(|r| r.pr);
-        self.order = rows.iter().map(|r| r.pr).collect();
-        self.running = rows.iter().filter(|r| r.running()).count();
-        let shown = row.map(|r| (r.pr, r.section));
-        if self.drawn_for != shown {
-            self.drawn_for = shown;
-            self.scroll = 0;
-            self.follow = row.is_some_and(|r| r.section == Section::Running);
-        }
-        self.picked = row.map(|r| self.pick(r));
-        let review_path = row
-            .and_then(|r| r.last)
-            .filter(|l| l.job.state == JobState::Done)
-            .map(|l| rundir::review_file(l.pass_dir, l.job.pr));
-        self.load_review(review_path);
-
-        let areas = layout::areas(f.area());
+    /// The header and the tab bar, the same on both tabs.
+    fn draw_top(&self, f: &mut Frame, areas: &layout::Areas, counts: (usize, usize)) {
         let log = self.header.log.display().to_string();
-        let header = layout::header(
-            &self.header.repo,
-            &self.header.mode,
-            self.focus.as_deref(),
-            &log,
-            areas.header.width as usize,
-        );
+        let header = layout::header(&self.header.repo, &self.header.mode, self.focus.as_deref(), &log, areas.header.width as usize);
         f.render_widget(header, areas.header);
+        f.render_widget(mine_view::tab_bar(self.tab, counts.0, counts.1, areas.tabs.width as usize), areas.tabs);
+    }
 
-        let (lines, selected_line) = list::lines(rows, at, areas.list.width as usize, spinner, now);
-        let height = areas.list.height as usize;
-        self.list_offset = list::offset(selected_line, height, self.list_offset, lines.len());
-        let visible: Vec<Line> = lines.into_iter().skip(self.list_offset).take(height).collect();
-        self.list_area = areas.list;
-        f.render_widget(Paragraph::new(visible), areas.list);
-
+    /// The right pane, scrolled as the keys left it.
+    fn draw_detail(&mut self, f: &mut Frame, areas: &layout::Areas, body: Vec<Line<'static>>) {
         let borders = if areas.detail.x > areas.list.x { Borders::LEFT } else { Borders::TOP };
         let block = Block::new()
             .borders(borders)
@@ -315,7 +355,6 @@ impl Screen {
             .padding(Padding::left(1));
         let inner = block.inner(areas.detail);
         self.detail_area = inner;
-        let body = self.detail_lines(row, now);
         let paragraph = Paragraph::new(body).wrap(Wrap { trim: false });
         let total = paragraph.line_count(inner.width);
         let height = inner.height as usize;
@@ -324,7 +363,10 @@ impl Screen {
         self.scroll = if self.follow { self.scroll_max } else { self.scroll.min(self.scroll_max) };
         let scroll = u16::try_from(self.scroll).unwrap_or(u16::MAX);
         f.render_widget(paragraph.scroll((scroll, 0)).block(block), areas.detail);
+    }
 
+    /// The footer: the status, or the latest message, and the keys.
+    fn draw_footer(&mut self, f: &mut Frame, areas: &layout::Areas, rows: &[Row], now: i64) {
         if self.message.as_ref().is_some_and(|(_, at)| at.elapsed() > MESSAGE_FOR) {
             self.message = None;
         }
@@ -339,6 +381,111 @@ impl Screen {
             }
         };
         f.render_widget(footer, areas.footer);
+    }
+
+    /// The My PRs tab. The footer still describes the review run: it is
+    /// what is running, whichever list is shown.
+    fn render_mine(&mut self, f: &mut Frame, rows: &[Row], mine: &[MineRow], counts: (usize, usize)) {
+        let now = crate::clock::epoch_secs();
+        self.frame += 1;
+        let spinner = SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()];
+        let at = self
+            .selected
+            .and_then(|pr| mine.iter().position(|r| r.pr.number == pr))
+            .or(if mine.is_empty() { None } else { Some(0) });
+        let row = at.map(|i| &mine[i]);
+        self.selected = row.map(|r| r.pr.number);
+        self.order = mine.iter().map(|r| r.pr.number).collect();
+        let shown = row.map(|r| (r.pr.number, Section::Finished));
+        if self.drawn_for != shown {
+            self.drawn_for = shown;
+            self.scroll = 0;
+            self.follow = false;
+        }
+        self.picked = row.map(|r| self.pick_mine(r));
+        self.task_pick = row.map(|r| TaskPick {
+            babysit: r.request(crate::task::Task::Babysit),
+            comments: r.request(crate::task::Task::Comments),
+            busy: r.busy(),
+        });
+
+        let areas = layout::areas(f.area());
+        self.draw_top(f, &areas, counts);
+        let (lines, selected_line) = mine_view::lines(mine, at, areas.list.width as usize, spinner);
+        let height = areas.list.height as usize;
+        self.list_offset = list::offset(selected_line, height, self.list_offset, lines.len());
+        let visible: Vec<Line> = lines.into_iter().skip(self.list_offset).take(height).collect();
+        self.list_area = areas.list;
+        f.render_widget(Paragraph::new(visible), areas.list);
+        let body = match (self.side, row) {
+            (Side::Log, _) => self.log_lines(),
+            (Side::Keys, _) => help::lines(),
+            (Side::Detail, Some(row)) => mine_view::detail(row),
+            (Side::Detail, None) => vec![Line::from("you have no open PRs in this repo").dark_gray()],
+        };
+        self.draw_detail(f, &areas, body);
+        self.draw_footer(f, &areas, rows, now);
+    }
+
+    /// What `r`, `x` and `R` do on one of your PRs. `r` reopens the last
+    /// task's session in its worktree, while the worktree is there: a
+    /// session belongs to the directory it ran in.
+    fn pick_mine(&self, row: &MineRow) -> Picked {
+        let pr = row.pr.number;
+        let resume = match (row.live, row.last) {
+            (Some(_), _) => Err(format!("PR #{pr} has a task running; resume it when it ends")),
+            (None, Some((job, _))) => match job.cwd.as_deref().filter(|d| d.is_dir()) {
+                Some(dir) => actions::resume_line(job, dir),
+                None => Err(match &job.sid {
+                    Some(sid) => format!("PR #{pr}'s task worktree is gone; its session was {sid}"),
+                    None => format!("PR #{pr}'s task has no session to resume"),
+                }),
+            },
+            (None, None) => Err(format!("PR #{pr} has had no task in this run")),
+        };
+        let stop = if row.live.is_some_and(|j| j.state == JobState::Running && !j.reaped) {
+            Ok(())
+        } else {
+            Err(format!("PR #{pr} has no task running"))
+        };
+        Picked { pr, resume, stop, request: Err(mine_view::not_a_review(pr)) }
+    }
+
+    fn render_rows(&mut self, f: &mut Frame, rows: &[Row], counts: (usize, usize)) {
+        let now = crate::clock::epoch_secs();
+        self.frame += 1;
+        let spinner = SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()];
+        let at = model::position(rows, self.selected);
+        let row = at.map(|i| &rows[i]);
+        self.selected = row.map(|r| r.pr);
+        self.order = rows.iter().map(|r| r.pr).collect();
+        self.task_pick = None;
+        let shown = row.map(|r| (r.pr, r.section));
+        if self.drawn_for != shown {
+            self.drawn_for = shown;
+            self.scroll = 0;
+            self.follow = row.is_some_and(|r| r.section == Section::Running);
+        }
+        self.picked = row.map(|r| self.pick(r));
+        let review_path = row
+            .and_then(|r| r.last)
+            .filter(|l| l.job.state == JobState::Done)
+            .map(|l| rundir::review_file(l.pass_dir, l.job.pr));
+        self.load_review(review_path);
+
+        let areas = layout::areas(f.area());
+        self.draw_top(f, &areas, counts);
+
+        let (lines, selected_line) = list::lines(rows, at, areas.list.width as usize, spinner, now);
+        let height = areas.list.height as usize;
+        self.list_offset = list::offset(selected_line, height, self.list_offset, lines.len());
+        let visible: Vec<Line> = lines.into_iter().skip(self.list_offset).take(height).collect();
+        self.list_area = areas.list;
+        f.render_widget(Paragraph::new(visible), areas.list);
+
+        let body = self.detail_lines(row, now);
+        self.draw_detail(f, &areas, body);
+        self.draw_footer(f, &areas, rows, now);
     }
 
     fn pick(&self, row: &Row) -> Picked {
@@ -498,6 +645,33 @@ impl Screen {
         }
     }
 
+    /// `b` or `c`: a task on the selected one of your PRs, or why not.
+    fn ask_task(&mut self, task: crate::task::Task) -> Vec<Action> {
+        if self.tab != Tab::Mine {
+            self.flash("b and c work on your own PRs: tab shows them");
+            return Vec::new();
+        }
+        let Some(pick) = self.task_pick.clone() else {
+            self.flash("you have no open PRs in this repo");
+            return Vec::new();
+        };
+        let request = match task {
+            crate::task::Task::Comments => pick.comments,
+            _ => pick.babysit,
+        };
+        let pr = request.pr;
+        if pick.busy {
+            self.flash(format!("PR #{pr} has a task running"));
+            return Vec::new();
+        }
+        if let Some((_, why)) = self.header.task_refusals.iter().find(|(t, _)| *t == task) {
+            self.flash(why.clone());
+            return Vec::new();
+        }
+        self.flash(format!("{} PR #{pr} next", task.doing()));
+        vec![Action::RunTask(request)]
+    }
+
     /// One key. What it means for the engine is returned; the rest happens
     /// here.
     fn press(&mut self, intent: Intent, now: Instant) -> Vec<Action> {
@@ -524,6 +698,9 @@ impl Screen {
             Intent::Keys => {
                 self.show(self.side.toggle(Side::Keys));
             }
+            Intent::SwitchTab => self.switch_tab(),
+            Intent::Babysit => return self.ask_task(crate::task::Task::Babysit),
+            Intent::Comments => return self.ask_task(crate::task::Task::Comments),
             Intent::Back => {
                 if self.side != Side::Detail {
                     self.side = Side::Detail;
@@ -645,6 +822,7 @@ mod tests {
             repo_root: PathBuf::from("/src/app"),
             log: PathBuf::from("/nonexistent/autoreview.log"),
             looping,
+            task_refusals: Vec::new(),
         }
     }
 
@@ -967,6 +1145,98 @@ mod tests {
         screen.press(Intent::Back, Instant::now());
         let out = frame(&mut screen, &[], &[], 120);
         assert!(!out.contains("start   #9"), "{out}");
+    }
+
+    fn my_pr(n: u64) -> crate::mine::MyPr {
+        crate::mine::MyPr {
+            number: n,
+            title: "My own work".into(),
+            draft: false,
+            branch: "me/my-own-work".into(),
+            head: "sha4".into(),
+            cross_repo: false,
+            review: crate::mine::Review::Required,
+            merge: crate::mine::Merge::Clean,
+            ci: crate::ci::Ci::Passing,
+            open_threads: 0,
+            reviewers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn tab_shows_your_prs_and_each_tab_keeps_its_selection() {
+        let mut screen = Screen::new(None, header(true));
+        screen.set_mine(vec![my_pr(4), my_pr(11)]);
+        let archive = vec![done(7), done(6)];
+        let out = frame(&mut screen, &[], &archive, 120);
+        assert!(out.contains("Review 2") && out.contains("My PRs 2"), "{out}");
+        screen.press(Intent::Down, Instant::now());
+        frame(&mut screen, &[], &archive, 120);
+        let review_pick = screen.selected;
+        screen.press(Intent::SwitchTab, Instant::now());
+        let out = frame(&mut screen, &[], &archive, 120);
+        assert!(out.contains("#4 · awaiting review"), "{out}");
+        assert!(out.contains("b babysits it"), "the detail says what b does: {out}");
+        assert_eq!(screen.selected, Some(4), "the first row: the list comes ranked from the fetch");
+        screen.press(Intent::Down, Instant::now());
+        frame(&mut screen, &[], &archive, 120);
+        let mine_pick = screen.selected;
+        screen.press(Intent::SwitchTab, Instant::now());
+        frame(&mut screen, &[], &archive, 120);
+        assert_eq!(screen.selected, review_pick, "the review tab comes back where it was");
+        screen.press(Intent::SwitchTab, Instant::now());
+        frame(&mut screen, &[], &archive, 120);
+        assert_eq!(screen.selected, mine_pick);
+    }
+
+    #[test]
+    fn b_and_c_ask_for_a_task_on_your_pr_and_only_there() {
+        let mut screen = Screen::new(None, header(true));
+        screen.set_mine(vec![my_pr(4)]);
+        frame(&mut screen, &[], &[done(7)], 120);
+        assert!(screen.press(Intent::Babysit, Instant::now()).is_empty(), "not on the review tab");
+        screen.press(Intent::SwitchTab, Instant::now());
+        frame(&mut screen, &[], &[], 120);
+        let asked = screen.press(Intent::Babysit, Instant::now());
+        let [Action::RunTask(request)] = asked.as_slice() else { panic!("{asked:?}") };
+        assert_eq!((request.pr, request.task), (4, crate::task::Task::Babysit));
+        let asked = screen.press(Intent::Comments, Instant::now());
+        assert!(matches!(asked.as_slice(), [Action::RunTask(r)] if r.task == crate::task::Task::Comments));
+        // R does not review your own PR, and says what does.
+        assert!(screen.press(Intent::ReviewNow, Instant::now()).is_empty());
+        let out = frame(&mut screen, &[], &[], 120);
+        assert!(out.contains("PR #4 is yours"), "{out}");
+    }
+
+    #[test]
+    fn a_task_the_run_refuses_is_refused_at_the_key() {
+        let refusals = vec![(crate::task::Task::Babysit, "babysit-pr is not installed where claude looks (~/.claude/skills)".to_string())];
+        let mut screen = Screen::new(None, Header { task_refusals: refusals, ..header(true) });
+        screen.set_mine(vec![my_pr(4)]);
+        screen.press(Intent::SwitchTab, Instant::now());
+        frame(&mut screen, &[], &[], 120);
+        assert!(screen.press(Intent::Babysit, Instant::now()).is_empty());
+        let out = frame(&mut screen, &[], &[], 120);
+        assert!(out.contains("babysit-pr is not installed"), "{out}");
+        assert_eq!(screen.press(Intent::Comments, Instant::now()).len(), 1, "the other task is not refused");
+    }
+
+    #[test]
+    fn quit_on_your_prs_still_asks_while_a_review_runs() {
+        let mut screen = Screen::new(None, header(true));
+        screen.set_mine(vec![my_pr(4)]);
+        screen.press(Intent::SwitchTab, Instant::now());
+        let jobs = vec![job(9, JobState::Running)];
+        frame(&mut screen, &jobs, &[], 120);
+        assert!(screen.press(Intent::Quit, Instant::now()).is_empty(), "the running review is not on this tab, and still counts");
+        // A running task counts too.
+        let mut task = job(4, JobState::Running);
+        task.task = crate::task::Task::Babysit;
+        let mut screen = Screen::new(None, header(true));
+        screen.set_mine(vec![my_pr(4)]);
+        let out = frame(&mut screen, &[task.clone()], &[], 120);
+        assert!(!out.contains("#4 · reviewing"), "a task is not a review row: {out}");
+        assert!(screen.press(Intent::Quit, Instant::now()).is_empty());
     }
 
     #[test]

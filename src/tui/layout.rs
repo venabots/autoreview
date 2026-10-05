@@ -11,6 +11,8 @@ const SIDE_BY_SIDE: u16 = 90;
 
 pub struct Areas {
     pub header: Rect,
+    /// The tab bar, under the header: Review and My PRs.
+    pub tabs: Rect,
     pub list: Rect,
     pub detail: Rect,
     pub footer: Rect,
@@ -20,16 +22,20 @@ pub fn areas(size: Rect) -> Areas {
     let row = |y: u16| Rect { x: size.x, y, width: size.width, height: 1.min(size.height) };
     let header = row(size.y);
     let footer = row(size.y + size.height.saturating_sub(1));
+    // No room for a tab bar under the header and above the footer: none is
+    // drawn, rather than one drawn over the footer.
+    let tabs = if size.height >= 3 { row(size.y + 1) } else { Rect { height: 0, ..row(size.y) } };
     let body = Rect {
         x: size.x,
-        y: size.y + 1,
+        y: size.y + 2,
         width: size.width,
-        height: size.height.saturating_sub(2),
+        height: size.height.saturating_sub(3),
     };
     if size.width >= SIDE_BY_SIDE {
         let list_width = (size.width * 3 / 10).clamp(30, 44);
         Areas {
             header,
+            tabs,
             list: Rect { width: list_width, ..body },
             detail: Rect { x: body.x + list_width, width: body.width - list_width, ..body },
             footer,
@@ -38,6 +44,7 @@ pub fn areas(size: Rect) -> Areas {
         let list_height = (body.height * 2 / 5).max(3).min(body.height);
         Areas {
             header,
+            tabs,
             list: Rect { height: list_height, ..body },
             detail: Rect { y: body.y + list_height, height: body.height - list_height, ..body },
             footer,
@@ -87,6 +94,7 @@ const HINTS: &[(&str, &str)] = &[
     ("o", "open"),
     ("R", "review now"),
     ("w", "watch"),
+    ("tab", "my PRs"),
     ("m", "mouse"),
     ("f", "focus"),
     ("x", "stop"),
@@ -174,15 +182,15 @@ mod tests {
     #[test]
     fn wide_terminals_put_the_panes_side_by_side() {
         let a = areas(Rect::new(0, 0, 120, 40));
-        assert_eq!((a.header.y, a.footer.y), (0, 39));
-        assert_eq!((a.list.x, a.list.width, a.list.height), (0, 36, 38));
+        assert_eq!((a.header.y, a.tabs.y, a.footer.y), (0, 1, 39));
+        assert_eq!((a.list.y, a.list.x, a.list.width, a.list.height), (2, 0, 36, 37));
         assert_eq!((a.detail.x, a.detail.width), (36, 84));
     }
 
     #[test]
     fn narrow_terminals_stack_them() {
         let a = areas(Rect::new(0, 0, 60, 30));
-        assert_eq!((a.list.y, a.list.height, a.list.width), (1, 11, 60));
+        assert_eq!((a.list.y, a.list.height, a.list.width), (2, 10, 60));
         assert_eq!((a.detail.y, a.detail.height), (12, 17));
     }
 
@@ -190,6 +198,9 @@ mod tests {
     fn a_tiny_terminal_does_not_underflow() {
         let a = areas(Rect::new(0, 0, 10, 1));
         assert_eq!(a.list.height + a.detail.height, 0);
+        assert_eq!(a.tabs.height, 0, "no tab bar over the footer");
+        let a = areas(Rect::new(0, 0, 10, 2));
+        assert_eq!(a.tabs.height + a.list.height + a.detail.height, 0);
         let a = areas(Rect::new(0, 0, 0, 0));
         assert_eq!(a.header.height, 0);
     }

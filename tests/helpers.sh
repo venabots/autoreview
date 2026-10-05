@@ -117,7 +117,7 @@ setup_sandbox() {
         FAKE_CLAUDE_TRANSCRIPT FAKE_CLAUDE_ERROR_MSG FAKE_CLAUDE_SHORT \
         FAKE_GH_APPROVED FAKE_GH_CLOSED FAKE_GH_MY_REVIEW \
         FAKE_GH_VIEW_FAIL FAKE_GH_GRAPHQL_FAIL_AFTER FAKE_GH_REACTION_FAIL \
-        FAKE_GH_MINE_FAIL || true
+        FAKE_GH_MINE_FAIL FAKE_GH_HEAD || true
   # The host may have a real dash-p and an inherited override for it; the
   # sandbox must only ever see its fake on PATH.
   unset DASHP_BIN || true
@@ -142,8 +142,46 @@ reset_spawn_log() {
   : >"$SANDBOX/out/header"
   : >"$CLAUDE_LOG"
   : >"$CLAUDE_LOG.events"
+  : >"$CLAUDE_LOG.cwd"
   : >"$SANDBOX/out/override"
   : >"$SANDBOX/out/reactions"
+}
+
+# Where each job ran, one "<pr> <dir>" line per job the fake dash-p started.
+job_dirs() {
+  cat "$CLAUDE_LOG.cwd" 2>/dev/null || true
+}
+
+# A bare origin for the sandbox repo holding PR #4's branch, me/my-own-work,
+# which a task on your PR checks out in a worktree of its own. drop_origin
+# takes the remote away again: the other tests run against a repo with none.
+# The bare repo itself goes with the sandbox.
+make_origin() {
+  git init -q --bare "$SANDBOX/origin.git"
+  git -C "$SANDBOX/repo" remote add origin "$SANDBOX/origin.git"
+  git -C "$SANDBOX/repo" push -q origin HEAD:refs/heads/me/my-own-work
+}
+
+drop_origin() {
+  git -C "$SANDBOX/repo" remote remove origin 2>/dev/null || true
+  git -C "$SANDBOX/repo" worktree prune 2>/dev/null || true
+}
+
+# Install the skills a task on your PR runs, where the sandbox's claude
+# looks for them. The bodies are never read: the fake dash-p runs nothing.
+install_task_skills() {
+  local skill
+  for skill in babysit-pr pr-comment-handler; do
+    mkdir -p "$CLAUDE_CONFIG_DIR/skills/$skill"
+    printf -- '---\nname: %s\n---\n' "$skill" >"$CLAUDE_CONFIG_DIR/skills/$skill/SKILL.md"
+  done
+}
+
+uninstall_task_skills() {
+  local skill
+  for skill in babysit-pr pr-comment-handler; do
+    rm -r "$CLAUDE_CONFIG_DIR/skills/$skill" 2>/dev/null || true
+  done
 }
 
 # Every reaction call the fake gh saw, one per line: the method and the path.
@@ -288,6 +326,12 @@ case "$sub" in
       # opened.
       *" --web "*)
         printf '%s\n' "view $*" >>"$SANDBOX/out/web"
+        ;;
+      # A task's readback: the PR's head after the task, which says whether
+      # it pushed. $FAKE_GH_HEAD is the head GitHub reports; the fixture's is
+      # sha<N>, so the default reads as "nothing pushed".
+      *" headRefOid "*)
+        printf '%s\n' "${FAKE_GH_HEAD:-sha$num}"
         ;;
       *" latestReviews "*)
         mystate=""
@@ -503,6 +547,8 @@ done
 # lines -- so every assertion that greps for a flag would read half a call.
 log_line "$CLAUDE_LOG" "$(printf '%s' "$*" | tr '\n' ' ')"
 log_line "$CLAUDE_LOG.events" "start $n"
+# Where the job ran: a task runs in its own worktree, a review in the repo.
+log_line "$CLAUDE_LOG.cwd" "$n $PWD"
 
 meta=""
 sid=""

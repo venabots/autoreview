@@ -46,11 +46,11 @@ pub fn lines(row: &Row, ctx: &Context) -> Vec<Line<'static>> {
     out
 }
 
-fn heading(text: &str) -> Line<'static> {
+pub(super) fn heading(text: &str) -> Line<'static> {
     Line::from(Span::from(text.to_string()).add_modifier(Modifier::BOLD).fg(Color::DarkGray))
 }
 
-fn field(key: &str, value: impl Into<String>, style: Style) -> Line<'static> {
+pub(super) fn field(key: &str, value: impl Into<String>, style: Style) -> Line<'static> {
     Line::from(vec![
         Span::from(format!("{key:<KEY_WIDTH$}")).dark_gray(),
         Span::styled(sanitize_for_display(&value.into()), style),
@@ -303,6 +303,14 @@ mod tests {
         let out = draw(&archive, &[], &[], &ctx(None));
         assert!(out.contains("looks clean, but only 2 of 4 reviewers answered; approval needs 3"), "{out}");
         assert!(out.contains("R reviews it again"), "{out}");
+    }
+
+    #[test]
+    fn a_resting_pr_says_when_it_may_be_reviewed_again() {
+        let archive = vec![Archived { job: reviewed(), pass_dir: PathBuf::from("/p1") }];
+        let out = draw(&archive, &[(9, Wait::Resting { until: 1_600 })], &[], &ctx(None));
+        assert!(out.contains("resting after its review; it may be reviewed again in 10m00s"), "{out}");
+        assert!(out.contains("R reviews it now"), "{out}");
     }
 
     #[test]

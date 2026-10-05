@@ -631,6 +631,9 @@ header shows it until it changes again.
 | `m`               | hand the mouse back to the terminal, and take it again        |
 | `l`               | show the run log in the right pane; `esc` puts it away        |
 | `?`               | show every key in the right pane; `esc` puts it away          |
+| `tab`             | switch between Review and My PRs                              |
+| `b`               | My PRs: babysit the selected PR (conflicts, comments, CI)     |
+| `c`               | My PRs: answer the selected PR's review comments              |
 | `q`               | quit; a second `q` when reviews are running, which stops them |
 
 The footer lists the keys that fit beside the status, and always ends with
@@ -646,6 +649,36 @@ screen waits for `q`. `w` again starts it, on the `--watch` interval
 `--babysit` one (default 30m). A `--babysit` run turned off and on again comes
 back watching, because the key asks one question -- keep looking for work? --
 and watching is the answer that suits somebody at a screen.
+
+### My PRs
+
+`tab` switches the list to your own open PRs in the repo, the ones the review
+list hides. Each row says what blocks the merge first: `conflicts`,
+`CI failing`, `changes req`, `2 threads` (unresolved review threads),
+`draft`, `CI pending`, `awaiting review`, or `approved`. The detail pane names
+who asked for changes, the checks, the open threads and whether the PR merges.
+
+Two keys work on the selected PR:
+
+- `b` runs `/babysit-pr`: merge the base in, handle the review comments, fix
+  failing CI, and push.
+- `c` runs `/pr-comment-handler`: answer the review comments only.
+
+Both are skills you install yourself (`~/.claude/skills`, or where codex
+looks); they do not ship with `autoreview`. A key whose skill is missing says
+so and starts nothing, and so does any key under `--no-post`.
+
+A task runs in the same pool as the reviews, under the same `--jobs`,
+`--timeout` and `--budget`, and only when you press the key. It runs in a
+worktree of its own, `<run>/worktrees/pr-N`, on the PR's branch tracking
+`origin`, so your own checkout is never touched. It refuses a PR from a fork,
+a branch you have checked out elsewhere, and a local branch with commits
+`origin` does not have. When the task ends the worktree is removed, or kept
+with a note when it holds uncommitted or unpushed work.
+
+The VERDICT for a task is GitHub's word, like a review's: `pushed` when the
+PR's head moved, `nothing pushed` when it did not. `r` reopens the task's
+session while its worktree is there, and `x x` stops it.
 
 `R` reviews the selected PR now, whatever the rest, the cap or the sweep say.
 It wakes the run and reviews that PR on its own; under `--babysit` the other
@@ -1070,7 +1103,8 @@ Two limits worth knowing:
 - **One tab at a time.** `-C` will not reopen a session another tab still holds
   open — a babysit tab, typically. It says so and reviews fresh instead.
 
-Your own PRs are always excluded — this tool is for reviewing others' work.
+Your own PRs are never reviewed — this tool is for reviewing others' work.
+The full-screen view lists them on its [My PRs tab](#my-prs).
 Dependabot PRs are hidden by default; pass `--dependabot` to include them, where
 they appear dimmed to mark them as lower-priority. (The bot match is one
 anchored prefix in `src/prlist.rs` — extend it as more AI coding bots show up.)

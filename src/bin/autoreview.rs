@@ -23,7 +23,8 @@ use autoreview::stack::{self, StackedOn};
 use autoreview::status::{Status, step};
 use autoreview::tui::{self, Wait};
 use autoreview::ui::Woke;
-use autoreview::{ci, cli, orchestrator, pool, prlist, queue, repo, select, session, signals, skills, ui};
+use autoreview::task::{self, Task};
+use autoreview::{ci, cli, mine, orchestrator, pool, prlist, queue, repo, select, session, signals, skills, ui};
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
@@ -295,6 +296,45 @@ fn screen_header(cfg: &Config, ctx: &repo::RepoContext, rundir: &RunDir) -> tui:
         repo_root: ctx.repo_root.clone(),
         log: rundir.root.join("autoreview.log"),
         looping: cfg.watch.is_some() || cfg.babysit.is_some(),
+        task_refusals: task_refusals(cfg, ctx),
+    }
+}
+
+/// The tasks this run will not start, and why, worked out once so the view
+/// can say so at the key.
+fn task_refusals(cfg: &Config, ctx: &repo::RepoContext) -> Vec<(Task, String)> {
+    let roots = task::skill_roots(&cfg.orchestrator, &ctx.repo_root);
+    [Task::Babysit, Task::Comments]
+        .into_iter()
+        .filter_map(|t| {
+            let why = if cfg.no_post {
+                Some("--no-post leaves every PR alone, so this run starts no tasks".to_string())
+            } else {
+                task::not_installed(t, &roots, &cfg.orchestrator)
+            };
+            why.map(|why| (t, why))
+        })
+        .collect()
+}
+
+/// Your open PRs, for the My PRs tab. Only with the view up: nothing else
+/// shows them, and a run in a pipe must not spend a call on them. A failed
+/// look keeps the last list and says so once, until a look works again.
+fn refresh_mine(ctx: &repo::RepoContext, ui: &mut ui::Ui, rx: &Receiver<pool::Event>, failing: &mut bool) {
+    if !ui.ticking() {
+        return;
+    }
+    match ui.while_busy("reading your PRs", rx, || mine::fetch(ctx)) {
+        Ok(list) => {
+            *failing = false;
+            ui.mine(list);
+        }
+        Err(e) => {
+            if !*failing {
+                ui.note(format!("note: could not read your PRs ({e:#}); the My PRs tab keeps its last list"));
+            }
+            *failing = true;
+        }
     }
 }
 
@@ -527,12 +567,15 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     let (tx, rx) = std::sync::mpsc::channel();
     signals::install(tx.clone());
     let mut ui = ui::Ui::new();
+    // Whether the last look at your PRs failed, so a failure is said once.
+    let mut mine_failing = false;
     // After everything the run says on its way in -- the selection, the
     // skills, the notes -- so that stays on the normal screen, above where
     // the summary lands.
     if screening {
         ui.open_screen(screen_header(cfg, &ctx, &rundir), &rundir.root);
         ui.show_focus(cfg.focus.as_deref());
+        refresh_mine(&ctx, &mut ui, &rx, &mut mine_failing);
         if cfg.no_post {
             ui.after_summary(format!(
                 "nothing was posted to any PR; the reviews are in {}",
@@ -633,6 +676,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         let failures = pool::failures(&jobs);
         let total = jobs.len();
         ui.archive(jobs);
+        // A task changes your PR, and its row should say what it did now,
+        // not at the next look -- which a one-pass run never makes.
+        if total > 0 {
+            refresh_mine(&ctx, &mut ui, &rx, &mut mine_failing);
+        }
         // Asked for while the pass ran, and answered here, where what the
         // run does next is decided.
         if let Some(on) = ui.take_watch_toggle() {
@@ -734,6 +782,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     }
                     info.extend(seen.info);
                     ranked = seen.ranked;
+                    refresh_mine(&ctx, &mut ui, &rx, &mut mine_failing);
                     held = held_for_this_run(&seen.held, &tracker);
                     report_held(&held, &mut held_announced);
                     // The PRs leaving the watch list. A PR reviewed earlier in

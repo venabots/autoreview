@@ -154,12 +154,17 @@ it makes one pass, prints one plain line per step, and exits.
                       (what --watch does, as a key), f types what the
                       reviewers are told to look at (--focus, changed
                       mid-run), l shows the run log, ? shows every key,
-                      q quits. The mouse works too: the wheel scrolls
+                      q quits. tab shows My PRs, your own open PRs and
+                      what blocks each one; there b babysits the selected
+                      PR (conflicts, comments, CI) and c answers its review
+                      comments, each in a worktree of its own, with the
+                      babysit-pr and pr-comment-handler skills you have
+                      installed. The mouse works too: the wheel scrolls
                       whichever pane it points at and a click selects a row;
                       m hands the mouse back to the terminal for selecting
-                      text. While it is up the plain
-                      lines go to autoreview.log in the run directory. Off a
-                      terminal the run says so and prints its plain lines.
+                      text. While it is up the plain lines go to
+                      autoreview.log in the run directory. Off a terminal
+                      the run says so and prints its plain lines.
   --headless          Print plain lines even on a terminal: one line per
                       step, and the summary at the end. What a pipe or cron
                       gets anyway.
@@ -213,7 +218,8 @@ stats --help` explains the columns.
 To fan the same PRs into terminal tabs you can watch and steer instead, use
 `review-prs`.
 
-Your own PRs are always hidden -- this tool is for reviewing others' work.
+Your own PRs are never reviewed -- this tool is for reviewing others' work.
+The full-screen view lists them on its My PRs tab, where a key works on one.
 "#;
 
 #[derive(Debug, Clone)]

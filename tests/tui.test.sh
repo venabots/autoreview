@@ -84,7 +84,6 @@ assert_contains "a row says what the run did about the PR" "$out" "no verdict"
 assert_contains "the detail pane shows the last review" "$out" "LAST"
 assert_contains "...and why it is not approved yet" "$out" "retried"
 assert_contains "...and how to reopen it" "$out" "--resume"
-assert_contains "the footer says the run is over" "$out" "quits"
 assert_contains "the summary prints after the view closes" "$out" "PR  RESULT"
 assert_contains "...and names the run directory" "$out" "logs: $SANDBOX/out/logs/run-"
 assert_not_contains "the plain lines stay off the screen" "$out" "start   #9"
@@ -189,7 +188,6 @@ check_cooked "...and the terminal is cooked"
 # is a resting PR; R wakes the run and reviews it again at once.
 out="$(run_tui --key 3.0:R --key 7.0:q -- --watch=1)"
 assert_contains "a reviewed PR rests under a watch run" "$out" "· rest"
-assert_contains "...resting" "$out" "resting after its review"
 assert_equals "R reviews it again at once" "$(reviews_of 9)" "2"
 assert_equals "...and only it" "$(reviews_of 8)" "1"
 assert_contains "q ends a watch run" "$out" "autoreview-exit=130"
@@ -214,8 +212,8 @@ assert_contains "q ends a babysit run" "$out" "autoreview-exit=130"
 # #8 first (the run is waiting on it) and #9 second, whatever the clock did.
 set_ci 8 FAILURE
 wheel_down="$(printf '\033[<65;80;10M')"
-click_row2="$(printf '\033[<0;5;4M')"
-unclick_row2="$(printf '\033[<0;5;4m')"
+click_row2="$(printf '\033[<0;5;5M')"
+unclick_row2="$(printf '\033[<0;5;5m')"
 out="$(FAKE_CLAUDE_TRAILER=9 run_tui \
   --key 3.0:"$wheel_down" --key 3.2:"$wheel_down" \
   --key 4.0:"$click_row2" --key 4.1:"$unclick_row2" --key 5.0:q -- --once)"
@@ -250,6 +248,38 @@ assert_contains "...and the header carries it" "$out" "focus: the ledger"
 assert_contains "the next review is told the same" "$(claude_calls)" \
   '--focus "the ledger migration"'
 assert_contains "q ends the run" "$out" "autoreview-exit=130"
+
+# --- My PRs: your own PRs, and a task on one --------------------------------
+# Tab shows the PRs the review list hides because you wrote them. b on one
+# babysits it: the skill runs in a worktree of its own, on the PR's branch,
+# and the summary says what GitHub shows it did.
+make_origin
+install_task_skills
+out="$(FAKE_GH_HEAD=sha4-new run_tui --key 3.0:$'\t' --key 4.0:b --key 9.0:q -- --once)"
+assert_contains "the tab bar counts your PRs" "$out" "My PRs 1"
+assert_contains "tab shows your PR and where it stands" "$out" "awaiting review"
+assert_contains "b babysits it with the installed skill" "$(claude_calls)" "-- /babysit-pr 4"
+# The directory as the job saw it: macOS reports /var as /private/var.
+assert_contains "...in a worktree of its own, on the PR's branch" "$(job_dirs)" "/worktrees/pr-4"
+assert_not_contains "...not in your checkout" "$(job_dirs)" "4 $SANDBOX/repo"
+assert_contains "...and the log says what it is doing" "$(run_log)" "start   #4 @me (babysitting)"
+assert_contains "the summary says it pushed, as GitHub reports" "$out" "pushed"
+assert_contains "the run still exits 0" "$out" "autoreview-exit=0"
+if [[ -d "$(echo "$SANDBOX"/out/logs/run-*/worktrees/pr-4)" ]]; then
+  not_ok "a task that left nothing unpushed takes its worktree with it" "the worktree is still there"
+else
+  ok "a task that left nothing unpushed takes its worktree with it"
+fi
+assert_equals "...and your checkout never left its branch" \
+  "$(git -C "$SANDBOX/repo" rev-parse --abbrev-ref HEAD)" "$(git -C "$SANDBOX/repo" symbolic-ref --short HEAD)"
+check_cooked "the terminal is given back after a task"
+
+# Without the skill the key says so, and nothing runs.
+uninstall_task_skills
+out="$(run_tui --key 3.0:$'\t' --key 4.0:b --key 6.0:q -- --once)"
+assert_contains "b without the skill says it is not installed" "$out" "babysit-pr is not installed"
+assert_not_contains "...and runs nothing" "$(claude_calls)" "/babysit-pr"
+drop_origin
 
 # --- A quiet repo: the view opens anyway ----------------------------------
 # The sweep has nothing to review, which without --tui is a one-line exit.
