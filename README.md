@@ -614,12 +614,16 @@ header shows it until it changes again.
 | `r`               | open the selected review in a new herdr, cmux or Ghostty tab  |
 | `o`               | open the PR in the browser                                    |
 | `x` `x`           | stop the selected running review                              |
-| `R`               | review the selected PR now                                    |
+| `R`               | review the selected PR now, even a capped or resting one      |
 | `w`               | start or stop looking for work, as `--watch` does             |
 | `f`               | type what the reviewers are told to look at (`--focus`)       |
 | `m`               | hand the mouse back to the terminal, and take it again        |
 | `l`               | show the run log in the right pane; `esc` puts it away        |
+| `?`               | show every key in the right pane; `esc` puts it away          |
 | `q`               | quit; a second `q` when reviews are running, which stops them |
+
+The footer lists the keys that fit beside the status, and always ends with
+`? keys`, so the full list is one key away at any width.
 
 `r` runs `cd <repo> && claude --resume <session>` in the new tab, or
 `codex resume <session>` for a review codex drove. It refuses a review that

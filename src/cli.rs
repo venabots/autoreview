@@ -153,10 +153,11 @@ it makes one pass, prints one plain line per step, and exits.
                       selected PR now, w stops or starts looking for work
                       (what --watch does, as a key), f types what the
                       reviewers are told to look at (--focus, changed
-                      mid-run), l shows the run log, q quits. The mouse works
-                      too: the wheel scrolls whichever pane it points at and a
-                      click selects a row; m hands the mouse back to the
-                      terminal for selecting text. While it is up the plain
+                      mid-run), l shows the run log, ? shows every key,
+                      q quits. The mouse works too: the wheel scrolls
+                      whichever pane it points at and a click selects a row;
+                      m hands the mouse back to the terminal for selecting
+                      text. While it is up the plain
                       lines go to autoreview.log in the run directory. Off a
                       terminal the run says so and prints its plain lines.
   --headless          Print plain lines even on a terminal: one line per

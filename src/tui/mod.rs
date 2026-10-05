@@ -7,6 +7,7 @@
 
 pub mod actions;
 mod detail;
+mod help;
 mod input;
 pub mod keys;
 mod layout;

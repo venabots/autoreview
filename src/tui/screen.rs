@@ -11,6 +11,7 @@ use super::input::{Edit, Input};
 use super::keys::{self, Action, Armed, Intent, Pending, Press};
 use super::layout;
 use super::list;
+use super::help;
 use super::model::{self, Archived, Row, Section, Sources, Wait};
 use super::terminal::{self, Term};
 use super::text::expand_tabs;
@@ -47,6 +48,25 @@ pub struct Header {
     pub looping: bool,
 }
 
+/// What the right pane shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    /// The selected PR.
+    Detail,
+    /// The end of the run log: `l`.
+    Log,
+    /// Every key: `?`.
+    Keys,
+}
+
+impl Side {
+    /// The pane a key asks for: the one named, or back to the PR when it is
+    /// already showing.
+    fn toggle(self, to: Side) -> Side {
+        if self == to { Side::Detail } else { to }
+    }
+}
+
 /// The selected row as the last frame drew it, and what each key would do.
 #[derive(Clone)]
 struct Picked {
@@ -72,7 +92,7 @@ pub struct Screen {
     /// the last frame.
     scroll_max: usize,
     page: usize,
-    show_log: bool,
+    side: Side,
     armed: Option<Armed>,
     message: Option<(String, Instant)>,
     frame: usize,
@@ -133,7 +153,7 @@ impl Screen {
             follow: false,
             scroll_max: 0,
             page: 1,
-            show_log: false,
+            side: Side::Detail,
             armed: None,
             message: None,
             frame: 0,
@@ -331,8 +351,10 @@ impl Screen {
     }
 
     fn detail_lines(&mut self, row: Option<&Row>, now: i64) -> Vec<Line<'static>> {
-        if self.show_log {
-            return self.log_lines();
+        match self.side {
+            Side::Log => return self.log_lines(),
+            Side::Keys => return help::lines(),
+            Side::Detail => {}
         }
         let Some(row) = row else {
             return vec![Line::from("no PRs to show yet").dark_gray()];
@@ -459,6 +481,17 @@ impl Screen {
         self.follow = self.scroll >= self.scroll_max;
     }
 
+    /// Put `side` in the right pane, from its top. The log follows its end
+    /// as lines arrive; coming back to the PR draws it afresh.
+    fn show(&mut self, side: Side) {
+        self.side = side;
+        self.scroll = 0;
+        self.follow = side == Side::Log;
+        if side == Side::Detail {
+            self.drawn_for = None;
+        }
+    }
+
     fn move_by(&mut self, delta: isize) {
         if let Some(pr) = model::step(&self.order, self.selected, delta) {
             self.selected = Some(pr);
@@ -486,13 +519,14 @@ impl Screen {
                 self.follow = self.scroll >= self.scroll_max;
             }
             Intent::Log => {
-                self.show_log = !self.show_log;
-                self.scroll = 0;
-                self.follow = self.show_log;
+                self.show(self.side.toggle(Side::Log));
+            }
+            Intent::Keys => {
+                self.show(self.side.toggle(Side::Keys));
             }
             Intent::Back => {
-                if self.show_log {
-                    self.show_log = false;
+                if self.side != Side::Detail {
+                    self.side = Side::Detail;
                     self.drawn_for = None;
                 }
             }
@@ -933,6 +967,30 @@ mod tests {
         screen.press(Intent::Back, Instant::now());
         let out = frame(&mut screen, &[], &[], 120);
         assert!(!out.contains("start   #9"), "{out}");
+    }
+
+    #[test]
+    fn question_mark_lists_every_key_in_the_right_pane() {
+        let mut screen = Screen::new(None, header(true));
+        let archive = vec![done(7)];
+        let out = frame(&mut screen, &[], &archive, 120);
+        assert!(out.contains("? keys"), "the footer names it: {out}");
+        screen.press(Intent::Keys, Instant::now());
+        let out = frame(&mut screen, &[], &archive, 120);
+        assert!(out.contains("KEYS"), "{out}");
+        assert!(out.contains("review the selected PR now, even one that is capped or resting"), "{out}");
+        assert!(out.contains("#7 · approved"), "the list stays: {out}");
+        // ? again, or esc, puts it away.
+        screen.press(Intent::Keys, Instant::now());
+        assert!(!frame(&mut screen, &[], &archive, 120).contains("KEYS"));
+        screen.press(Intent::Keys, Instant::now());
+        screen.press(Intent::Back, Instant::now());
+        assert!(!frame(&mut screen, &[], &archive, 120).contains("KEYS"));
+        // l from the keys goes to the log, not back to the PR.
+        screen.press(Intent::Keys, Instant::now());
+        screen.press(Intent::Log, Instant::now());
+        let out = frame(&mut screen, &[], &archive, 120);
+        assert!(out.contains("run log") && !out.contains("KEYS"), "{out}");
     }
 
     #[test]

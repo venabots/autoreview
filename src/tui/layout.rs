@@ -94,6 +94,10 @@ const HINTS: &[(&str, &str)] = &[
     ("^d/^u", "scroll"),
 ];
 
+/// The hint that ends the footer at every width: the key for the full list.
+const HELP_KEY: &str = "?";
+const HELP_WHAT: &str = "keys";
+
 /// The line under the panes: what the run is doing, or the latest message,
 /// and at the right edge the keys that fit.
 pub fn footer(status: &str, message: Option<&str>, width: usize) -> Line<'static> {
@@ -102,17 +106,26 @@ pub fn footer(status: &str, message: Option<&str>, width: usize) -> Line<'static
         None => Span::from(cut(status, width)).dark_gray(),
     };
     let used = left.width();
+    // `? keys` is the last hint and is never the one cut: whatever else does
+    // not fit, it says where the full list is.
+    let help = format!("{HELP_KEY} {HELP_WHAT}");
+    let help_width = console::measure_text_width(&help);
     let mut hints: Vec<Span<'static>> = Vec::new();
     let mut hints_width = 0;
     for (key, what) in HINTS {
         let piece = format!("{}{key} {what}", if hints.is_empty() { "" } else { "  " });
         let w = console::measure_text_width(&piece);
         // Two columns of air between the status and the keys, at least.
-        if used + 2 + hints_width + w > width {
+        if used + 2 + hints_width + w + 2 + help_width > width {
             break;
         }
         hints_width += w;
         hints.push(Span::from(piece).fg(Color::DarkGray));
+    }
+    let help = if hints.is_empty() { help } else { format!("  {help}") };
+    if used + 2 + hints_width + console::measure_text_width(&help) <= width {
+        hints_width += console::measure_text_width(&help);
+        hints.push(Span::from(help).fg(Color::DarkGray));
     }
     let mut spans = vec![left];
     if !hints.is_empty() {
@@ -185,11 +198,16 @@ mod tests {
     fn the_footer_shows_the_keys_that_fit() {
         let wide = text(&footer("2 running", None, 120));
         assert!(wide.starts_with("2 running"));
-        assert!(wide.ends_with("^d/^u scroll"), "{wide}");
+        assert!(wide.contains("R review now"), "{wide}");
+        assert!(wide.ends_with("? keys"), "the full list is always named last: {wide}");
         assert_eq!(console::measure_text_width(&wide), 120);
         let narrow = text(&footer("2 running", None, 30));
-        assert!(narrow.contains("j/k move") && !narrow.contains("resume"), "{narrow}");
+        assert!(narrow.contains("q quit") && !narrow.contains("resume"), "{narrow}");
+        assert!(narrow.ends_with("? keys"), "cut keys, but never this one: {narrow}");
         assert!(console::measure_text_width(&narrow) <= 30);
+        // A long note still leaves room for it.
+        let noted = text(&footer("2 running", Some("note: could not set the eyes reaction on PR #9"), 60));
+        assert!(noted.ends_with("? keys"), "{noted}");
         let tiny = text(&footer("2 running · 1 queued", None, 12));
         assert_eq!(tiny, "2 running ·…");
     }
