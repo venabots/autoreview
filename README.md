@@ -589,6 +589,11 @@ Some state words need a note:
 - **`capped · R again`**: the PR has had `--max-passes` reviews in this run
   (default 3), so the run leaves it alone. `R` reviews it again anyway. In a
   watch run, a push to the PR starts its count again.
+- **`clean 2/4`** (green): the last review found nothing above polish, but
+  only 2 of 4 panelists answered, so the gate did not approve it. The gate
+  needs `ceil(0.75 × panel)` answers, and at least 2. The detail pane and the
+  summary say so in a full sentence. Nothing is approved; the PR is one to
+  look over, or to `R` again when the missing reviewers are back.
 
 The icon is GitHub's word, not the run's: `✓` approved, `✗` changes
 requested, `○` nothing decided yet, and the spinner while a review of it is

@@ -11,7 +11,7 @@ use super::model::{Review, Row, Section, Wait};
 use crate::job::{Job, JobState};
 use crate::report::sanitize_for_display;
 use crate::ui::{cost_str, count, fallback_line, findings_label, fmt_dur, result_label, verdict_label};
-use crate::{rundir, why};
+use crate::{quorum, rundir, why};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use std::path::Path;
@@ -205,6 +205,11 @@ fn review(last: Review, ctx: &Context) -> Vec<Line<'static>> {
         let log = rundir::log_file(last.pass_dir, job.pr);
         out.push(field("log", log.display().to_string(), plain));
     }
+    if let Some(shortfall) = quorum::clean_but_short(job) {
+        out.push(Line::default());
+        out.push(Line::from(quorum::line(&shortfall)).green());
+        out.push(Line::from("not approved: the gate needs more of the panel; R reviews it again").dark_gray());
+    }
     let reasons = why::reasons(job);
     if !reasons.is_empty() {
         out.push(Line::default());
@@ -283,6 +288,21 @@ mod tests {
         assert!(out.contains("resume    r opens it in a new tab, or run:\ncd /src/app && claude --resume 7442b624"), "{out}");
         assert!(out.contains(why::HEADER), "{out}");
         assert!(out.contains("REVIEW\nFindings\n• the retry path"), "{out}");
+    }
+
+    #[test]
+    fn a_clean_review_too_few_answered_says_it_looks_clean() {
+        let mut job = reviewed();
+        job.verdict = Some("commented".into());
+        job.trailer = Some(Trailer {
+            findings: Some(crate::report::Findings { must_fix: Some(0), should_fix: Some(0), polish: Some(2) }),
+            panel: (0..4).map(|i| crate::report::Panelist { ok: Some(i < 2), ..Default::default() }).collect(),
+            ..Trailer::default()
+        });
+        let archive = vec![Archived { job, pass_dir: PathBuf::from("/p1") }];
+        let out = draw(&archive, &[], &[], &ctx(None));
+        assert!(out.contains("looks clean, but only 2 of 4 reviewers answered; approval needs 3"), "{out}");
+        assert!(out.contains("R reviews it again"), "{out}");
     }
 
     #[test]

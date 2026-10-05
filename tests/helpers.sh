@@ -114,7 +114,7 @@ setup_sandbox() {
         AUTOREVIEW_SKILLS AUTOREVIEW_ORCHESTRATOR AUTOREVIEW_FALLBACK || true
   unset FAKE_CLAUDE_FAIL FAKE_CLAUDE_IS_ERROR FAKE_CLAUDE_SLEEP \
         FAKE_CLAUDE_GARBAGE FAKE_CLAUDE_KILL_JOB FAKE_CLAUDE_TRAILER \
-        FAKE_CLAUDE_TRANSCRIPT FAKE_CLAUDE_ERROR_MSG \
+        FAKE_CLAUDE_TRANSCRIPT FAKE_CLAUDE_ERROR_MSG FAKE_CLAUDE_SHORT \
         FAKE_GH_APPROVED FAKE_GH_CLOSED FAKE_GH_MY_REVIEW \
         FAKE_GH_VIEW_FAIL FAKE_GH_GRAPHQL_FAIL_AFTER FAKE_GH_REACTION_FAIL || true
   # The host may have a real dash-p and an inherited override for it; the
@@ -587,6 +587,14 @@ trailer=""
 case " ${FAKE_CLAUDE_TRAILER:-} " in
   *" $n "*)
     trailer='\n\n```autoreview\n{\"decision\":\"commented\",\"risk\":\"LOW\",\"findings\":{\"must_fix\":0,\"should_fix\":1,\"polish\":1},\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":1,\"top\":\"LOW\"},{\"name\":\"claude\",\"model\":\"claude-opus-4.7\",\"ok\":true,\"findings\":0}],\"blockers\":[{\"severity\":\"MEDIUM\",\"domain\":\"money\",\"reversible\":false,\"location\":\"src/pay.rs:88\",\"gist\":\"a retried checkout charges the card twice\"}]}\n```'
+    ;;
+esac
+# PRs named in $FAKE_CLAUDE_SHORT report a clean review that too few of the
+# panel answered: two of four returned, and neither found anything above
+# polish. The gate withholds approval, and the run should say it looks clean.
+case " ${FAKE_CLAUDE_SHORT:-} " in
+  *" $n "*)
+    trailer='\n\n```autoreview\n{\"decision\":\"commented\",\"risk\":\"LOW\",\"findings\":{\"must_fix\":0,\"should_fix\":0,\"polish\":1},\"panel\":[{\"name\":\"codex\",\"ok\":true,\"findings\":1,\"top\":\"LOW\"},{\"name\":\"claude\",\"ok\":true,\"findings\":0},{\"name\":\"glm\",\"ok\":false},{\"name\":\"grok\",\"ok\":false}],\"blockers\":[]}\n```'
     ;;
 esac
 if [[ "$status" -eq 0 ]]; then

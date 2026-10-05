@@ -11,7 +11,7 @@
 use crate::tui::{Action, Screen};
 use crate::job::{Job, JobState};
 use crate::report::{Panelist, Trailer};
-use crate::why;
+use crate::{quorum, why};
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
@@ -147,26 +147,28 @@ pub fn panelist_label(p: &Panelist) -> String {
 /// The same block off a TTY: the header and its bullets, indented under the
 /// eight-column label that opens every plain line.
 fn plain_why_lines(job: &Job) -> Vec<String> {
+    let clean = quorum::clean_but_short(job).map(|s| quorum::line(&s));
     let reasons = why::reasons(job);
-    if reasons.is_empty() {
-        return Vec::new();
-    }
-    std::iter::once(why::HEADER.to_string())
-        .chain(reasons)
+    let block = (!reasons.is_empty()).then(|| std::iter::once(why::HEADER.to_string()).chain(reasons));
+    clean
+        .into_iter()
+        .chain(block.into_iter().flatten())
         .map(|line| format!("        {line}"))
         .collect()
 }
 
 /// The same block in the end-of-run summary, where the PR number has to ride
 /// the header: the table above it holds every PR, not just this one.
+///
+/// A clean review that too few of the panel answered says so first: it is
+/// the one unapproved PR a reader may only need to look over.
 fn summary_why_lines(job: &Job) -> Vec<String> {
+    let clean = quorum::clean_but_short(job).map(|s| format!("#{} {}", job.pr, quorum::line(&s)));
     let reasons = why::reasons(job);
-    if reasons.is_empty() {
-        return Vec::new();
-    }
-    std::iter::once(format!("#{} {}", job.pr, why::HEADER))
-        .chain(reasons.into_iter().map(|r| format!("  {r}")))
-        .collect()
+    let block = (!reasons.is_empty()).then(|| {
+        std::iter::once(format!("#{} {}", job.pr, why::HEADER)).chain(reasons.into_iter().map(|r| format!("  {r}")))
+    });
+    clean.into_iter().chain(block.into_iter().flatten()).collect()
 }
 
 pub fn error_lines(jobs: &[Job]) -> Vec<String> {
