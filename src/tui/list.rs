@@ -81,7 +81,7 @@ fn wait_state(wait: Wait, now: i64) -> (String, Style) {
         Wait::Checks(Ci::Failing) => ("CI failing".into(), style.fg(Color::Red)),
         Wait::Checks(_) => ("CI pending".into(), style.fg(Color::Yellow)),
         Wait::Stacked(on) => (format!("on #{}", on.pr), style.fg(Color::Yellow)),
-        Wait::Capped => ("capped".into(), style.fg(Color::DarkGray)),
+        Wait::Capped => ("capped · R again".into(), style.fg(Color::DarkGray)),
         Wait::Resting { until } => {
             let left = (until as i64).saturating_sub(now).max(0) as u64;
             (format!("rest {}", fmt_dur(left)), style.fg(Color::DarkGray))
@@ -288,6 +288,19 @@ mod tests {
         assert_eq!(wait_state(Wait::Resting { until: 700 }, 100).0, "rest 10m00s");
         assert_eq!(wait_state(Wait::Approved, 0).0, "approved");
         assert_eq!(wait_state(Wait::Checks(Ci::Pending), 0).0, "CI pending");
+    }
+
+    fn head_of(archive: &[Archived], waiting: &[(u64, Wait)]) -> String {
+        let info = HashMap::new();
+        let src = Sources { jobs: &[], pass_dir: Path::new("/p"), archive, waiting, info: &info };
+        let rows = model::rows(&src);
+        let (drawn, _) = lines(&rows, None, 36, "⠋", 0);
+        text(&drawn[0])
+    }
+
+    #[test]
+    fn a_capped_row_says_which_key_gets_past_the_cap() {
+        assert_eq!(head_of(&[done(7, "commented")], &[(7, Wait::Capped)]), "○ #7 · capped · R again");
     }
 
     #[test]

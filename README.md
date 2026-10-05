@@ -584,6 +584,12 @@ second line says whose work it is. The row keeps the PR's newest finished
 review wherever it sits, so a PR resting under `--watch` still shows its
 verdict, its "not approved yet" block and the review text.
 
+Some state words need a note:
+
+- **`capped · R again`**: the PR has had `--max-passes` reviews in this run
+  (default 3), so the run leaves it alone. `R` reviews it again anyway. In a
+  watch run, a push to the PR starts its count again.
+
 The icon is GitHub's word, not the run's: `✓` approved, `✗` changes
 requested, `○` nothing decided yet, and the spinner while a review of it is
 running. A review this run just posted shows up there once the PR list has

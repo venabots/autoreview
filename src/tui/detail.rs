@@ -133,7 +133,9 @@ fn wait_reason(wait: Wait, ctx: &Context) -> String {
     match wait {
         Wait::Checks(ci) => format!("held until its checks pass (checks {}){next}", ci.reason()),
         Wait::Stacked(on) => format!("held until #{} lands ({})", on.pr, on.detail()),
-        Wait::Capped => "has had every review this run gives one PR (--max-passes)".into(),
+        Wait::Capped => {
+            "capped: it has had every review this run gives one PR (--max-passes); a push starts the count again while the run is watching".into()
+        }
         Wait::Resting { until } => format!(
             "resting after its review; it may be reviewed again in {}",
             fmt_dur((until as i64).saturating_sub(ctx.now).max(0) as u64)
@@ -147,7 +149,11 @@ fn wait_reason(wait: Wait, ctx: &Context) -> String {
 
 fn waiting(wait: Option<Wait>, ctx: &Context) -> Vec<Line<'static>> {
     let Some(wait) = wait else { return Vec::new() };
-    vec![Line::from(wait_reason(wait, ctx)).yellow(), Line::from("R reviews it now").dark_gray()]
+    let hint = match wait {
+        Wait::Capped => "R reviews it again now, past the cap",
+        _ => "R reviews it now",
+    };
+    vec![Line::from(wait_reason(wait, ctx)).yellow(), Line::from(hint).dark_gray()]
 }
 
 fn result_style(job: &Job) -> Style {
@@ -277,6 +283,15 @@ mod tests {
         assert!(out.contains("resume    r opens it in a new tab, or run:\ncd /src/app && claude --resume 7442b624"), "{out}");
         assert!(out.contains(why::HEADER), "{out}");
         assert!(out.contains("REVIEW\nFindings\n• the retry path"), "{out}");
+    }
+
+    #[test]
+    fn a_capped_pr_says_how_to_get_past_the_cap() {
+        let archive = vec![Archived { job: reviewed(), pass_dir: PathBuf::from("/p1") }];
+        let out = draw(&archive, &[(9, Wait::Capped)], &[], &ctx(None));
+        assert!(out.contains("capped: it has had every review this run gives one PR (--max-passes)"), "{out}");
+        assert!(out.contains("a push starts the count again"), "{out}");
+        assert!(out.contains("R reviews it again now, past the cap"), "{out}");
     }
 
     #[test]
