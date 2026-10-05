@@ -19,9 +19,11 @@ use crate::report::Trailer;
 use crate::repo::RepoContext;
 use crate::rundir::RunDir;
 use crate::session::{SessionFlag, is_uuid_shaped};
+use crate::task::Task;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Instant;
 
@@ -47,6 +49,11 @@ pub enum JobState {
 #[derive(Debug, Clone)]
 pub struct Job {
     pub pr: u64,
+    /// What the job is for: a review, or a task on one of your own PRs.
+    pub task: Task,
+    /// Where the job runs. None is the repo the run was started in, which is
+    /// where every review runs; a task runs in its own worktree.
+    pub cwd: Option<PathBuf>,
     /// The PR title, for the view; empty when unknown.
     pub title: String,
     /// Who opened it. In the view because a row that says only "#9" makes
@@ -121,6 +128,8 @@ impl Job {
     pub fn new(pr: u64) -> Job {
         Job {
             pr,
+            task: Task::Review,
+            cwd: None,
             title: String::new(),
             author: String::new(),
             state: JobState::Queued,
@@ -190,6 +199,11 @@ impl Job {
     /// form rather than described in prose: an unattended one-shot has no
     /// human to correct a prompt that failed to trigger the skill.
     pub fn prompt(&self, cfg: &Config) -> String {
+        // A task runs the skill it names, with nothing added: the focus is
+        // guidance for reviewers, and a task reviews nothing.
+        if let Some(skill) = self.task.skill() {
+            return self.orchestrator.skill_prompt(skill, self.pr);
+        }
         let skill = if cfg.no_post {
             // Structural, not a request. /panel-review reviews and reports;
             // it has no posting step to skip. Telling /auto-review not to
@@ -265,7 +279,10 @@ pub fn dashp_args(job: &Job, cfg: &Config, rundir: &RunDir) -> Vec<String> {
         argv.push("--model".into());
         argv.push(model.clone());
     }
-    if orch.supports_system_prompt() {
+    // Only a review is asked for the trailer: a task writes no review, and
+    // the request would ask its skill for a report it has no part of.
+    let trailer = job.task.is_review();
+    if trailer && orch.supports_system_prompt() {
         // The trailer request rides in the system prompt rather than the
         // user prompt, so the slash command stays the whole prompt and the
         // skill trigger is never at risk. Single-token `=` form: dash-p
@@ -281,8 +298,12 @@ pub fn dashp_args(job: &Job, cfg: &Config, rundir: &RunDir) -> Vec<String> {
     // reads its skills from its own roots instead -- so sending it would
     // widen that run's writable set and buy nothing. What a codex run needs
     // instead is checked at startup.
+    //
+    // A task gets none: its skill is the one the person installed, and the
+    // staged tree holds reviewers only.
     if let Some(dir) = rundir.skills_dir()
         && orch.discovers_staged_skills()
+        && job.task.is_review()
     {
         argv.push(crate::skills::add_dir_flag(dir));
     }
@@ -306,7 +327,7 @@ pub fn dashp_args(job: &Job, cfg: &Config, rundir: &RunDir) -> Vec<String> {
     }
     argv.push("--".into());
     let prompt = job.prompt(cfg);
-    if orch.supports_system_prompt() {
+    if orch.supports_system_prompt() || !trailer {
         argv.push(prompt);
     } else {
         // The skill invocation stays the first line, on its own, so it is
@@ -331,7 +352,10 @@ pub fn spawn(job: &Job, cfg: &Config, ctx: &RepoContext, rundir: &RunDir, dashp:
     let stdout = std::fs::File::create(rundir.stdout_path(job.pr))?;
     let stderr = std::fs::File::create(rundir.log_path(job.pr))?;
 
-    let mut command = match &cfg.review_cmd {
+    // The override replaces the reviewer, and only the reviewer: a task runs
+    // its own skill through dash-p whatever the override says.
+    let review_cmd = cfg.review_cmd.as_ref().filter(|_| job.task.is_review());
+    let mut command = match review_cmd {
         Some(cmd) => {
             // An override owns its own session handling; it receives the id
             // and a resume flag in its real environment. The id is exported
@@ -352,7 +376,7 @@ pub fn spawn(job: &Job, cfg: &Config, ctx: &RepoContext, rundir: &RunDir, dashp:
     // everything it spawned -- no tree walking, no reparenting races, and no
     // job-control noise in the middle of the progress display.
     command
-        .current_dir(&ctx.repo_root)
+        .current_dir(job.cwd.as_deref().unwrap_or(&ctx.repo_root))
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr)
@@ -539,6 +563,40 @@ mod tests {
         assert!(prompt.starts_with("$auto-review 9\n\n"), "got {prompt}");
         assert!(prompt.ends_with(crate::report::TRAILER_INSTRUCTION));
         assert_eq!(argv[argv.len() - 2], "--");
+    }
+
+    fn task(task: Task) -> Job {
+        Job { task, ..Job::new(4) }
+    }
+
+    #[test]
+    fn a_task_runs_its_installed_skill_and_nothing_else() {
+        let mut cfg = cfg_with(0, None, false);
+        cfg.focus = Some("be strict".into());
+        assert_eq!(task(Task::Babysit).prompt(&cfg), "/babysit-pr 4", "no focus: a task reviews nothing");
+        assert_eq!(task(Task::Comments).prompt(&cfg), "/pr-comment-handler 4");
+        let mut codex = task(Task::Babysit);
+        codex.orchestrator = Orchestrator::parse("codex").unwrap();
+        assert_eq!(codex.prompt(&cfg), "$babysit-pr 4");
+    }
+
+    #[test]
+    fn a_task_is_asked_for_no_trailer_and_handed_no_staged_reviewers() {
+        let mut rd = rundir();
+        rd.stage_skills(&crate::skills::Source::Bundled).unwrap();
+        let argv = dashp_args(&task(Task::Babysit), &cfg_with(0, None, false), &rd);
+        assert!(!argv.iter().any(|a| a.starts_with("--append-system-prompt=")), "{argv:?}");
+        assert!(!argv.iter().any(|a| a.starts_with("--add-dir")), "{argv:?}");
+        assert_eq!(argv.last().unwrap(), "/babysit-pr 4");
+        // Under codex the request would have gone into the prompt instead.
+        let mut codex = task(Task::Comments);
+        codex.orchestrator = Orchestrator::parse("codex").unwrap();
+        let argv = dashp_args(&codex, &cfg_with(0, None, false), &rd);
+        assert_eq!(argv.last().unwrap(), "$pr-comment-handler 4");
+        // A review still gets both.
+        let argv = dashp_args(&Job::new(9), &cfg_with(0, None, false), &rd);
+        assert!(argv.iter().any(|a| a.starts_with("--append-system-prompt=")));
+        assert!(argv.iter().any(|a| a.starts_with("--add-dir")));
     }
 
     #[test]

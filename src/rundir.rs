@@ -64,6 +64,7 @@ pub fn log_file(pass_dir: &Path, pr: u64) -> PathBuf {
     pass_dir.join(format!("pr-{pr}.log"))
 }
 
+#[derive(Debug, Clone)]
 pub struct RunDir {
     pub root: PathBuf,
     pub pass_dir: PathBuf,
@@ -100,6 +101,19 @@ impl RunDir {
     /// The staged skills, or None when this run stages none.
     pub fn skills_dir(&self) -> Option<&Path> {
         self.skills_dir.as_deref()
+    }
+
+    /// The same run, with the files of a task in a directory of their own
+    /// under the pass: `pass-1/babysit/pr-4.log`. A task's files then never
+    /// overwrite a review's, and every path function keeps its one shape.
+    /// A review gets the run as it is.
+    pub fn for_task(&self, task: crate::task::Task) -> Result<RunDir> {
+        let Some(tag) = task.file_tag() else {
+            return Ok(self.clone());
+        };
+        let pass_dir = self.pass_dir.join(tag);
+        std::fs::create_dir_all(&pass_dir)?;
+        Ok(RunDir { pass_dir, ..self.clone() })
     }
 
     pub fn start_pass(&mut self, pass: u32) -> Result<&Path> {
@@ -239,6 +253,22 @@ mod tests {
         let mut none = RunDir::new(Some(base.clone())).unwrap();
         assert_eq!(none.stage_skills(&Source::Installed).unwrap(), None);
         assert!(!none.root.join("agent").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_task_writes_its_files_beside_the_reviews_not_over_them() {
+        let base = tmp_base();
+        let mut rd = RunDir::new(Some(base.clone())).unwrap();
+        rd.start_pass(1).unwrap();
+        let review = rd.for_task(crate::task::Task::Review).unwrap();
+        assert_eq!(review.log_path(4), rd.log_path(4), "a review keeps its paths");
+        let babysit = rd.for_task(crate::task::Task::Babysit).unwrap();
+        assert_eq!(babysit.log_path(4), rd.pass_dir.join("babysit/pr-4.log"));
+        assert!(babysit.pass_dir.is_dir(), "made when asked for");
+        assert_eq!(babysit.root, rd.root, "the same run");
+        let comments = rd.for_task(crate::task::Task::Comments).unwrap();
+        assert_ne!(comments.meta_path(4), babysit.meta_path(4));
         let _ = std::fs::remove_dir_all(&base);
     }
 
