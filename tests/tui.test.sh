@@ -33,7 +33,7 @@ run_tui() {
   set +e
   python3 "$TESTS_DIR/pty.py" --timeout 40 --cols 120 --rows 30 --out "$SANDBOX/out/pty" \
     ${driver[@]+"${driver[@]}"} -- \
-    bash -c 'cd "$1" && TERM=xterm-256color "$2" --log-dir "$3" ${4:+"$4"} "${@:5}"; echo "autoreview-exit=$?"; stty -a' \
+    bash -c 'cd "$1" && TERM=xterm-256color "$2" --log-dir "$3" ${4:+"$4"} "${@:5}"; echo "autoreview-exit=$?"; saved="$(stty -g)"; stty -icanon -echo min 0 time 2; n="$(dd bs=64 count=1 2>/dev/null | wc -c)"; stty "$saved"; echo "leftover=$((n))"; stty -a' \
     _ "$SANDBOX/repo" "$AUTOREVIEW" "$SANDBOX/out/logs" "${VIEW_FLAG---tui}" "$@"
   set -e
   cat "$SANDBOX/out/pty"
@@ -170,6 +170,19 @@ if pgrep -f "$FAKE_SLEEP_TAG" >/dev/null 2>&1; then
 else
   ok "no stopped review survives"
 fi
+
+# --- Nothing typed at the view reaches the shell ---------------------------
+# The view asks the terminal to report every mouse movement, and an
+# interrupted run takes about a second to stop its reviews, in which it reads
+# nothing. Reports sent in that second sit in the terminal's input, and the
+# shell would read them as typing: bells, a prompt in the wrong mode, a
+# command line that starts with junk. The driver sends one after the ctrl-C
+# and the wrapper counts the bytes left for the shell.
+mouse_move="$(printf '\033[<35;40;12M')"
+out="$(FAKE_CLAUDE_SLEEP=8 run_tui --key 2.0:$'\x03' --key 2.3:"$mouse_move" --key 2.5:"$mouse_move" --)"
+assert_contains "ctrl-C interrupts the run" "$out" "autoreview-exit=130"
+assert_contains "...and leaves nothing for the shell to read" "$out" "leftover=0"
+check_cooked "...and the terminal is cooked"
 
 # --- A watch run: reviewed PRs wait, and R reviews one now -----------------
 # After the first pass both PRs rest for the babysit interval. The first row

@@ -16,6 +16,7 @@
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{cursor, execute};
+use nix::sys::termios::{FlushArg, tcflush};
 use nix::unistd::{dup2_stderr, dup2_stdout};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -25,6 +26,7 @@ use std::os::fd::{AsFd, OwnedFd};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, Once};
+use std::time::Duration;
 
 pub type Backend = CrosstermBackend<BufWriter<File>>;
 
@@ -43,8 +45,8 @@ pub fn is_open() -> bool {
 }
 
 /// Give the terminal back: the fds first, so whatever prints next reaches
-/// the terminal, then the normal screen, then cooked mode. Safe to call
-/// twice, and from the panic hook.
+/// the terminal, then the normal screen, then the input nobody read thrown
+/// away, then cooked mode. Safe to call twice, and from the panic hook.
 fn restore() {
     if !OPEN.swap(false, Ordering::SeqCst) {
         return;
@@ -59,10 +61,27 @@ fn restore() {
         let _ = dup2_stdout(&out);
         let _ = dup2_stderr(&err);
     }
-    if let Ok(mut tty) = OpenOptions::new().write(true).open("/dev/tty") {
+    if let Ok(mut tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
         let _ = execute!(tty, DisableMouseCapture, LeaveAlternateScreen, cursor::Show);
+        discard_input(&tty);
     }
     let _ = terminal::disable_raw_mode();
+}
+
+/// How long the terminal is given to stop reporting the mouse after it is
+/// told to, before what it already sent is thrown away.
+const MOUSE_SETTLE: Duration = Duration::from_millis(50);
+
+/// Throw away what was typed at the view and never read. The view asks the
+/// terminal for every mouse movement, and a run that is stopping reads
+/// nothing while it stops its reviews. Those reports, and a ctrl-C pressed
+/// twice, would otherwise be the first thing the shell reads: bells, a
+/// prompt in the wrong mode, a command line that starts with junk.
+///
+/// Called before cooked mode comes back, so nothing discarded is echoed.
+fn discard_input(tty: &File) {
+    std::thread::sleep(MOUSE_SETTLE);
+    let _ = tcflush(tty, FlushArg::TCIFLUSH);
 }
 
 fn install_panic_hook() {
