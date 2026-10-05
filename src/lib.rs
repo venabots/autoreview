@@ -17,6 +17,7 @@ pub mod cli;
 pub mod interval;
 pub mod job;
 pub mod ledger;
+pub mod mine;
 pub mod orchestrator;
 pub mod panel;
 pub mod picker;
