@@ -196,10 +196,11 @@ impl RunDir {
 mod tests {
     use super::*;
 
+    /// A base directory no other test holds. Made, not named: two tests in
+    /// parallel that named theirs from the clock got the same one in the
+    /// same microsecond, and the first to finish deleted it under the other.
     fn tmp_base() -> PathBuf {
-        let d = std::env::temp_dir().join(format!("ar-rundir-{}-{}", std::process::id(), random_suffix(7)));
-        std::fs::create_dir_all(&d).unwrap();
-        d
+        make_unique_dir(&std::env::temp_dir(), "ar-rundir-").unwrap()
     }
 
     #[test]
