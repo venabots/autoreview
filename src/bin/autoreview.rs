@@ -355,8 +355,10 @@ fn held_for_more(
 ) -> Option<Vec<u64>> {
     loop {
         let asked = ui.hold(ended, rx);
+        // A task asked for while the run held is a pass of its own: it never
+        // enters the review queue.
         if asked.is_empty() {
-            return None;
+            return ui.has_tasks().then(Vec::new);
         }
         for pr in asked {
             tracker.request(pr);
@@ -364,7 +366,7 @@ fn held_for_more(
         let intake = tracker.next(watching, &[], now_secs());
         watching.extend(intake.joined.iter().copied());
         report_intake(&intake, cfg, ui);
-        if !intake.queue.is_empty() {
+        if !intake.queue.is_empty() || ui.has_tasks() {
             return Some(intake.queue);
         }
     }
@@ -597,7 +599,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         // A watch run reaches the loop with an empty queue whenever there is
         // nothing to review yet, and an empty pass would print a summary of
         // nothing and burn a pass number.
-        let jobs = if queue.is_empty() {
+        let jobs = if queue.is_empty() && !ui.has_tasks() {
             Vec::new()
         } else {
             // The last non-signal exit a watch sweep had: a full disk or a
@@ -825,7 +827,8 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             report_intake(&intake, &cfg, &mut ui);
             ui.know(&info);
             ui.waiting(waiting_list(&Seen { watching: &watching, held: &held, stacked: &stacked, queue: &intake.queue, ranked: &ranked, info: &info }, &tracker, now_secs()));
-            if !intake.queue.is_empty() {
+            // A task waiting is work too, and starts the pass on its own.
+            if !intake.queue.is_empty() || ui.has_tasks() {
                 break Some(intake.queue);
             }
             // The same question, asked again with what the look found: a
@@ -958,7 +961,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 let asked = tracker.next(&watching, &[], now_secs());
                 watching.extend(asked.joined.iter().copied());
                 report_intake(&asked, &cfg, &mut ui);
-                if !asked.queue.is_empty() {
+                if !asked.queue.is_empty() || ui.has_tasks() {
                     queue = asked.queue;
                     break;
                 }

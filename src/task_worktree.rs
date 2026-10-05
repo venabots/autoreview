@@ -129,6 +129,13 @@ pub fn finish(repo_root: &Path, prepared: &Prepared) -> Finished {
     Finished::Removed
 }
 
+/// A worktree as `prepare` would describe one, for the tests of the code
+/// that is handed one.
+#[cfg(test)]
+pub(crate) fn tests_prepared(path: PathBuf, branch: &str) -> Prepared {
+    Prepared { path, branch: branch.to_string(), created_branch: true }
+}
+
 /// The line a kept worktree gets, for the log and the view.
 pub fn kept_note(pr: u64, why: &str, path: &Path) -> String {
     format!("note: PR #{pr}'s worktree has {why}: {}", path.display())

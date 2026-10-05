@@ -37,6 +37,7 @@ pub mod stack;
 pub mod stats;
 pub mod status;
 pub mod task;
+pub mod task_run;
 pub mod task_worktree;
 pub mod tabs;
 pub mod tui;

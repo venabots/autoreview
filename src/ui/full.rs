@@ -71,7 +71,13 @@ impl Ui {
         let pass_dir = self.pass_dir.clone();
         self.archive.extend(jobs.into_iter().map(|mut job| {
             job.activity = Tail::silent("the review has ended");
-            Archived { job, pass_dir: pass_dir.clone() }
+            // A task's files are in a directory of their own under the pass
+            // (`RunDir::for_task`), and the detail pane reads them there.
+            let pass_dir = match job.task.file_tag() {
+                Some(tag) => pass_dir.join(tag),
+                None => pass_dir.clone(),
+            };
+            Archived { job, pass_dir }
         }));
     }
 
@@ -130,6 +136,7 @@ impl Ui {
         for action in actions {
             match action {
                 Action::ReviewNow(pr) => self.request(pr),
+                Action::RunTask(request) => self.run_task(request),
                 Action::Watch(on) => self.watch_toggle = Some(on),
                 Action::Focus(focus) => self.focus_change = Some(focus),
                 other => out.push(other),
@@ -157,6 +164,7 @@ impl Ui {
     pub fn wait(&mut self, dur: Duration, rx: &Receiver<pool::Event>, wake_on_request: bool) -> Woke {
         let deadline = Instant::now() + dur;
         let asked = self.requests.len();
+        let tasks = self.tasks.len();
         let next = crate::clock::epoch_secs() + dur.as_secs() as i64;
         if let Some(screen) = &mut self.screen {
             screen.set_next_check(Some(next));
@@ -177,7 +185,8 @@ impl Ui {
             if self.watch_toggle.is_some() {
                 break Woke::Changed;
             }
-            if wake_on_request && self.requests.len() > asked {
+            // A task asked for is a request too: a person is waiting on it.
+            if wake_on_request && (self.requests.len() > asked || self.tasks.len() > tasks) {
                 break Woke::Requested;
             }
             std::thread::sleep(left.min(TICK));
@@ -219,15 +228,19 @@ impl Ui {
         let Some(screen) = &mut self.screen else { return Vec::new() };
         screen.set_ended(Some(why));
         loop {
+            // Leaving drops a task asked for in the same moment: the run is
+            // ending, and nothing would start it.
             if self.tick_idle().contains(&Action::Stop) {
+                self.tasks.clear();
                 return Vec::new();
             }
             if let Ok(pool::Event::Signal) = rx.try_recv() {
+                self.tasks.clear();
                 return Vec::new();
             }
             // Either is the run coming back to life: the footer must stop
             // saying it ended, and the rows must take keys again.
-            if !self.requests.is_empty() || self.watch_toggle.is_some() {
+            if !self.requests.is_empty() || !self.tasks.is_empty() || self.watch_toggle.is_some() {
                 if let Some(screen) = &mut self.screen {
                     screen.set_ended(None);
                 }

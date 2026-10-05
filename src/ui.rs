@@ -11,6 +11,7 @@
 use crate::tui::{Action, Screen};
 use crate::job::{Job, JobState};
 use crate::report::{Panelist, Trailer};
+use crate::task::Task;
 use crate::{quorum, why};
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -62,12 +63,16 @@ pub fn count(n: usize, singular: &str) -> String {
 
 /// The pass header. The concurrency is only worth saying when it actually
 /// holds reviews back -- "1 PR, 2 at a time" describes nothing.
-fn pass_headline(total: usize, jobs_max: u32) -> String {
-    let subject = count(total, "PR");
-    if (jobs_max as usize) < total {
-        format!("reviewing {subject}, {jobs_max} at a time")
+fn pass_headline(reviews: usize, tasks: usize, jobs_max: u32) -> String {
+    let subject = match (reviews, tasks) {
+        (_, 0) => format!("reviewing {}", count(reviews, "PR")),
+        (0, _) => format!("running {}", count(tasks, "task")),
+        _ => format!("reviewing {} and running {}", count(reviews, "PR"), count(tasks, "task")),
+    };
+    if (jobs_max as usize) < reviews + tasks {
+        format!("{subject}, {jobs_max} at a time")
     } else {
-        format!("reviewing {subject}")
+        subject
     }
 }
 
@@ -201,6 +206,10 @@ pub struct Ui {
     /// PRs a person asked to have reviewed now that the current pass could
     /// not start, for the loop to put in the next one.
     requests: Vec<u64>,
+    /// Tasks a person asked for on their own PRs, waiting for a pass to
+    /// start them. Apart from `requests`: a task never enters the review
+    /// queue, its caps or its watch list.
+    tasks: Vec<crate::task::Request>,
     /// Whether a person asked the run to start or stop looking for work,
     /// waiting for the loop to reach a point where it can.
     watch_toggle: Option<bool>,
@@ -244,6 +253,23 @@ impl Ui {
         std::mem::take(&mut self.requests)
     }
 
+    /// Keep a task for the next pass. A second ask for a PR that already
+    /// has one waiting replaces it: the last key pressed is what was meant.
+    pub fn run_task(&mut self, request: crate::task::Request) {
+        self.tasks.retain(|t| t.pr != request.pr);
+        self.tasks.push(request);
+    }
+
+    /// Every task kept since the last call, in the order asked.
+    pub fn take_tasks(&mut self) -> Vec<crate::task::Request> {
+        std::mem::take(&mut self.tasks)
+    }
+
+    /// Whether a task is waiting for a pass, without taking it.
+    pub fn has_tasks(&self) -> bool {
+        !self.tasks.is_empty()
+    }
+
     /// A note the user should see now: spawn failures, session fallbacks.
     /// The view flashes it; it also goes to stderr, which is the run log
     /// while the view is up.
@@ -264,7 +290,10 @@ impl Ui {
         let who = if job.author.is_empty() { String::new() } else { format!(" @{}", job.author) };
         match job.state {
             JobState::Running => {
-                let verb = if job.resume { "rechecking" } else { "reviewing" };
+                let verb = match job.task {
+                    Task::Review if job.resume => "rechecking",
+                    task => task.doing(),
+                };
                 let via = if job.fell_back() { format!(" with {}", job.orchestrator.backend) } else { String::new() };
                 println!("start   #{n}{who} ({verb}{via})");
             }
@@ -305,9 +334,9 @@ impl Ui {
     }
 
     /// Print the pass header.
-    pub fn begin_pass(&mut self, total: usize, jobs_max: u32, pass_dir: &std::path::Path) {
+    pub fn begin_pass(&mut self, reviews: usize, tasks: usize, jobs_max: u32, pass_dir: &std::path::Path) {
         self.pass_dir = pass_dir.to_path_buf();
-        println!("{}", pass_headline(total, jobs_max));
+        println!("{}", pass_headline(reviews, tasks, jobs_max));
         println!("logs: {}\n", pass_dir.display());
     }
 
@@ -721,9 +750,12 @@ mod tests {
 
     #[test]
     fn the_pass_header_only_claims_a_limit_that_binds() {
-        assert_eq!(pass_headline(1, 2), "reviewing 1 PR");
-        assert_eq!(pass_headline(2, 2), "reviewing 2 PRs");
-        assert_eq!(pass_headline(5, 2), "reviewing 5 PRs, 2 at a time");
+        assert_eq!(pass_headline(1, 0, 2), "reviewing 1 PR");
+        assert_eq!(pass_headline(2, 0, 2), "reviewing 2 PRs");
+        assert_eq!(pass_headline(5, 0, 2), "reviewing 5 PRs, 2 at a time");
+        // A task is not a review, and the headline does not call it one.
+        assert_eq!(pass_headline(0, 1, 2), "running 1 task");
+        assert_eq!(pass_headline(2, 1, 2), "reviewing 2 PRs and running 1 task, 2 at a time");
     }
 
     #[test]

@@ -8,6 +8,9 @@
 //! what lets each of those places ask once instead of guessing from the
 //! prompt.
 
+use crate::orchestrator::Orchestrator;
+use std::path::{Path, PathBuf};
+
 /// The work a job does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Task {
@@ -55,9 +58,70 @@ impl Task {
     }
 }
 
+/// A person asked for a task on one of their PRs: everything the run needs
+/// to start it, as the My PRs list knew it at the key press.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Request {
+    pub pr: u64,
+    pub task: Task,
+    pub title: String,
+    pub branch: String,
+    /// The head commit when the key was pressed, which the readback compares
+    /// with to say whether the task pushed.
+    pub head: String,
+    pub cross_repo: bool,
+}
+
+/// Where the orchestrator finds an installed skill, in the order it reads
+/// them. A task's skill is never staged, so this is the only place it can
+/// come from.
+pub fn skill_roots(orch: &Orchestrator, repo_root: &Path) -> Vec<PathBuf> {
+    if orch.backend == "codex" {
+        return crate::orchestrator::skills_roots(
+            "codex",
+            std::env::var("HOME").ok().as_deref(),
+            std::env::var("CODEX_HOME").ok().as_deref(),
+        );
+    }
+    vec![crate::session::config_dir().join("skills"), repo_root.join(".claude").join("skills")]
+}
+
+/// Why `task` cannot run under `orch`, or None when its skill is installed.
+/// Said before anything is made: a worktree, a session and a job slot all
+/// wasted on a skill that is not there is the failure this prevents.
+pub fn not_installed(task: Task, roots: &[PathBuf], orch: &Orchestrator) -> Option<String> {
+    let skill = task.skill()?;
+    let missing = crate::orchestrator::missing_skills(roots, &[skill]);
+    (!missing.is_empty()).then(|| format!("{skill} is not installed where {} looks ({})", orch.label(), orch.skills_home()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_task_whose_skill_is_missing_says_where_it_looked() {
+        let dir = crate::rundir::make_unique_dir(&std::env::temp_dir(), "ar-task.").unwrap();
+        let claude = Orchestrator::claude();
+        let roots = vec![dir.clone()];
+        assert_eq!(
+            not_installed(Task::Babysit, &roots, &claude).as_deref(),
+            Some("babysit-pr is not installed where claude looks (~/.claude/skills)")
+        );
+        std::fs::create_dir_all(dir.join("babysit-pr")).unwrap();
+        std::fs::write(dir.join("babysit-pr/SKILL.md"), "").unwrap();
+        assert_eq!(not_installed(Task::Babysit, &roots, &claude), None);
+        assert!(not_installed(Task::Comments, &roots, &claude).is_some());
+        assert_eq!(not_installed(Task::Review, &roots, &claude), None, "a review's skills are staged");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn claude_finds_a_task_skill_in_your_skills_or_the_repo() {
+        let roots = skill_roots(&Orchestrator::claude(), Path::new("/src/app"));
+        assert_eq!(roots[1], PathBuf::from("/src/app/.claude/skills"));
+        assert!(roots[0].ends_with("skills"));
+    }
 
     #[test]
     fn a_task_names_the_installed_skill_it_runs() {
