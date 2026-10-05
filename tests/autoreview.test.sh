@@ -534,6 +534,19 @@ assert_contains "...with the panel the trailer reported" "$ledger" '"name":"code
 assert_contains "...and the decision" "$ledger" '"decision":"commented"'
 assert_equals "...one line per reviewed PR" "$(grep -c '"source"' "$AUTOREVIEW_LEDGER")" "1"
 
+# A review that came back clean but was answered by too few of the panel is
+# not approved -- the gate is right to hold it -- but it is not a PR with a
+# bug either. The run says it looks clean, under the step line and in the
+# summary, so a reader knows it only needs looking over.
+out="$(FAKE_CLAUDE_SHORT="8" run_autoreview --auto)"
+assert_contains "a clean review short of the gate says it looks clean" "$out" \
+  "        looks clean, but only 2 of 4 reviewers answered; approval needs 3"
+assert_contains "...and the summary names the PR" "$out" \
+  "#8 looks clean, but only 2 of 4 reviewers answered; approval needs 3"
+assert_not_contains "...and a review with no trailer says nothing" "$out" "#9 looks clean"
+out="$(FAKE_CLAUDE_TRAILER="8" run_autoreview --auto)"
+assert_not_contains "a review with a should-fix finding does not look clean" "$out" "looks clean"
+
 # A reviewer that never writes the block costs a "-" in the summary, nothing
 # more -- and GitHub reading back nothing is not a failure either.
 out="$(run_autoreview --auto)"

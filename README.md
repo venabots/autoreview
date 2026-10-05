@@ -584,6 +584,17 @@ second line says whose work it is. The row keeps the PR's newest finished
 review wherever it sits, so a PR resting under `--watch` still shows its
 verdict, its "not approved yet" block and the review text.
 
+Some state words need a note:
+
+- **`capped · R again`**: the PR has had `--max-passes` reviews in this run
+  (default 3), so the run leaves it alone. `R` reviews it again anyway. In a
+  watch run, a push to the PR starts its count again.
+- **`clean 2/4`** (green): the last review found nothing above polish, but
+  only 2 of 4 panelists answered, so the gate did not approve it. The gate
+  needs `ceil(0.75 × panel)` answers, and at least 2. The detail pane and the
+  summary say so in a full sentence. Nothing is approved; the PR is one to
+  look over, or to `R` again when the missing reviewers are back.
+
 The icon is GitHub's word, not the run's: `✓` approved, `✗` changes
 requested, `○` nothing decided yet, and the spinner while a review of it is
 running. A review this run just posted shows up there once the PR list has
@@ -614,12 +625,16 @@ header shows it until it changes again.
 | `r`               | open the selected review in a new herdr, cmux or Ghostty tab  |
 | `o`               | open the PR in the browser                                    |
 | `x` `x`           | stop the selected running review                              |
-| `R`               | review the selected PR now                                    |
+| `R`               | review the selected PR now, even a capped or resting one      |
 | `w`               | start or stop looking for work, as `--watch` does             |
 | `f`               | type what the reviewers are told to look at (`--focus`)       |
 | `m`               | hand the mouse back to the terminal, and take it again        |
 | `l`               | show the run log in the right pane; `esc` puts it away        |
+| `?`               | show every key in the right pane; `esc` puts it away          |
 | `q`               | quit; a second `q` when reviews are running, which stops them |
+
+The footer lists the keys that fit beside the status, and always ends with
+`? keys`, so the full list is one key away at any width.
 
 `r` runs `cd <repo> && claude --resume <session>` in the new tab, or
 `codex resume <session>` for a review codex drove. It refuses a review that

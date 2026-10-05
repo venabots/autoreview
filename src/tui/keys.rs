@@ -51,6 +51,8 @@ pub enum Intent {
     /// Edit what the reviewers are told to look at.
     Focus,
     Log,
+    /// Show every key in the right pane.
+    Keys,
     Quit,
     /// ctrl-C: leave now, as it always has.
     Interrupt,
@@ -93,6 +95,7 @@ pub fn intent(key: KeyEvent) -> Option<Intent> {
         KeyCode::Char('m') => Some(Intent::Mouse),
         KeyCode::Char('f') => Some(Intent::Focus),
         KeyCode::Char('l') => Some(Intent::Log),
+        KeyCode::Char('?') => Some(Intent::Keys),
         KeyCode::Char('q') => Some(Intent::Quit),
         KeyCode::Esc => Some(Intent::Back),
         _ => None,
@@ -156,6 +159,9 @@ mod tests {
         assert_eq!(press(KeyCode::Char('m'), none), Some(Intent::Mouse));
         assert_eq!(press(KeyCode::Char('f'), none), Some(Intent::Focus));
         assert_eq!(press(KeyCode::Char('l'), none), Some(Intent::Log));
+        assert_eq!(press(KeyCode::Char('?'), none), Some(Intent::Keys));
+        // Most terminals send ? with shift held; it is the same key.
+        assert_eq!(press(KeyCode::Char('?'), KeyModifiers::SHIFT), Some(Intent::Keys));
         assert_eq!(press(KeyCode::Char('q'), none), Some(Intent::Quit));
         assert_eq!(press(KeyCode::Esc, none), Some(Intent::Back));
         assert_eq!(press(KeyCode::Char('z'), none), None);

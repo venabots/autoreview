@@ -23,6 +23,7 @@ pub mod picker;
 pub mod pool;
 pub mod prlist;
 pub mod queue;
+pub mod quorum;
 pub mod reaction;
 pub mod report;
 pub mod repo;

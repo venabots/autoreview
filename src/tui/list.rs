@@ -15,6 +15,7 @@ use super::text::pad;
 use crate::ci::Ci;
 use crate::job::{Job, JobState};
 use crate::prlist::Decision;
+use crate::quorum;
 use crate::report::sanitize_for_display;
 use crate::ui::fmt_dur;
 use ratatui::style::{Color, Modifier, Style, Stylize};
@@ -81,7 +82,7 @@ fn wait_state(wait: Wait, now: i64) -> (String, Style) {
         Wait::Checks(Ci::Failing) => ("CI failing".into(), style.fg(Color::Red)),
         Wait::Checks(_) => ("CI pending".into(), style.fg(Color::Yellow)),
         Wait::Stacked(on) => (format!("on #{}", on.pr), style.fg(Color::Yellow)),
-        Wait::Capped => ("capped".into(), style.fg(Color::DarkGray)),
+        Wait::Capped => ("capped · R again".into(), style.fg(Color::DarkGray)),
         Wait::Resting { until } => {
             let left = (until as i64).saturating_sub(now).max(0) as u64;
             (format!("rest {}", fmt_dur(left)), style.fg(Color::DarkGray))
@@ -94,7 +95,28 @@ fn wait_state(wait: Wait, now: i64) -> (String, Style) {
 }
 
 /// What the state word says about a row.
+///
+/// A PR whose last review was clean but answered by too few of the panel
+/// says so ahead of anything else it is waiting on. Resting or capped, it
+/// would otherwise read like every other unapproved PR, and it is the one a
+/// person may only need to look over.
 pub fn state(row: &Row, now: i64) -> (String, Style) {
+    let (word, style) = activity(row, now);
+    let settled = !matches!(row.section, Section::Running | Section::Queued);
+    match row.last.and_then(|last| quorum::clean_but_short(last.job)).filter(|_| settled) {
+        Some(s) if row.wait.is_some() => (format!("{} · {}", quorum::short(&s), short_wait(&word)), Style::default().fg(Color::Green)),
+        Some(s) => (quorum::short(&s), Style::default().fg(Color::Green)),
+        None => (word, style),
+    }
+}
+
+/// A wait word with its key hint dropped: next to the clean count there is
+/// room for one of the two, and the detail pane carries the hint.
+fn short_wait(word: &str) -> &str {
+    word.split(" · ").next().unwrap_or(word)
+}
+
+fn activity(row: &Row, now: i64) -> (String, Style) {
     let style = Style::default();
     match (row.section, row.live, row.wait, row.last) {
         (Section::Running, Some(job), _, _) if job.reaped => ("finishing".into(), style.fg(Color::Magenta)),
@@ -288,6 +310,43 @@ mod tests {
         assert_eq!(wait_state(Wait::Resting { until: 700 }, 100).0, "rest 10m00s");
         assert_eq!(wait_state(Wait::Approved, 0).0, "approved");
         assert_eq!(wait_state(Wait::Checks(Ci::Pending), 0).0, "CI pending");
+    }
+
+    /// A finished review with no findings above polish, answered by
+    /// `answered` of a panel of four.
+    fn clean(pr: u64, answered: usize) -> Archived {
+        let mut review = done(pr, "commented");
+        review.job.trailer = Some(crate::report::Trailer {
+            findings: Some(crate::report::Findings { must_fix: Some(0), should_fix: Some(0), polish: Some(1) }),
+            panel: (0..4)
+                .map(|i| crate::report::Panelist { ok: Some(i < answered), ..Default::default() })
+                .collect(),
+            ..Default::default()
+        });
+        review
+    }
+
+    fn head_of(archive: &[Archived], waiting: &[(u64, Wait)]) -> String {
+        let info = HashMap::new();
+        let src = Sources { jobs: &[], pass_dir: Path::new("/p"), archive, waiting, info: &info };
+        let rows = model::rows(&src);
+        let (drawn, _) = lines(&rows, None, 36, "⠋", 0);
+        text(&drawn[0])
+    }
+
+    #[test]
+    fn a_capped_row_says_which_key_gets_past_the_cap() {
+        assert_eq!(head_of(&[done(7, "commented")], &[(7, Wait::Capped)]), "○ #7 · capped · R again");
+    }
+
+    #[test]
+    fn a_clean_review_too_few_answered_is_named_on_its_row() {
+        assert_eq!(head_of(&[clean(7, 2)], &[]), "○ #7 · clean 2/4");
+        // Still named while it rests or is capped, with the wait beside it.
+        assert_eq!(head_of(&[clean(7, 2)], &[(7, Wait::Resting { until: 600 })]), "○ #7 · clean 2/4 · rest 10m00s");
+        assert_eq!(head_of(&[clean(7, 2)], &[(7, Wait::Capped)]), "○ #7 · clean 2/4 · capped");
+        // Enough of the panel answered: some other gate held it.
+        assert_eq!(head_of(&[clean(7, 3)], &[]), "○ #7 · commented");
     }
 
     #[test]

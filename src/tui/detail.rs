@@ -11,7 +11,7 @@ use super::model::{Review, Row, Section, Wait};
 use crate::job::{Job, JobState};
 use crate::report::sanitize_for_display;
 use crate::ui::{cost_str, count, fallback_line, findings_label, fmt_dur, result_label, verdict_label};
-use crate::{rundir, why};
+use crate::{quorum, rundir, why};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use std::path::Path;
@@ -133,7 +133,9 @@ fn wait_reason(wait: Wait, ctx: &Context) -> String {
     match wait {
         Wait::Checks(ci) => format!("held until its checks pass (checks {}){next}", ci.reason()),
         Wait::Stacked(on) => format!("held until #{} lands ({})", on.pr, on.detail()),
-        Wait::Capped => "has had every review this run gives one PR (--max-passes)".into(),
+        Wait::Capped => {
+            "capped: it has had every review this run gives one PR (--max-passes); a push starts the count again while the run is watching".into()
+        }
         Wait::Resting { until } => format!(
             "resting after its review; it may be reviewed again in {}",
             fmt_dur((until as i64).saturating_sub(ctx.now).max(0) as u64)
@@ -147,7 +149,11 @@ fn wait_reason(wait: Wait, ctx: &Context) -> String {
 
 fn waiting(wait: Option<Wait>, ctx: &Context) -> Vec<Line<'static>> {
     let Some(wait) = wait else { return Vec::new() };
-    vec![Line::from(wait_reason(wait, ctx)).yellow(), Line::from("R reviews it now").dark_gray()]
+    let hint = match wait {
+        Wait::Capped => "R reviews it again now, past the cap",
+        _ => "R reviews it now",
+    };
+    vec![Line::from(wait_reason(wait, ctx)).yellow(), Line::from(hint).dark_gray()]
 }
 
 fn result_style(job: &Job) -> Style {
@@ -198,6 +204,11 @@ fn review(last: Review, ctx: &Context) -> Vec<Line<'static>> {
     if job.state != JobState::Done {
         let log = rundir::log_file(last.pass_dir, job.pr);
         out.push(field("log", log.display().to_string(), plain));
+    }
+    if let Some(shortfall) = quorum::clean_but_short(job) {
+        out.push(Line::default());
+        out.push(Line::from(quorum::line(&shortfall)).green());
+        out.push(Line::from("not approved: the gate needs more of the panel; R reviews it again").dark_gray());
     }
     let reasons = why::reasons(job);
     if !reasons.is_empty() {
@@ -277,6 +288,30 @@ mod tests {
         assert!(out.contains("resume    r opens it in a new tab, or run:\ncd /src/app && claude --resume 7442b624"), "{out}");
         assert!(out.contains(why::HEADER), "{out}");
         assert!(out.contains("REVIEW\nFindings\n• the retry path"), "{out}");
+    }
+
+    #[test]
+    fn a_clean_review_too_few_answered_says_it_looks_clean() {
+        let mut job = reviewed();
+        job.verdict = Some("commented".into());
+        job.trailer = Some(Trailer {
+            findings: Some(crate::report::Findings { must_fix: Some(0), should_fix: Some(0), polish: Some(2) }),
+            panel: (0..4).map(|i| crate::report::Panelist { ok: Some(i < 2), ..Default::default() }).collect(),
+            ..Trailer::default()
+        });
+        let archive = vec![Archived { job, pass_dir: PathBuf::from("/p1") }];
+        let out = draw(&archive, &[], &[], &ctx(None));
+        assert!(out.contains("looks clean, but only 2 of 4 reviewers answered; approval needs 3"), "{out}");
+        assert!(out.contains("R reviews it again"), "{out}");
+    }
+
+    #[test]
+    fn a_capped_pr_says_how_to_get_past_the_cap() {
+        let archive = vec![Archived { job: reviewed(), pass_dir: PathBuf::from("/p1") }];
+        let out = draw(&archive, &[(9, Wait::Capped)], &[], &ctx(None));
+        assert!(out.contains("capped: it has had every review this run gives one PR (--max-passes)"), "{out}");
+        assert!(out.contains("a push starts the count again"), "{out}");
+        assert!(out.contains("R reviews it again now, past the cap"), "{out}");
     }
 
     #[test]
