@@ -31,6 +31,9 @@ pub enum Action {
     /// Run a task on one of your own PRs: babysit it, or answer its
     /// comments. Started at the first free slot, in this pass or the next.
     RunTask(crate::task::Request),
+    /// Babysit one of your PRs, or all of them, or stop. The loop decides
+    /// when each gets a fix.
+    Babysit(crate::babysit::Change),
 }
 
 /// How long a first press stays armed.

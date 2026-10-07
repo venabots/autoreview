@@ -19,6 +19,7 @@ pub mod interval;
 pub mod job;
 pub mod ledger;
 pub mod mine;
+pub mod mine_loop;
 pub mod orchestrator;
 pub mod panel;
 pub mod picker;

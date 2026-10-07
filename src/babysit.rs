@@ -37,6 +37,15 @@ impl Fingerprint {
     }
 }
 
+/// What `b` or `B` asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// Babysit this PR, or stop.
+    One(u64, bool),
+    /// Babysit every PR of yours, or none.
+    All(bool),
+}
+
 /// One babysat PR's history in this run.
 #[derive(Debug, Clone, Default)]
 struct Watch {

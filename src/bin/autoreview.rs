@@ -24,7 +24,8 @@ use autoreview::status::{Status, step};
 use autoreview::tui::{self, Wait};
 use autoreview::ui::Woke;
 use autoreview::task::{self, Task};
-use autoreview::{ci, cli, mine, orchestrator, pool, prlist, queue, repo, select, session, signals, skills, ui};
+use autoreview::mine_loop::MineLoop;
+use autoreview::{ci, cli, orchestrator, pool, prlist, queue, repo, select, session, signals, skills, ui};
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
@@ -317,27 +318,6 @@ fn task_refusals(cfg: &Config, ctx: &repo::RepoContext) -> Vec<(Task, String)> {
         .collect()
 }
 
-/// Your open PRs, for the My PRs tab. Only with the view up: nothing else
-/// shows them, and a run in a pipe must not spend a call on them. A failed
-/// look keeps the last list and says so once, until a look works again.
-fn refresh_mine(ctx: &repo::RepoContext, ui: &mut ui::Ui, rx: &Receiver<pool::Event>, failing: &mut bool) {
-    if !ui.ticking() {
-        return;
-    }
-    match ui.while_busy("reading your PRs", rx, || mine::fetch(ctx)) {
-        Ok(list) => {
-            *failing = false;
-            ui.mine(list);
-        }
-        Err(e) => {
-            if !*failing {
-                ui.note(format!("note: could not read your PRs ({e:#}); the My PRs tab keeps its last list"));
-            }
-            *failing = true;
-        }
-    }
-}
-
 /// Start or stop the run's own looking for work, which is what the view's
 /// `w` asks for. Turning it on is a watch run: poll on the watch interval,
 /// and rest each PR for the babysit one so a still-actionable PR is not
@@ -567,15 +547,15 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     let (tx, rx) = std::sync::mpsc::channel();
     signals::install(tx.clone());
     let mut ui = ui::Ui::new();
-    // Whether the last look at your PRs failed, so a failure is said once.
-    let mut mine_failing = false;
+    // Your PRs, for the My PRs tab, and which of them are babysat.
+    let mut mine = MineLoop::default();
     // After everything the run says on its way in -- the selection, the
     // skills, the notes -- so that stays on the normal screen, above where
     // the summary lands.
     if screening {
         ui.open_screen(screen_header(cfg, &ctx, &rundir), &rundir.root);
         ui.show_focus(cfg.focus.as_deref());
-        refresh_mine(&ctx, &mut ui, &rx, &mut mine_failing);
+        mine.refresh(&ctx, &mut ui, &rx);
         if cfg.no_post {
             ui.after_summary(format!(
                 "nothing was posted to any PR; the reviews are in {}",
@@ -679,16 +659,23 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         };
         let failures = pool::failures(&jobs);
         let total = jobs.len();
+        mine.ended(&jobs);
         ui.archive(jobs);
         // A task changes your PR, and its row should say what it did now,
         // not at the next look -- which a one-pass run never makes.
         if total > 0 {
-            refresh_mine(&ctx, &mut ui, &rx, &mut mine_failing);
+            mine.refresh(&ctx, &mut ui, &rx);
         }
         // Asked for while the pass ran, and answered here, where what the
         // run does next is decided.
         if let Some(on) = ui.take_watch_toggle() {
             set_watching(on, &mut cfg, &mut watch, &mut tracker, &mut ui);
+        }
+        // Babysitting fixes a PR when a look finds it changed, so a run
+        // that babysits has to keep looking.
+        if mine.apply(&mut ui) && watch.is_none() {
+            println!("\nbabysitting needs the run to keep looking for work");
+            set_watching(true, &mut cfg, &mut watch, &mut tracker, &mut ui);
         }
         if let Some(focus) = ui.take_focus() {
             cfg.focus = focus;
@@ -721,7 +708,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 }
                 // Nothing more to review, but `w` may have asked the run to
                 // keep looking: the loop decides again with nothing queued.
-                None if ui.watch_toggle_pending() => {
+                None if ui.watch_toggle_pending() || ui.babysit_pending() => {
                     queue = Vec::new();
                     continue;
                 }
@@ -786,7 +773,8 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     }
                     info.extend(seen.info);
                     ranked = seen.ranked;
-                    refresh_mine(&ctx, &mut ui, &rx, &mut mine_failing);
+                    mine.refresh(&ctx, &mut ui, &rx);
+                    mine.ask_due(&mut ui);
                     held = held_for_this_run(&seen.held, &tracker);
                     report_held(&held, &mut held_announced);
                     // The PRs leaving the watch list. A PR reviewed earlier in
@@ -973,7 +961,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     queue = next;
                     continue;
                 }
-                None if ui.watch_toggle_pending() => {
+                None if ui.watch_toggle_pending() || ui.babysit_pending() => {
                     queue = Vec::new();
                     continue;
                 }

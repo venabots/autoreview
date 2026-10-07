@@ -46,6 +46,12 @@ impl Screen {
         self.mine = mine;
     }
 
+    /// Which of your PRs are babysat, as the loop decided.
+    pub fn set_babysat(&mut self, babysat: Vec<(u64, u32)>, all: bool) {
+        self.babysat = babysat;
+        self.babysat_all = all;
+    }
+
     /// Show the other tab, and pick up where it was left.
     pub(super) fn switch_tab(&mut self) {
         let now = TabState {
