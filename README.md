@@ -638,12 +638,15 @@ header shows it until it changes again.
 | `x` `x`           | stop the selected running review                              |
 | `R`               | review the selected PR now, even a capped or resting one      |
 | `w`               | start or stop looking for work, as `--watch` does             |
-| `f`               | type what the reviewers are told to look at (`--focus`)       |
+| `f`               | Review: type what the reviewers look at (`--focus`)           |
 | `m`               | hand the mouse back to the terminal, and take it again        |
 | `l`               | show the run log in the right pane; `esc` puts it away        |
 | `?`               | show every key in the right pane; `esc` puts it away          |
 | `tab`             | switch between Review and My PRs                              |
-| `b`               | My PRs: babysit the selected PR (conflicts, comments, CI)     |
+| `f`               | My PRs: fix the selected PR once (conflicts, comments, CI)    |
+| `b`               | My PRs: babysit the selected PR; `b` again stops              |
+| `B`               | My PRs: babysit all your PRs, and any you open later          |
+| `u`               | My PRs: merge the base in and fix the conflicts               |
 | `c`               | My PRs: answer the selected PR's review comments              |
 | `q`               | quit; a second `q` when reviews are running, which stops them |
 
@@ -669,15 +672,28 @@ list hides. Each row says what blocks the merge first: `conflicts`,
 `draft`, `CI pending`, `awaiting review`, or `approved`. The detail pane names
 who asked for changes, the checks, the open threads and whether the PR merges.
 
-Two keys work on the selected PR:
+The tab has its own keys, and its footer lists them:
 
-- `b` runs `/babysit-pr`: merge the base in, handle the review comments, fix
-  failing CI, and push.
-- `c` runs `/pr-comment-handler`: answer the review comments only.
+- `f` fixes the selected PR once: `/babysit-pr` merges the base in, handles
+  the review comments, fixes failing CI, and pushes.
+- `u` fixes conflicts only: `/sync-main` merges the base in and resolves them.
+- `c` answers the review comments only: `/pr-comment-handler`.
+- `b` babysits the selected PR, and `B` babysits all of your PRs, including
+  ones you open later. Press the key again to stop.
 
-Both are skills you install yourself (`~/.claude/skills`, or where codex
+These are skills you install yourself (`~/.claude/skills`, or where codex
 looks); they do not ship with `autoreview`. A key whose skill is missing says
 so and starts nothing, and so does any key under `--no-post`.
+
+**Babysitting** runs a fix again as the PR changes. At each look, a babysat
+PR gets a fix when it needs work (conflicts, failing CI, requested changes or
+open threads) and has changed since its last fix. The push a fix makes does
+not count as a change. At most three fixes run in a row while nobody else
+acts on the PR; a new review thread or a new review decision starts the count
+again. A babysat PR that is merged or closed leaves the list. Babysitting
+needs looks, so turning it on makes the run keep looking for work, as `w`
+does. The row says `babysat`, and the detail pane says how many fixes it has
+had.
 
 A task runs in the same pool as the reviews, under the same `--jobs`,
 `--timeout` and `--budget`, and only when you press the key. It runs in a

@@ -62,10 +62,16 @@ pub enum Intent {
     Keys,
     /// Show the other list: Review, or My PRs.
     SwitchTab,
-    /// Babysit the selected one of your PRs.
+    /// My PRs: fix the selected PR once (conflicts, comments, CI).
+    Fix,
+    /// My PRs: babysit the selected PR, or stop.
     Babysit,
-    /// Answer the review comments on the selected one of your PRs.
+    /// My PRs: babysit every PR of yours, or stop.
+    BabysitAll,
+    /// My PRs: answer the selected PR's review comments.
     Comments,
+    /// My PRs: merge the base in and resolve the conflicts.
+    Conflicts,
     Quit,
     /// ctrl-C: leave now, as it always has.
     Interrupt,
@@ -73,8 +79,10 @@ pub enum Intent {
     Back,
 }
 
-/// A pure table, so it is testable without a terminal.
-pub fn intent(key: KeyEvent) -> Option<Intent> {
+/// A pure table, so it is testable without a terminal. `mine` is whether
+/// the My PRs tab is shown: there `f` fixes the selected PR, where on the
+/// Review tab it types the focus.
+pub fn intent(key: KeyEvent, mine: bool) -> Option<Intent> {
     // Release and repeat events only arrive from terminals that report them.
     if key.kind != KeyEventKind::Press {
         return None;
@@ -106,12 +114,15 @@ pub fn intent(key: KeyEvent) -> Option<Intent> {
         KeyCode::Char('R') => Some(Intent::ReviewNow),
         KeyCode::Char('w') => Some(Intent::Watch),
         KeyCode::Char('m') => Some(Intent::Mouse),
+        KeyCode::Char('f') if mine => Some(Intent::Fix),
         KeyCode::Char('f') => Some(Intent::Focus),
         KeyCode::Char('l') => Some(Intent::Log),
         KeyCode::Char('?') => Some(Intent::Keys),
         KeyCode::Tab | KeyCode::BackTab => Some(Intent::SwitchTab),
         KeyCode::Char('b') => Some(Intent::Babysit),
+        KeyCode::Char('B') => Some(Intent::BabysitAll),
         KeyCode::Char('c') => Some(Intent::Comments),
+        KeyCode::Char('u') => Some(Intent::Conflicts),
         KeyCode::Char('q') => Some(Intent::Quit),
         KeyCode::Esc => Some(Intent::Back),
         _ => None,
@@ -158,7 +169,7 @@ mod tests {
     use super::*;
 
     fn press(code: KeyCode, modifiers: KeyModifiers) -> Option<Intent> {
-        intent(KeyEvent::new(code, modifiers))
+        intent(KeyEvent::new(code, modifiers), false)
     }
 
     #[test]
@@ -189,6 +200,17 @@ mod tests {
     }
 
     #[test]
+    fn f_fixes_on_my_prs_and_types_the_focus_on_review() {
+        let f = KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE);
+        assert_eq!(intent(f, false), Some(Intent::Focus));
+        assert_eq!(intent(f, true), Some(Intent::Fix));
+        let big_b = KeyEvent::new(KeyCode::Char('B'), KeyModifiers::SHIFT);
+        assert_eq!(intent(big_b, true), Some(Intent::BabysitAll));
+        let u = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
+        assert_eq!(intent(u, true), Some(Intent::Conflicts));
+    }
+
+    #[test]
     fn capitals_mean_the_same_with_or_without_shift() {
         for mods in [KeyModifiers::NONE, KeyModifiers::SHIFT] {
             assert_eq!(press(KeyCode::Char('R'), mods), Some(Intent::ReviewNow));
@@ -213,7 +235,7 @@ mod tests {
     fn a_release_does_nothing() {
         let mut key = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
         key.kind = KeyEventKind::Release;
-        assert_eq!(intent(key), None);
+        assert_eq!(intent(key, false), None);
     }
 
     #[test]

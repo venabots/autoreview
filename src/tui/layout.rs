@@ -86,8 +86,8 @@ pub fn prompt(text: &str, cursor: usize, width: usize) -> Line<'static> {
     fit(Line::from(spans), width)
 }
 
-/// The keys, most useful first; the footer shows as many as fit.
-const HINTS: &[(&str, &str)] = &[
+/// The Review tab's keys, most useful first; the footer shows as many as fit.
+pub const HINTS: &[(&str, &str)] = &[
     ("q", "quit"),
     ("j/k", "move"),
     ("r", "resume"),
@@ -102,13 +102,27 @@ const HINTS: &[(&str, &str)] = &[
     ("^d/^u", "scroll"),
 ];
 
+/// The My PRs tab's keys: what can be done to your own PRs comes first,
+/// and nothing that only means something for a review.
+pub const MINE_HINTS: &[(&str, &str)] = &[
+    ("f", "fix"),
+    ("b", "babysit"),
+    ("B", "babysit all"),
+    ("u", "conflicts"),
+    ("c", "comments"),
+    ("o", "open"),
+    ("j/k", "move"),
+    ("tab", "review"),
+    ("q", "quit"),
+];
+
 /// The hint that ends the footer at every width: the key for the full list.
 const HELP_KEY: &str = "?";
 const HELP_WHAT: &str = "keys";
 
 /// The line under the panes: what the run is doing, or the latest message,
 /// and at the right edge the keys that fit.
-pub fn footer(status: &str, message: Option<&str>, width: usize) -> Line<'static> {
+pub fn footer(status: &str, message: Option<&str>, width: usize, keys: &[(&str, &str)]) -> Line<'static> {
     let left = match message {
         Some(m) => Span::from(cut(m, width)).yellow(),
         None => Span::from(cut(status, width)).dark_gray(),
@@ -120,7 +134,7 @@ pub fn footer(status: &str, message: Option<&str>, width: usize) -> Line<'static
     let help_width = console::measure_text_width(&help);
     let mut hints: Vec<Span<'static>> = Vec::new();
     let mut hints_width = 0;
-    for (key, what) in HINTS {
+    for (key, what) in keys {
         let piece = format!("{}{key} {what}", if hints.is_empty() { "" } else { "  " });
         let w = console::measure_text_width(&piece);
         // Two columns of air between the status and the keys, at least.
@@ -207,25 +221,33 @@ mod tests {
 
     #[test]
     fn the_footer_shows_the_keys_that_fit() {
-        let wide = text(&footer("2 running", None, 120));
+        let wide = text(&footer("2 running", None, 120, HINTS));
         assert!(wide.starts_with("2 running"));
         assert!(wide.contains("R review now"), "{wide}");
         assert!(wide.ends_with("? keys"), "the full list is always named last: {wide}");
         assert_eq!(console::measure_text_width(&wide), 120);
-        let narrow = text(&footer("2 running", None, 30));
+        let narrow = text(&footer("2 running", None, 30, HINTS));
         assert!(narrow.contains("q quit") && !narrow.contains("resume"), "{narrow}");
         assert!(narrow.ends_with("? keys"), "cut keys, but never this one: {narrow}");
         assert!(console::measure_text_width(&narrow) <= 30);
         // A long note still leaves room for it.
-        let noted = text(&footer("2 running", Some("note: could not set the eyes reaction on PR #9"), 60));
+        let noted = text(&footer("2 running", Some("note: could not set the eyes reaction on PR #9"), 60, HINTS));
         assert!(noted.ends_with("? keys"), "{noted}");
-        let tiny = text(&footer("2 running · 1 queued", None, 12));
+        let tiny = text(&footer("2 running · 1 queued", None, 12, HINTS));
         assert_eq!(tiny, "2 running ·…");
     }
 
     #[test]
+    fn my_prs_has_a_footer_of_its_own() {
+        let line = text(&footer("1 running", None, 120, MINE_HINTS));
+        assert!(line.contains("f fix  b babysit  B babysit all  u conflicts  c comments"), "{line}");
+        assert!(!line.contains("w watch") && !line.contains("R review now"), "{line}");
+        assert!(line.ends_with("? keys"), "{line}");
+    }
+
+    #[test]
     fn a_message_takes_the_status_place() {
-        let line = footer("2 running", Some("press x again to stop PR #9"), 80);
+        let line = footer("2 running", Some("press x again to stop PR #9"), 80, HINTS);
         assert!(text(&line).starts_with("press x again to stop PR #9"));
     }
 }

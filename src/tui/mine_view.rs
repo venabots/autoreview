@@ -245,7 +245,7 @@ fn task_lines(row: &MineRow) -> Vec<Line<'static>> {
         out.push(Line::from("x x stops it").dark_gray());
         return out;
     }
-    let hint = Line::from("b babysits it (conflicts, comments, CI) · c handles its review comments").dark_gray();
+    let hint = Line::from("f fixes it · b babysits it · u fixes conflicts · c answers comments").dark_gray();
     let Some((job, pass_dir)) = &row.last else {
         return vec![hint];
     };
@@ -286,7 +286,7 @@ pub fn tab_bar(shown: Tab, reviews: usize, mine: usize, babysitting: usize, widt
 
 /// Why a key that only means something on a review cannot act here.
 pub fn not_a_review(pr: u64) -> String {
-    format!("PR #{pr} is yours, and the run reviews only other people's work; b babysits it, c handles its comments")
+    format!("PR #{pr} is yours, and the run reviews only other people's work; f fixes it, b babysits it")
 }
 
 #[cfg(test)]
@@ -375,7 +375,7 @@ mod tests {
         assert!(out.contains("LAST TASK"), "{out}");
         assert!(out.contains("verdict   pushed"), "{out}");
         assert!(out.contains("log       /run/pass-1/fix/pr-4.log"), "{out}");
-        assert!(out.contains("b babysits it"), "{out}");
+        assert!(out.contains("f fixes it · b babysits it"), "{out}");
     }
 
     #[test]

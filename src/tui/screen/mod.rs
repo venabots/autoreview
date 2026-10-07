@@ -282,7 +282,7 @@ impl Screen {
                 // editor's: j and k are letters, not moves.
                 Event::Key(key) if self.editing.is_some() => out.extend(self.edit(key)),
                 Event::Key(key) => {
-                    if let Some(intent) = keys::intent(key) {
+                    if let Some(intent) = keys::intent(key, self.tab == Tab::Mine) {
                         out.extend(self.press(intent, Instant::now()));
                     }
                 }
@@ -359,7 +359,8 @@ impl Screen {
             Some(input) => layout::prompt(&input.text(), input.cursor(), width),
             None => {
                 let status = self.status(rows, now);
-                layout::footer(&status, self.message.as_ref().map(|(m, _)| m.as_str()), width)
+                let hints = if self.tab == Tab::Mine { layout::MINE_HINTS } else { layout::HINTS };
+                layout::footer(&status, self.message.as_ref().map(|(m, _)| m.as_str()), width, hints)
             }
         };
         f.render_widget(footer, areas.footer);
@@ -586,8 +587,11 @@ impl Screen {
                 self.show(self.side.toggle(Side::Keys));
             }
             Intent::SwitchTab => self.switch_tab(),
-            Intent::Babysit => return self.ask_task(crate::task::Task::Fix),
+            Intent::Fix => return self.ask_task(crate::task::Task::Fix),
             Intent::Comments => return self.ask_task(crate::task::Task::Comments),
+            Intent::Conflicts => return self.ask_task(crate::task::Task::Conflicts),
+            Intent::Babysit => return self.toggle_babysit(),
+            Intent::BabysitAll => return self.toggle_babysit_all(),
             Intent::Back => {
                 if self.side != Side::Detail {
                     self.side = Side::Detail;
