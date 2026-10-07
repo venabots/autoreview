@@ -298,6 +298,7 @@ mod tests {
             "panel-review/pr-line-url.sh",
             "recheck-pr/scripts/fetch_pr_threads.sh",
             "auto-post-panel-review-comments/scripts/pr-line-url.sh",
+            "auto-post-panel-review-comments/scripts/pr-diff-lines.sh",
         ] {
             let path = dir.join(".claude/skills").join(script);
             let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
