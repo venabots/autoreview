@@ -5,14 +5,17 @@
 # autoreview
 
 Reviews the pull requests in a GitHub repo. A panel of models reviews each PR
-independently. autoreview posts the findings, and approves the PRs that come
-back clean.
+independently. autoreview submits one GitHub review for each PR: it approves
+the PRs that come back clean, and requests changes on the ones that need them.
 
 - **Several models, one review.** Each model reviews the diff independently.
   One more pass checks their findings against the code, and only the findings
-  that hold up are posted.
-- **Approval is gated.** It approves only when at least 75% of the panel
-  answered and nothing above LOW remains.
+  that hold up are posted. They land as one review, with every comment inside
+  it.
+- **Every review has a verdict.** It approves only when at least 75% of the
+  panel answered and nothing above LOW remains. It requests changes when a
+  finding above LOW holds up. When it cannot decide, it submits a comment
+  review that says why.
 - **It keeps watching.** New PRs and new pushes are reviewed as they arrive.
   It waits for CI to pass first.
 - **It says when it is looking.** A PR carries an eyes reaction while its
@@ -66,10 +69,10 @@ Agents have two jobs in a review:
 | **Panelists**    | `claude`, `codex`, `opencode`       | every one of them on your `PATH`  | `PANEL_REVIEW_PANELISTS="claude:opus-4.8 codex"`       |
 
 - The orchestrator runs the review. It starts the panel, merges the findings,
-  posts them and approves.
+  and submits one review with a verdict.
 - The panelists each review the diff, independently of each other.
 - Approval needs at least two panelists to answer. With only one agent
-  installed, reviews post but never approve.
+  installed, reviews request changes or comment, but never approve.
 - Recommended: install `claude` and `codex`. Add `opencode` for a third
   opinion.
 
@@ -107,7 +110,9 @@ ln -sfn "$PWD/skills/"* ~/.agents/skills/
 | `fallback: none (codex is not installed)` | There is no second provider to retry a failed review. Install `codex` (or `claude`).                                                                                  |
 | `error #9: You've hit your session limit` | The provider hit a usage limit. The fallback retries the review once under the other provider.                                                                        |
 | A PR is not reviewed                      | Its CI is failing or pending, it sits on another open PR, or nothing changed since your last review. `--skip-wait-for-ci` and `--stacked` remove the first two holds. |
-| Findings post, but no approval            | The gate held it: a finding above LOW, or fewer than 75% of the panel answered (often one provider is down). The next `--babysit` or `--watch` pass tries again.      |
+| VERDICT says `changes requested`          | A finding above LOW held up. A branch that requires reviews cannot merge until a later pass approves, which happens when the author fixes or explains every finding.  |
+| VERDICT says `commented`                  | No decision: fewer than 75% of the panel answered (often one provider is down), or the head moved during the review. The first line of the review on the PR says why. |
+| Reviews still post one comment at a time  | Your installed skills are older than the binary. See [Review skills](#review-skills).                                                                                 |
 | VERDICT says `nothing posted`             | The review finished with nothing to submit, or GitHub has no record of a submission. It is not a rejection.                                                           |
 | A codex run refuses to start              | The skills are not in `~/.agents/skills/`. See [Review skills](#review-skills).                                                                                       |
 | You cannot select text in the view        | The view has the mouse. Press `m` to give it back to the terminal.                                                                                                    |
@@ -125,6 +130,7 @@ autoreview             picks every PR that is NEW or UPDATED, once CI passes
   └─ dash-p → claude   one headless agent per PR, --jobs at a time
        └─ /auto-review a panel of models reviews the diff independently,
                        their findings are synthesized, verified, and posted
+                       as one review: approve, request changes, or comment
   + eyes reaction      on the PR while its review runs, off when it ends
   ← verdict            read back from GitHub, not taken from the agent's word
   ↻ fallback → codex   the agent's provider failed; the other one retries it
@@ -247,8 +253,8 @@ checks before it spends anything and refuses if they are missing.
 | [`auto-review`](skills/auto-review)                                         | `autoreview` unattended: the sweep, `--babysit`, `--watch`                                     |
 | [`panel-review`](skills/panel-review)                                       | `autoreview --pick`, and `--no-post` (even with `--continue`); the first step of `auto-review` |
 | [`recheck-pr`](skills/recheck-pr)                                           | `autoreview --continue`, and every later `--babysit` or `--watch` pass                         |
-| [`auto-post-panel-review-comments`](skills/auto-post-panel-review-comments) | `auto-review`, to post what the panel found                                                    |
-| [`approve-pr`](skills/approve-pr)                                           | `auto-review` and `recheck-pr`, when the gate passes                                           |
+| [`auto-post-panel-review-comments`](skills/auto-post-panel-review-comments) | `auto-review` and `recheck-pr`, to submit the one review that holds every comment              |
+| [`approve-pr`](skills/approve-pr)                                           | `auto-review` and `recheck-pr`, for the follow-up after an approval                            |
 | [`pr-review-tab`](skills/pr-review-tab)                                     | `review-prs --auto` and `review-prs --babysit`, to close its own tab                           |
 
 They are versioned with the binaries because they change with them: a flag the
@@ -301,7 +307,7 @@ autoreview --focus "be strict about the ledger migration"
 Use it for what you care about today. Anything the repo always cares about
 belongs in its `CLAUDE.md`, which the panelists read anyway.
 
-**`--no-post` leaves the PR alone.** No comments, no approval — the reviews go
+**`--no-post` leaves the PR alone.** No review, no comments — the reviews go
 to `pr-N.review.md` and the summary says nothing was posted:
 
 ```sh
@@ -361,10 +367,12 @@ reopen any review with: claude --resume <SESSION>
 Two columns worth reading carefully:
 
 - **RESULT** is the review process: `done`, `timed out`, `failed (exit 10)`.
-- **VERDICT** is what landed on the PR: `approved`, `commented`,
-  `changes requested`, or `nothing posted` when the review finished without
-  leaving a review behind. `nothing posted` is not a rejection; it means the
-  reviewer had nothing to submit, or that GitHub has no record of a submission.
+- **VERDICT** is what landed on the PR: `approved`, `changes requested`,
+  `commented`, or `nothing posted` when the review finished without
+  leaving a review behind. `changes requested` means a finding above LOW held
+  up. `commented` means the reviewer could not decide, and its review says
+  why. `nothing posted` is not a rejection; it means the reviewer had nothing
+  to submit, or that GitHub has no record of a submission.
 
 A failed review is followed by one `error` line that says why, in the
 harness's own words -- `error #9 #8: You've hit your session limit · resets
@@ -381,8 +389,8 @@ your session limit · resets 12pm (America/New_York)`.
 ### Orchestrators and the fallback
 
 The **orchestrator** is the agent that runs the review: one session that reads
-the skill, fans the panel out, synthesizes the findings, posts them, and
-approves. It is not the panel. The panel is chosen by the
+the skill, fans the panel out, synthesizes the findings, and submits one
+review with a verdict. It is not the panel. The panel is chosen by the
 [`panel-review`](skills/panel-review) skill and is several models either way —
 `--orchestrator` picks the one driving them.
 
@@ -467,9 +475,11 @@ the environment, which is where a cron line usually wants them.
 _orchestrator_, but the panel is drawn from the same CLIs — so a provider
 being down also costs you its panelist. With three panelists and one down,
 coverage is 2/3, under the 75% the approval gate needs. The reviews still run,
-the findings still post; the stamp waits for a human or for the next
-`--babysit` pass once the provider is back. That is the intended trade: an
-approval is the one thing that should not be given on thin coverage.
+and a finding that holds up still gets a request for changes. A PR that looks
+clean gets a comment review that says too few reviewers answered; the stamp
+waits for a human or for the next `--babysit` pass once the provider is back.
+That is the intended trade: an approval is the one thing that should not be
+given on thin coverage.
 
 **A failing panelist is a different thing entirely, and is already handled.**
 A panelist that crashes or times out is not exit 10 and does not fail the
@@ -478,8 +488,9 @@ the synthesis is told not to count it toward consensus, and
 [`auto-review`](skills/auto-review)'s gate withholds approval unless at least
 **75% of the launched panel returned** and at least two did. So a panel that
 comes back short posts its findings and declines to approve, rather than
-approving on thin coverage. The panel table in the summary is where you see
-it:
+approving on thin coverage. It still requests changes on a finding above LOW,
+because a short panel does not make a verified fault less real. The panel
+table in the summary is where you see it:
 
 ```
 │ #8 ┆ claude-opus-4.7 ┆ failed   ┆ -        ┆ -      │

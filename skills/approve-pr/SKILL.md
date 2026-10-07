@@ -11,10 +11,13 @@ description: >
   verbatim. Auto-detects the target PR from the current branch when the
   user does not name one. After approving, if Slack MCP is available,
   reacts ✅ to this PR's review-request message in #dev and removes the
-  user's own 👀 reaction. Do NOT use to *request changes* or leave a
-  non-approving review (use a plain `gh pr review` / the PR comment
-  skills), to *generate* a review (`panel-review`), or to act on existing
-  review comments (`pr-comment-handler`).
+  user's own 👀 reaction. Also the follow-up step for `auto-review` and
+  `recheck-pr`: when one of them already submitted the approving review,
+  this skill confirms it and does the Slack step, and submits nothing. Do
+  NOT use to *request changes* or leave a non-approving review (use
+  `auto-review`, or a plain `gh pr review`), to *generate* a review
+  (`panel-review`), or to act on existing review comments
+  (`pr-comment-handler`).
 ---
 
 # approve-pr
@@ -56,6 +59,29 @@ example) is written in ASD-STE100 Simplified Technical English:
 2. **Body** — optional. Whatever message the user attached to the
    request ("approve with 'great work, merging Monday'"). If they gave
    none, you pick a fun default (see below).
+
+## The approval already landed
+
+`auto-review` and `recheck-pr` submit their own approving review, because
+the approval and the comments of the pass are one review. They then call
+this skill for the follow-up and say that the approval already landed.
+
+In that case, **do not submit a review**. A second approval is a second
+notification and a second entry on the PR. Do this instead:
+
+1. Run step 1 below, and confirm that the approval is on the PR:
+
+   ```
+   gh pr view <ref> --json latestReviews \
+     --jq '.latestReviews[] | select(.author.login == "<you>") | .state'
+   ```
+
+   Continue when the state is `APPROVED`. When it is not, stop and say so:
+   the caller's review did not land, and this skill does not repair it.
+
+2. Skip steps 2 and 3.
+3. Run step 4 (the Slack reaction) and step 5 (the report). In the report,
+   use the body the caller gave the review.
 
 ## Workflow
 
@@ -176,7 +202,11 @@ request`). If `author` from step 1 is the current user, don't even try
 
 - **Approve, never request-changes here.** This skill only ever passes
   `--approve`. If the user actually wants to block or request changes,
-  that's a different action — don't shoehorn it through here.
+  that's a different action — don't shoehorn it through here. A review
+  that carries comments and a verdict is `auto-review`'s work.
+
+- **One approval per pass.** When a caller says the approval already
+  landed, do not approve again. Confirm it, do the Slack step, and report.
 
 - **The fun body is the _only_ text.** When defaulting, don't append a
   rationale, a summary of the review, or attribution. The emoji or short

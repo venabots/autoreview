@@ -332,15 +332,20 @@ When _not_ to use:
    DECISION: Approve
    ```
 
-   The verdict is one of three fixed strings. It follows from the buckets
-   above, not from a fresh judgment, and it agrees with the gate
-   `auto-review` applies to the same synthesis. Apply the rules in order. The
-   first rule that matches wins, so every synthesis has exactly one verdict:
-   1. `DECISION: Request changes` — `### must-fix` has an entry. A promoted
-      `Approach`, `Purpose`, or `Proof` flag already sits in a bucket, so it
-      needs no rule of its own.
-   2. `DECISION: Comment` — `### should-fix` has an entry.
-   3. `DECISION: Approve` — everything else: no finding, or polish only.
+   The verdict is one of two fixed strings. It follows from the buckets
+   above, not from a fresh judgment, and it reads those buckets the way
+   `auto-review` does. Apply the rules in order. The first rule that matches
+   wins, so every synthesis has exactly one verdict:
+   1. `DECISION: Request changes` — `### must-fix` or `### should-fix` has
+      an entry. A promoted `Approach`, `Purpose`, or `Proof` flag already
+      sits in a bucket, so it needs no rule of its own.
+   2. `DECISION: Approve` — everything else: no finding, or polish only.
+
+   There is no `DECISION: Comment` here. A comment review means that no
+   decision was possible (too few reviewers answered, a draft, a head that
+   moved), and only a skill that posts decides that. So `auto-review` can
+   submit a comment review where this line says `Approve`: the line is what
+   the findings recommend, not a promise of what a posting skill does.
 
    This skill posts nothing, so the line says what the review recommends, not
    what happened on the PR. Put no reason on the line; the sections above are
@@ -723,8 +728,8 @@ When _not_ to use:
    **Per-finding shape (promoted `Purpose (unknown):`).** Lives under
    `### polish` as a LOW-severity entry. The location is the PR description (or
    the commit message for non-PR targets), written as `PR description` in place
-   of `file:line`; downstream skills post it as a top-level PR comment rather
-   than an inline one:
+   of `file:line`; downstream skills put it in the body of their review rather
+   than in an inline comment:
 
    ```md
    - [LOW] (docs) PR description — states no problem this change solves; the
