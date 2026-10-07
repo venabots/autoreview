@@ -16,8 +16,9 @@ pub enum Action {
     /// Stop the reviews and print the summary, as ctrl-C did before raw
     /// mode turned it into a key.
     Stop,
-    /// Stop one running review, by its PR number, after a second press.
-    StopReview(u64),
+    /// Stop one running job, a review or a task, by its PR number, after a
+    /// second press.
+    StopJob(u64),
     /// Review this PR next: first among the reviews this pass has not
     /// started, or first in the next pass.
     ReviewNow(u64),

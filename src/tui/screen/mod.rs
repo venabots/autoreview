@@ -135,6 +135,9 @@ pub struct Screen {
     /// Your own open PRs, as the latest look found them.
     mine: Vec<crate::mine::MyPr>,
     task_pick: Option<TaskPick>,
+    /// Tasks making their worktree, as the pool last said. They count as
+    /// running for the quit.
+    preparing: usize,
 }
 
 /// Whether a point is inside an area. The pointer arrives in screen
@@ -190,6 +193,19 @@ impl Screen {
             stash: TabState::default(),
             mine: Vec::new(),
             task_pick: None,
+            preparing: 0,
+        }
+    }
+
+    pub fn set_preparing(&mut self, n: usize) {
+        self.preparing = n;
+    }
+
+    /// What `x` stops on the tab shown: a task on My PRs, a review on Review.
+    fn job_word(&self) -> &'static str {
+        match self.tab {
+            Tab::Mine => "task",
+            Tab::Review => "review",
         }
     }
 
@@ -282,7 +298,7 @@ impl Screen {
             let rows = model::rows(&src);
             // Counted from every review and every task, whichever tab is
             // shown: q on My PRs must not quit past a running review.
-            self.running = rows.iter().filter(|r| r.running()).count() + mine_view::running(jobs);
+            self.running = rows.iter().filter(|r| r.running()).count() + mine_view::running(jobs) + self.preparing;
             let counts = (rows.len(), mine.len());
             match self.tab {
                 Tab::Review => self.render_rows(f, &rows, counts),
@@ -589,12 +605,12 @@ impl Screen {
                 Some((pr, Ok(()))) => match keys::confirm(self.armed, Pending::Stop(pr), now) {
                     Press::Arm(armed) => {
                         self.armed = Some(armed);
-                        self.flash(format!("press x again to stop PR #{pr}'s review"));
+                        self.flash(format!("press x again to stop PR #{pr}'s {}", self.job_word()));
                     }
                     Press::Fire => {
                         self.armed = None;
-                        self.flash(format!("stopping PR #{pr}'s review"));
-                        return vec![Action::StopReview(pr)];
+                        self.flash(format!("stopping PR #{pr}'s {}", self.job_word()));
+                        return vec![Action::StopJob(pr)];
                     }
                 },
                 Some((_, Err(why))) => self.flash(why),
@@ -626,7 +642,7 @@ impl Screen {
                 match keys::confirm(self.armed, Pending::Quit, now) {
                     Press::Arm(armed) => {
                         self.armed = Some(armed);
-                        self.flash(format!("press q again to stop {} and quit", count(self.running, "running review")));
+                        self.flash(format!("press q again to stop {} and quit", count(self.running, "running job")));
                     }
                     Press::Fire => return vec![Action::Stop],
                 }

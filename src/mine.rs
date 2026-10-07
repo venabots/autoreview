@@ -26,7 +26,6 @@ const QUERY: &str = "
               title
               isDraft
               headRefName
-              headRefOid
               isCrossRepository
               reviewDecision
               mergeable
@@ -86,7 +85,6 @@ pub struct MyPr {
     pub title: String,
     pub draft: bool,
     pub branch: String,
-    pub head: String,
     /// From a fork: its branch is not on `origin`, so no worktree can be
     /// made for it here.
     pub cross_repo: bool,
@@ -205,8 +203,6 @@ struct Node {
     is_draft: bool,
     #[serde(rename = "headRefName", default)]
     head_ref_name: String,
-    #[serde(rename = "headRefOid", default)]
-    head_ref_oid: String,
     #[serde(rename = "isCrossRepository", default)]
     is_cross_repository: bool,
     #[serde(rename = "reviewDecision")]
@@ -247,7 +243,6 @@ impl Node {
             title: self.title,
             draft: self.is_draft,
             branch: self.head_ref_name,
-            head: self.head_ref_oid,
             cross_repo: self.is_cross_repository,
             review: Review::from_raw(self.review_decision.as_deref()),
             merge: Merge::from_raw(self.mergeable.as_deref()),
@@ -307,7 +302,6 @@ mod tests {
             title: "My own work".into(),
             draft: false,
             branch: "me/my-own-work".into(),
-            head: "sha4".into(),
             cross_repo: false,
             review: Review::Required,
             merge: Merge::Clean,
@@ -357,7 +351,7 @@ mod tests {
         let prs = parse(&raw).unwrap();
         assert_eq!(prs.len(), 1, "a node that is not a PR is dropped");
         let p = &prs[0];
-        assert_eq!((p.number, p.branch.as_str(), p.head.as_str()), (4, "me/my-own-work", "sha4"));
+        assert_eq!((p.number, p.branch.as_str()), (4, "me/my-own-work"));
         assert_eq!(p.review, Review::ChangesRequested);
         assert_eq!(p.open_threads, 2);
         assert_eq!(p.ci, Ci::Passing);

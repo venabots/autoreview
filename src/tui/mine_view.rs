@@ -19,7 +19,7 @@ use crate::task::{Request, Task};
 use crate::ui::{cost_str, fmt_dur, result_label, verdict_label};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Which list the screen shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,7 +41,8 @@ impl Tab {
 pub struct MineRow<'a> {
     pub pr: &'a MyPr,
     pub live: Option<&'a Job>,
-    pub last: Option<(&'a Job, &'a Path)>,
+    /// The last task to end, and the directory its files are in.
+    pub last: Option<(&'a Job, PathBuf)>,
 }
 
 impl MineRow<'_> {
@@ -57,7 +58,6 @@ impl MineRow<'_> {
             task,
             title: self.pr.title.clone(),
             branch: self.pr.branch.clone(),
-            head: self.pr.head.clone(),
             cross_repo: self.pr.cross_repo,
         }
     }
@@ -73,8 +73,14 @@ pub fn rows<'a>(mine: &'a [MyPr], jobs: &'a [Job], pass_dir: &'a Path, archive: 
         .map(|pr| {
             let tasks = |j: &&Job| j.pr == pr.number && !j.task.is_review();
             let live = jobs.iter().filter(tasks).find(|j| !finished(j));
-            let current = jobs.iter().filter(tasks).filter(|j| finished(j)).map(|j| (j, pass_dir));
-            let archived = archive.iter().filter(|a| tasks(&&a.job)).map(|a| (&a.job, a.pass_dir.as_path()));
+            // A task's files are in its own directory under the pass. The
+            // archive records it; for the pass in progress it is joined here.
+            let current = jobs
+                .iter()
+                .filter(tasks)
+                .filter(|j| finished(j))
+                .map(|j| (j, j.task.file_tag().map_or(pass_dir.to_path_buf(), |tag| pass_dir.join(tag))));
+            let archived = archive.iter().filter(|a| tasks(&&a.job)).map(|a| (&a.job, a.pass_dir.clone()));
             // The pass in progress is newer than anything archived.
             let last = archived.chain(current).last();
             MineRow { pr, live, last }
@@ -83,8 +89,10 @@ pub fn rows<'a>(mine: &'a [MyPr], jobs: &'a [Job], pass_dir: &'a Path, archive: 
 }
 
 /// How many of your tasks are running, for the quit that would stop them.
+/// One that has exited still counts until it is read back: quitting then
+/// loses the verdict, which only the readback knows.
 pub fn running(jobs: &[Job]) -> usize {
-    jobs.iter().filter(|j| !j.task.is_review() && j.state == JobState::Running && !j.reaped).count()
+    jobs.iter().filter(|j| !j.task.is_review() && j.state == JobState::Running).count()
 }
 
 fn icon(row: &MineRow, spinner: &'static str) -> Span<'static> {
@@ -219,7 +227,7 @@ fn task_lines(row: &MineRow) -> Vec<Line<'static>> {
         return out;
     }
     let hint = Line::from("b babysits it (conflicts, comments, CI) · c handles its review comments").dark_gray();
-    let Some((job, pass_dir)) = row.last else {
+    let Some((job, pass_dir)) = &row.last else {
         return vec![hint];
     };
     let mut out = vec![
@@ -269,7 +277,6 @@ mod tests {
             title: "My own work".into(),
             draft: false,
             branch: "me/my-own-work".into(),
-            head: "sha4".into(),
             cross_repo: false,
             review: Review::Required,
             merge: Merge::Clean,
@@ -314,6 +321,9 @@ mod tests {
         assert!(rows[0].live.is_none());
         assert_eq!(running(&jobs), 0, "a running review is counted by the review list");
         assert_eq!(running(&[task(4, JobState::Running)]), 1);
+        let finishing = Job { reaped: true, ..task(4, JobState::Running) };
+        assert_eq!(running(&[finishing]), 1, "until its worktree is let go");
+        assert_eq!(running(&[task(4, JobState::Done)]), 0);
     }
 
     #[test]
@@ -344,6 +354,15 @@ mod tests {
     }
 
     #[test]
+    fn a_task_that_ended_in_this_pass_names_its_own_log() {
+        let prs = vec![mine(4)];
+        let jobs = vec![task(4, JobState::Done)];
+        let rows = rows(&prs, &jobs, Path::new("/run/pass-1"), &[]);
+        let out: Vec<String> = detail(&rows[0]).iter().map(text).collect();
+        assert!(out.contains(&"log       /run/pass-1/babysit/pr-4.log".to_string()), "{out:?}");
+    }
+
+    #[test]
     fn the_tab_bar_counts_both_lists() {
         let line = tab_bar(Tab::Mine, 5, 1, 80);
         assert_eq!(text(&line), " Review 5    My PRs 1    tab switches");
@@ -355,6 +374,6 @@ mod tests {
         let prs = vec![mine(4)];
         let rows = rows(&prs, &[], Path::new("/p"), &[]);
         let r = rows[0].request(Task::Comments);
-        assert_eq!((r.pr, r.task, r.branch.as_str(), r.head.as_str()), (4, Task::Comments, "me/my-own-work", "sha4"));
+        assert_eq!((r.pr, r.task, r.branch.as_str()), (4, Task::Comments, "me/my-own-work"));
     }
 }

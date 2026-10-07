@@ -659,7 +659,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             }
             let jobs =
                 pool::run_pass(&queue, &info, &mut cfg, &ctx, &rundir, &dashp, &rx, &tx, &mut ui);
-            ui.print_summary(&jobs, &rundir.pass_dir);
+            // A pass whose only task was refused before it started has
+            // nothing to sum up; the refusal was said when it happened.
+            if !jobs.is_empty() {
+                ui.print_summary(&jobs, &rundir.pass_dir);
+            }
             if cfg.no_post {
                 // Every VERDICT in that table reads "nothing posted", which
                 // is the alarming state on an ordinary run and the whole

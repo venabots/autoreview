@@ -66,9 +66,6 @@ pub struct Request {
     pub task: Task,
     pub title: String,
     pub branch: String,
-    /// The head commit when the key was pressed, which the readback compares
-    /// with to say whether the task pushed.
-    pub head: String,
     pub cross_repo: bool,
 }
 

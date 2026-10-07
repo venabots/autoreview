@@ -111,7 +111,7 @@ fn stopping_a_review_takes_two_presses_on_the_same_pr() {
     let t0 = Instant::now();
     assert!(screen.press(Intent::Stop, t0).is_empty());
     assert!(screen.message.as_ref().unwrap().0.contains("press x again"));
-    assert_eq!(screen.press(Intent::Stop, t0), vec![Action::StopReview(9)]);
+    assert_eq!(screen.press(Intent::Stop, t0), vec![Action::StopJob(9)]);
     // Any other key in between disarms.
     screen.press(Intent::Stop, t0);
     screen.press(Intent::Down, t0);
@@ -132,7 +132,7 @@ fn quitting_asks_again_only_while_reviews_run() {
     frame(&mut screen, &[job(9, JobState::Running)], &[], 120);
     let t0 = Instant::now();
     assert!(screen.press(Intent::Quit, t0).is_empty());
-    assert!(screen.message.as_ref().unwrap().0.contains("stop 1 running review and quit"));
+    assert!(screen.message.as_ref().unwrap().0.contains("stop 1 running job and quit"));
     assert_eq!(screen.press(Intent::Quit, t0), vec![Action::Stop]);
 
     let mut idle = Screen::new(None, header(true));
@@ -340,7 +340,6 @@ fn my_pr(n: u64) -> crate::mine::MyPr {
         title: "My own work".into(),
         draft: false,
         branch: "me/my-own-work".into(),
-        head: "sha4".into(),
         cross_repo: false,
         review: crate::mine::Review::Required,
         merge: crate::mine::Merge::Clean,

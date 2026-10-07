@@ -66,7 +66,7 @@ pub fn stop_group(pgid: i32) {
 /// Ctrl-C (or a dropped ssh session) must not leave reviews running, and the
 /// reviews that already finished are still worth reopening -- so hand back
 /// their session ids on the way out rather than dropping them.
-fn interrupt(jobs: &[Job], marks: &mut Marks, ui: &mut Ui) -> ! {
+fn interrupt(jobs: &[Job], marks: &mut Marks, tasks: &mut Tasks, rx: &Receiver<Event>, ctx: &RepoContext, ui: &mut Ui) -> ! {
     // The reviews before anything prints. A hangup leaves no terminal to
     // print to, and a print that fails panics, which would end the process
     // with the reviewers still running and still spending.
@@ -82,10 +82,27 @@ fn interrupt(jobs: &[Job], marks: &mut Marks, ui: &mut Ui) -> ! {
     // would take its reaction off the PR.
     marks.clear_all();
     marks.settle();
+    // And each task's worktree: removed when it holds nothing, kept and
+    // named when it does. A worktree left behind pins its branch, and the
+    // next task on that PR would be refused for it.
+    // A task still making its worktree has its fetch stopped and is waited
+    // for, briefly: the worktree it makes would otherwise outlive the run
+    // and pin its branch.
+    crate::task_worktree::stop_fetches();
+    // The notes name worktrees kept for their work. They go under the
+    // summary, which is printed once the terminal is back: with the view
+    // up, stderr is the run log.
+    for note in tasks.settle_preparing(rx, ctx).into_iter().chain(tasks.finish_all(ctx)) {
+        eprintln!("{note}");
+        ui.after_summary(note);
+    }
     // Then the terminal: the full-screen view holds it in raw mode, and the
     // summary must land on a terminal that has been given back.
     ui.interrupted(jobs)
 }
+
+/// How long an interrupt waits for a task still making its worktree.
+const SETTLE_FOR: Duration = Duration::from_secs(5);
 
 struct Deadline {
     at: Instant,
@@ -179,12 +196,19 @@ struct Tasks {
     roots: Vec<PathBuf>,
     /// PRs whose worktree is being made. The pass does not end while any is.
     preparing: Vec<u64>,
+    /// Where task worktrees are made, to name one an interrupt cut short.
+    run_root: PathBuf,
     running: HashMap<usize, task_run::Running>,
 }
 
 impl Tasks {
-    fn new(cfg: &Config, ctx: &RepoContext) -> Tasks {
-        Tasks { roots: task::skill_roots(&cfg.orchestrator, &ctx.repo_root), preparing: Vec::new(), running: HashMap::new() }
+    fn new(cfg: &Config, ctx: &RepoContext, run_root: &std::path::Path) -> Tasks {
+        Tasks {
+            roots: task::skill_roots(&cfg.orchestrator, &ctx.repo_root),
+            preparing: Vec::new(),
+            run_root: run_root.to_path_buf(),
+            running: HashMap::new(),
+        }
     }
 
     fn preparing(&self) -> bool {
@@ -200,7 +224,7 @@ impl Tasks {
     /// The PR's head before task `idx` started, which the readback compares
     /// with. None for a review.
     fn head(&self, idx: usize) -> Option<String> {
-        self.running.get(&idx).map(|t| t.head.clone())
+        self.running.get(&idx).map(|t| t.worktree.head.clone())
     }
 
     /// A person asked for a task. Refused with a note, or its worktree is
@@ -245,14 +269,14 @@ impl Tasks {
             Err(e) => {
                 ui.note(refused(format!("could not make its log directory: {e}")));
                 if let Some(note) = task_run::finish(&ctx.repo_root, request.pr, &worktree) {
-                    ui.note(note);
+                    kept(ui, note);
                 }
                 return None;
             }
         };
         let idx = jobs.len();
         jobs.push(task_run::job(&request, &worktree, cfg, ctx));
-        self.running.insert(idx, task_run::Running { worktree, head: request.head, dir });
+        self.running.insert(idx, task_run::Running { worktree, dir });
         Some(idx)
     }
 
@@ -271,16 +295,72 @@ impl Tasks {
     ) {
         job.state = state;
         job.exit_code = code;
-        let Some(running) = self.running.get(&idx) else { return };
+        let Some(running) = self.running.remove(&idx) else { return };
         if state == JobState::Failed && !job.stopped {
             job.error = report::read_agent_error(&running.dir.stdout_path(job.pr));
         }
         let (verdict, note) = task_run::verdict(job.pr, readback);
         job.verdict = verdict;
-        for note in note.into_iter().chain(task_run::finish(&ctx.repo_root, job.pr, &running.worktree)) {
+        if let Some(note) = note {
             ui.note(note);
         }
+        if let Some(note) = task_run::finish(&ctx.repo_root, job.pr, &running.worktree) {
+            kept(ui, note);
+        }
     }
+
+    /// Let task `idx`'s worktree go: removed, or kept with a note.
+    fn release(&mut self, idx: usize, ctx: &RepoContext) -> Option<String> {
+        let running = self.running.remove(&idx)?;
+        task_run::finish(&ctx.repo_root, running.worktree.pr, &running.worktree)
+    }
+
+    /// Let every task's worktree go, for a pass that is being interrupted.
+    fn finish_all(&self, ctx: &RepoContext) -> Vec<String> {
+        self.running
+            .values()
+            .filter_map(|t| task_run::finish(&ctx.repo_root, t.worktree.pr, &t.worktree))
+            .collect()
+    }
+
+    /// Wait, up to `SETTLE_FOR`, for the tasks still making their worktree,
+    /// and let each one that was made go. For an interrupt: nothing else
+    /// would remove them.
+    fn settle_preparing(&mut self, rx: &Receiver<Event>, ctx: &RepoContext) -> Vec<String> {
+        let until = Instant::now() + SETTLE_FOR;
+        let mut notes = Vec::new();
+        while self.preparing() {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                // Its git may still finish after the run is gone. Say where
+                // the worktree would be, so a refusal later has a cause.
+                notes.extend(self.preparing.iter().map(|&pr| {
+                    let at = crate::task_worktree::path_for(&self.run_root, pr);
+                    format!("note: PR #{pr}'s worktree was still being made; check {}", at.display())
+                }));
+                break;
+            }
+            if let Ok(Event::TaskReady { request, worktree }) = rx.recv_timeout(left) {
+                self.preparing.retain(|&pr| pr != request.pr);
+                if let Ok(w) = worktree {
+                    notes.extend(task_run::finish(&ctx.repo_root, w.pr, &w));
+                }
+            }
+        }
+        notes
+    }
+
+    /// How many tasks are making their worktree, for the view's quit.
+    fn preparing_count(&self) -> usize {
+        self.preparing.len()
+    }
+}
+
+/// Say that a worktree was kept for the work in it, now and again under the
+/// summary: the flash goes, and the summary is what a person reads last.
+fn kept(ui: &mut Ui, note: String) {
+    ui.note(note.clone());
+    ui.after_summary(note);
 }
 
 /// Whether this job runs the review override. Only a review does: a task
@@ -416,22 +496,30 @@ pub fn focus_note(focus: Option<&str>) -> String {
     }
 }
 
-/// Stop one running review because a person asked. It ends as a failure,
-/// like a review killed from outside, and the next pass reviews the PR from
-/// scratch. A reaped review has nothing left to stop, and its process group
-/// id may already belong to something else.
-fn stop_review(jobs: &mut [Job], deadlines: &mut [Option<Deadline>], pr: u64, ui: &mut Ui) {
-    let Some(idx) = jobs.iter().position(|j| j.pr == pr) else { return };
-    let job = &mut jobs[idx];
-    let pgid = job.pgid.filter(|_| job.state == JobState::Running && !job.reaped);
-    let Some(pgid) = pgid else {
-        ui.note(format!("note: PR #{pr} has no review running; nothing to stop"));
+/// Stop one running job -- a review or a task -- because a person asked. It
+/// ends as a failure, like a job killed from outside. A stopped review is
+/// reviewed from scratch by the next pass; a stopped task lets its worktree
+/// go, or keeps it when it holds work. A reaped job has nothing left to
+/// stop, and its process group id may already belong to something else.
+fn stop_job(jobs: &mut [Job], deadlines: &mut [Option<Deadline>], pr: u64, ui: &mut Ui) {
+    let Some(idx) = stoppable(jobs, pr) else {
+        ui.note(format!("note: PR #{pr} has nothing running; nothing to stop"));
         return;
     };
+    let job = &mut jobs[idx];
+    let Some(pgid) = job.pgid else { return };
     job.stopped = true;
     deadlines[idx] = None;
     stop_group(pgid);
-    ui.note(format!("note: stopped the review of PR #{pr}"));
+    ui.note(format!("note: stopped the {} of PR #{pr}", what(job)));
+}
+
+/// The job `x` stops on PR `pr`: the one running now. A pass can hold an
+/// earlier job on the same PR that has ended -- a task, then a second task
+/// -- and stopping the first match would stop nothing.
+fn stoppable(jobs: &[Job], pr: u64) -> Option<usize> {
+    jobs.iter()
+        .position(|j| j.pr == pr && j.state == JobState::Running && !j.reaped && j.pgid.is_some())
 }
 
 /// Whether a finished attempt is one the fallback should retry: the
@@ -482,7 +570,7 @@ pub fn run_pass(
     let mut marks = Marks::new(&ctx.owner, &ctx.name, !cfg.no_post);
     let mut total = jobs.len();
     let jobs_max = cfg.jobs as usize;
-    let mut tasks = Tasks::new(cfg, ctx);
+    let mut tasks = Tasks::new(cfg, ctx, &rundir.root);
     let asked = ui.take_tasks();
 
     ui.begin_pass(total, asked.len(), cfg.jobs, &rundir.pass_dir);
@@ -527,6 +615,11 @@ pub fn run_pass(
                 running += 1;
             } else {
                 finished += 1;
+                // A task that never started has no monitor to end it, so
+                // its worktree is let go here.
+                if let Some(note) = tasks.release(idx, ctx) {
+                    kept(ui, note);
+                }
             }
         }
 
@@ -749,7 +842,7 @@ pub fn run_pass(
                 }
                 ui.note_transition(job);
             }
-            Ok(Event::Signal) => interrupt(&jobs, &mut marks, ui),
+            Ok(Event::Signal) => interrupt(&jobs, &mut marks, &mut tasks, rx, ctx, ui),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
@@ -758,8 +851,8 @@ pub fn run_pass(
         // rather than a signal. Read here, on this thread, after every wake.
         for action in ui.poll_input() {
             match action {
-                Action::Stop => interrupt(&jobs, &mut marks, ui),
-                Action::StopReview(pr) => stop_review(&mut jobs, &mut deadlines, pr, ui),
+                Action::Stop => interrupt(&jobs, &mut marks, &mut tasks, rx, ctx, ui),
+                Action::StopJob(pr) => stop_job(&mut jobs, &mut deadlines, pr, ui),
                 // Started next if this pass has it waiting; otherwise the
                 // loop takes it into the next pass.
                 Action::ReviewNow(pr) if !move_to_front(&mut order, &jobs, pr) => ui.request(pr),
@@ -793,9 +886,11 @@ pub fn run_pass(
             }
         }
 
+        ui.preparing(tasks.preparing_count());
         ui.render(&jobs);
     }
 
+    ui.preparing(0);
     ui.render(&jobs);
     // The last review's mark is still coming off. The view keeps drawing
     // while it does, so a slow GitHub reads as a wait and not a hang.
@@ -850,6 +945,21 @@ mod tests {
             panic!("an empty command line parses");
         };
         Config { fallback: Fallback::Spec(crate::orchestrator::Orchestrator::parse("codex").unwrap()), ..*cfg }
+    }
+
+    #[test]
+    fn x_stops_the_job_that_is_running_not_the_first_on_the_pr() {
+        let mut done = Job::new(4);
+        done.state = JobState::Done;
+        let mut live = Job::new(4);
+        live.state = JobState::Running;
+        live.pgid = Some(1);
+        let mut finishing = Job::new(4);
+        finishing.state = JobState::Running;
+        finishing.reaped = true;
+        assert_eq!(stoppable(&[done.clone(), live.clone()], 4), Some(1));
+        assert_eq!(stoppable(&[done, finishing], 4), None, "an exited job has no group to stop");
+        assert_eq!(stoppable(&[live], 9), None);
     }
 
     #[test]

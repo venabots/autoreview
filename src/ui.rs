@@ -226,7 +226,7 @@ pub struct Ui {
     /// The pass directory the current or last pass writes to.
     pass_dir: PathBuf,
     /// A line the full-screen run's summary ends with.
-    final_note: Option<String>,
+    final_notes: Vec<String>,
 }
 
 impl Ui {

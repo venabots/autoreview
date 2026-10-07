@@ -19,11 +19,10 @@ use crate::task_worktree::{self, Finished, Prepared};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
-/// What the pool keeps beside a task's job: where it runs, the commit the
-/// PR was at before it, and where its files go.
+/// What the pool keeps beside a task's job: its worktree, which also holds
+/// the commit the PR was at when it started, and where its files go.
 pub struct Running {
     pub worktree: Prepared,
-    pub head: String,
     pub dir: RunDir,
 }
 
@@ -113,7 +112,6 @@ mod tests {
             task: Task::Babysit,
             title: "My own work".into(),
             branch: "me/my-own-work".into(),
-            head: "sha4".into(),
             cross_repo: false,
         }
     }

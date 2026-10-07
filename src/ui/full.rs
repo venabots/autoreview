@@ -119,6 +119,14 @@ impl Ui {
         }
     }
 
+    /// How many tasks are making their worktree. The view counts them as
+    /// running, so a quit asks first: a worktree half made is one left behind.
+    pub fn preparing(&mut self, n: usize) {
+        if let Some(screen) = &mut self.screen {
+            screen.set_preparing(n);
+        }
+    }
+
     /// Your open PRs, as the latest look found them, for the My PRs tab.
     pub fn mine(&mut self, mine: Vec<crate::mine::MyPr>) {
         if let Some(screen) = &mut self.screen {
@@ -267,7 +275,7 @@ impl Ui {
     /// after a pass goes to the log while the view is up, and one that
     /// explains the summary has to be where the summary is.
     pub fn after_summary(&mut self, note: String) {
-        self.final_note = Some(note);
+        self.final_notes.push(note);
     }
 
     /// The summary a run ends with. A run that had the view gets one table
@@ -283,7 +291,7 @@ impl Ui {
                 } else {
                     self.print_summary(&reviews, root);
                 }
-                if let Some(note) = &self.final_note {
+                for note in &self.final_notes {
                     println!("{note}");
                 }
             }

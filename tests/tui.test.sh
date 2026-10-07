@@ -274,6 +274,12 @@ assert_equals "...and your checkout never left its branch" \
   "$(git -C "$SANDBOX/repo" rev-parse --abbrev-ref HEAD)" "$(git -C "$SANDBOX/repo" symbolic-ref --short HEAD)"
 check_cooked "the terminal is given back after a task"
 
+# A task that pushed nothing says so: GitHub reports the commit the
+# worktree started at.
+out="$(FAKE_GH_HEAD="$(git -C "$SANDBOX/repo" rev-parse HEAD)" run_tui --key 3.0:$'\t' --key 4.0:c --key 9.0:q -- --once)"
+assert_contains "c answers the comments with the installed skill" "$(claude_calls)" "-- /pr-comment-handler 4"
+assert_contains "...and a task that moved nothing says so" "$out" "nothing pushed"
+
 # Without the skill the key says so, and nothing runs.
 uninstall_task_skills
 out="$(run_tui --key 3.0:$'\t' --key 4.0:b --key 6.0:q -- --once)"

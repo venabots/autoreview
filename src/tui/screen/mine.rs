@@ -113,7 +113,7 @@ impl Screen {
     /// session belongs to the directory it ran in.
     fn pick_mine(&self, row: &MineRow) -> Picked {
         let pr = row.pr.number;
-        let resume = match (row.live, row.last) {
+        let resume = match (row.live, row.last.as_ref()) {
             (Some(_), _) => Err(format!("PR #{pr} has a task running; resume it when it ends")),
             (None, Some((job, _))) => match job.cwd.as_deref().filter(|d| d.is_dir()) {
                 Some(dir) => actions::resume_line(job, dir),

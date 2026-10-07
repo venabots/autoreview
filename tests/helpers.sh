@@ -328,8 +328,9 @@ case "$sub" in
         printf '%s\n' "view $*" >>"$SANDBOX/out/web"
         ;;
       # A task's readback: the PR's head after the task, which says whether
-      # it pushed. $FAKE_GH_HEAD is the head GitHub reports; the fixture's is
-      # sha<N>, so the default reads as "nothing pushed".
+      # it pushed. $FAKE_GH_HEAD is the head GitHub reports. The task compares
+      # it with the commit its worktree started at, so a test that wants
+      # "nothing pushed" sets it to that commit.
       *" headRefOid "*)
         printf '%s\n' "${FAKE_GH_HEAD:-sha$num}"
         ;;
