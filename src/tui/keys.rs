@@ -16,8 +16,9 @@ pub enum Action {
     /// Stop the reviews and print the summary, as ctrl-C did before raw
     /// mode turned it into a key.
     Stop,
-    /// Stop one running review, by its PR number, after a second press.
-    StopReview(u64),
+    /// Stop one running job, a review or a task, by its PR number, after a
+    /// second press.
+    StopJob(u64),
     /// Review this PR next: first among the reviews this pass has not
     /// started, or first in the next pass.
     ReviewNow(u64),
@@ -27,6 +28,9 @@ pub enum Action {
     /// What the reviewers are told to look at from now on, or None to tell
     /// them nothing in particular. What `--focus` sets at startup.
     Focus(Option<String>),
+    /// Run a task on one of your own PRs: babysit it, or answer its
+    /// comments. Started at the first free slot, in this pass or the next.
+    RunTask(crate::task::Request),
 }
 
 /// How long a first press stays armed.
@@ -53,6 +57,12 @@ pub enum Intent {
     Log,
     /// Show every key in the right pane.
     Keys,
+    /// Show the other list: Review, or My PRs.
+    SwitchTab,
+    /// Babysit the selected one of your PRs.
+    Babysit,
+    /// Answer the review comments on the selected one of your PRs.
+    Comments,
     Quit,
     /// ctrl-C: leave now, as it always has.
     Interrupt,
@@ -96,6 +106,9 @@ pub fn intent(key: KeyEvent) -> Option<Intent> {
         KeyCode::Char('f') => Some(Intent::Focus),
         KeyCode::Char('l') => Some(Intent::Log),
         KeyCode::Char('?') => Some(Intent::Keys),
+        KeyCode::Tab | KeyCode::BackTab => Some(Intent::SwitchTab),
+        KeyCode::Char('b') => Some(Intent::Babysit),
+        KeyCode::Char('c') => Some(Intent::Comments),
         KeyCode::Char('q') => Some(Intent::Quit),
         KeyCode::Esc => Some(Intent::Back),
         _ => None,
@@ -160,6 +173,11 @@ mod tests {
         assert_eq!(press(KeyCode::Char('f'), none), Some(Intent::Focus));
         assert_eq!(press(KeyCode::Char('l'), none), Some(Intent::Log));
         assert_eq!(press(KeyCode::Char('?'), none), Some(Intent::Keys));
+        assert_eq!(press(KeyCode::Tab, none), Some(Intent::SwitchTab));
+        // Two tabs, so shift-Tab goes to the same place.
+        assert_eq!(press(KeyCode::BackTab, KeyModifiers::SHIFT), Some(Intent::SwitchTab));
+        assert_eq!(press(KeyCode::Char('b'), none), Some(Intent::Babysit));
+        assert_eq!(press(KeyCode::Char('c'), none), Some(Intent::Comments));
         // Most terminals send ? with shift held; it is the same key.
         assert_eq!(press(KeyCode::Char('?'), KeyModifiers::SHIFT), Some(Intent::Keys));
         assert_eq!(press(KeyCode::Char('q'), none), Some(Intent::Quit));

@@ -116,7 +116,8 @@ setup_sandbox() {
         FAKE_CLAUDE_GARBAGE FAKE_CLAUDE_KILL_JOB FAKE_CLAUDE_TRAILER \
         FAKE_CLAUDE_TRANSCRIPT FAKE_CLAUDE_ERROR_MSG FAKE_CLAUDE_SHORT \
         FAKE_GH_APPROVED FAKE_GH_CLOSED FAKE_GH_MY_REVIEW \
-        FAKE_GH_VIEW_FAIL FAKE_GH_GRAPHQL_FAIL_AFTER FAKE_GH_REACTION_FAIL || true
+        FAKE_GH_VIEW_FAIL FAKE_GH_GRAPHQL_FAIL_AFTER FAKE_GH_REACTION_FAIL \
+        FAKE_GH_MINE_FAIL FAKE_GH_HEAD || true
   # The host may have a real dash-p and an inherited override for it; the
   # sandbox must only ever see its fake on PATH.
   unset DASHP_BIN || true
@@ -135,14 +136,52 @@ reset_spawn_log() {
   # behind, and every later log_line in this sandbox would then wait out the
   # full timeout before writing. The babysit tests kill runs by design.
   rmdir "$CLAUDE_LOG.lock" "$CLAUDE_LOG.events.lock" 2>/dev/null || true
-  rm -f "$SANDBOX/out/graphql-calls"
+  rm -f "$SANDBOX/out/graphql-calls" "$SANDBOX/out/mine-calls"
   : >"$SPAWN_LOG"
   : >"$SPAWN_LOG.labels"
   : >"$SANDBOX/out/header"
   : >"$CLAUDE_LOG"
   : >"$CLAUDE_LOG.events"
+  : >"$CLAUDE_LOG.cwd"
   : >"$SANDBOX/out/override"
   : >"$SANDBOX/out/reactions"
+}
+
+# Where each job ran, one "<pr> <dir>" line per job the fake dash-p started.
+job_dirs() {
+  cat "$CLAUDE_LOG.cwd" 2>/dev/null || true
+}
+
+# A bare origin for the sandbox repo holding PR #4's branch, me/my-own-work,
+# which a task on your PR checks out in a worktree of its own. drop_origin
+# takes the remote away again: the other tests run against a repo with none.
+# The bare repo itself goes with the sandbox.
+make_origin() {
+  git init -q --bare "$SANDBOX/origin.git"
+  git -C "$SANDBOX/repo" remote add origin "$SANDBOX/origin.git"
+  git -C "$SANDBOX/repo" push -q origin HEAD:refs/heads/me/my-own-work
+}
+
+drop_origin() {
+  git -C "$SANDBOX/repo" remote remove origin 2>/dev/null || true
+  git -C "$SANDBOX/repo" worktree prune 2>/dev/null || true
+}
+
+# Install the skills a task on your PR runs, where the sandbox's claude
+# looks for them. The bodies are never read: the fake dash-p runs nothing.
+install_task_skills() {
+  local skill
+  for skill in babysit-pr pr-comment-handler; do
+    mkdir -p "$CLAUDE_CONFIG_DIR/skills/$skill"
+    printf -- '---\nname: %s\n---\n' "$skill" >"$CLAUDE_CONFIG_DIR/skills/$skill/SKILL.md"
+  done
+}
+
+uninstall_task_skills() {
+  local skill
+  for skill in babysit-pr pr-comment-handler; do
+    rm -r "$CLAUDE_CONFIG_DIR/skills/$skill" 2>/dev/null || true
+  done
 }
 
 # Every reaction call the fake gh saw, one per line: the method and the path.
@@ -198,13 +237,30 @@ case "$sub" in
     target="${1:-}"; shift || true
     jq_filter=""
     method="GET"
+    query=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --jq) jq_filter="${2:-}"; shift 2 ;;
         --method) method="${2:-}"; shift 2 ;;
+        -f)
+          case "${2:-}" in query=*) query="${2#query=}" ;; esac
+          shift 2
+          ;;
         *)    shift ;;
       esac
     done
+    # The My PRs tab searches for your own PRs. It is its own query with its
+    # own fixture, and it does not count toward $FAKE_GH_GRAPHQL_FAIL_AFTER,
+    # whose tests are about the review list. $FAKE_GH_MINE_FAIL=1 fails it.
+    if [[ "$target" == "graphql" && "$query" == *"search("* ]]; then
+      if [[ "${FAKE_GH_MINE_FAIL:-0}" == "1" ]]; then
+        echo "fake gh: the search is unavailable" >&2
+        exit 1
+      fi
+      printf '%s\n' "search" >>"$SANDBOX/out/mine-calls"
+      cat "$SANDBOX/fixtures/mine.json"
+      exit 0
+    fi
     case "$target" in
       user)
         printf '%s\n' "${FAKE_GH_LOGIN:-me}"
@@ -270,6 +326,13 @@ case "$sub" in
       # opened.
       *" --web "*)
         printf '%s\n' "view $*" >>"$SANDBOX/out/web"
+        ;;
+      # A task's readback: the PR's head after the task, which says whether
+      # it pushed. $FAKE_GH_HEAD is the head GitHub reports. The task compares
+      # it with the commit its worktree started at, so a test that wants
+      # "nothing pushed" sets it to that commit.
+      *" headRefOid "*)
+        printf '%s\n' "${FAKE_GH_HEAD:-sha$num}"
         ;;
       *" latestReviews "*)
         mystate=""
@@ -485,6 +548,8 @@ done
 # lines -- so every assertion that greps for a flag would read half a call.
 log_line "$CLAUDE_LOG" "$(printf '%s' "$*" | tr '\n' ' ')"
 log_line "$CLAUDE_LOG.events" "start $n"
+# Where the job ran: a task runs in its own worktree, a review in the repo.
+log_line "$CLAUDE_LOG.cwd" "$n $PWD"
 
 meta=""
 sid=""
@@ -704,6 +769,16 @@ stack_pr_on() {
 # 9 and 8 have passing checks; the rest have no checks at all, which the
 # sweep never holds a PR for.
 default_prs() {
+  # Your own open PR, as the My PRs search finds it: #4, the PR the review
+  # list hides because "me" wrote it. No review yet and nothing open on it.
+  cat >"$SANDBOX/fixtures/mine.json" <<'EOF'
+{"data":{"search":{"nodes":[
+  {"number":4,"title":"My own work","isDraft":false,"headRefName":"me/my-own-work",
+   "headRefOid":"sha4","isCrossRepository":false,"reviewDecision":"REVIEW_REQUIRED",
+   "mergeable":"MERGEABLE","latestReviews":{"nodes":[]},"reviewThreads":{"nodes":[]},
+   "headCommit":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}}
+]}}}
+EOF
   cat >"$SANDBOX/fixtures/repo.json" <<'EOF'
 {"owner":{"login":"acme"},"name":"widgets"}
 EOF

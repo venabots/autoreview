@@ -13,6 +13,7 @@ pub mod keys;
 mod layout;
 mod list;
 mod markdown;
+pub mod mine_view;
 pub mod model;
 mod screen;
 mod terminal;
