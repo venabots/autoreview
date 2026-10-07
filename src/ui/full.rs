@@ -112,6 +112,11 @@ impl Ui {
         self.watch_toggle.is_some()
     }
 
+    /// What the pending `w` asks for, without taking it.
+    pub fn watch_toggle_peek(&self) -> Option<bool> {
+        self.watch_toggle
+    }
+
     /// What the run does now, in the header's words.
     pub fn mode(&mut self, mode: &str, looping: bool) {
         if let Some(screen) = &mut self.screen {
@@ -208,7 +213,11 @@ impl Ui {
             self.idle_step(rx);
             // Babysitting changes what the run does between passes, as `w`
             // does: the loop decides again before it waits any longer.
-            if self.watch_toggle.is_some() || !self.babysit_changes.is_empty() {
+            //
+            // Not the waits after a failure, which pass `wake_on_request`
+            // false: they keep their pause, or a key would turn a backoff
+            // into the same failed call over and over.
+            if wake_on_request && (self.watch_toggle.is_some() || !self.babysit_changes.is_empty()) {
                 break Woke::Changed;
             }
             // A task asked for is a request too: a person is waiting on it.

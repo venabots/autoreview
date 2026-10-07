@@ -291,11 +291,15 @@ assert_contains "...in the PR's worktree" "$(job_dirs)" "/worktrees/pr-4"
 cp "$SANDBOX/fixtures/mine.json" "$SANDBOX/fixtures/mine.saved"
 jq '.data.search.nodes[0].reviewThreads.nodes = [{"isResolved":false}]' \
   "$SANDBOX/fixtures/mine.saved" >"$SANDBOX/fixtures/mine.json"
-out="$(run_tui --key 3.0:$'\t' --key 4.0:b --key 12.0:q -- --once)"
+out="$(run_tui --key 3.0:$'\t' --key 4.0:b --key 9.0:w --key 12.0:q -- --once)"
 assert_contains "b starts watching, so the run looks again" "$(run_log)" "babysitting needs the run to keep looking for work"
 assert_contains "...and fixes the PR that needs work" "$(run_log)" "babysitting: fixing PR #4, which changed and needs work"
 assert_contains "...with the fix skill" "$(claude_calls)" "-- /babysit-pr 4"
 assert_contains "...and the tab bar counts it" "$out" "babysitting 1"
+# w turns the looking off, and babysitting with it: with no looks it could
+# only say it babysits.
+assert_contains "w stops babysitting along with the looking" "$(run_log)" \
+  "no longer babysitting your PRs: the run stopped looking for work"
 mv "$SANDBOX/fixtures/mine.saved" "$SANDBOX/fixtures/mine.json"
 
 # Without the skill the key says so, and nothing runs.

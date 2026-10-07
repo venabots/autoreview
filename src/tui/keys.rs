@@ -28,8 +28,9 @@ pub enum Action {
     /// What the reviewers are told to look at from now on, or None to tell
     /// them nothing in particular. What `--focus` sets at startup.
     Focus(Option<String>),
-    /// Run a task on one of your own PRs: babysit it, or answer its
-    /// comments. Started at the first free slot, in this pass or the next.
+    /// Run a task on one of your own PRs: fix it, answer its comments, or
+    /// fix its conflicts. Started at the first free slot, in this pass or
+    /// the next.
     RunTask(crate::task::Request),
     /// Babysit one of your PRs, or all of them, or stop. The loop decides
     /// when each gets a fix.

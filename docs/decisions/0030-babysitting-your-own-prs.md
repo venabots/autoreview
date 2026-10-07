@@ -24,11 +24,19 @@ footer, which listed keys that do nothing there.
   it needs work (conflicts, failing CI, requested changes, open threads) and
   has changed since its last fix (its head, `updatedAt`, CI state or merge
   state).
-- The push a fix makes is not a change: the first look after a fix records
-  the PR's new state without acting on it.
+- The push a fix makes is not a change: the first look after a fix whose
+  checks and merge state are known records the PR's new state without
+  acting on it. It waits up to five looks for them. A failing build or a
+  conflict that the fix itself caused is the exception, and gets a fix.
+- A PR with a job running is skipped at a look, so a review thread opened
+  during a fix is new work at the first look after it. Threads are told
+  apart by id.
 - At most three fixes run in a row while nobody else acts. A new review
   thread or a changed review decision is somebody else acting, and starts
-  the count again.
+  the count again; a stale approval that the push dismissed is not. A
+  settled look that finds the PR clean also starts the count again.
+- A PR from a fork is never babysat: `b` refuses it, and `B` skips it.
+- `w` turning the looking off also stops babysitting.
 - Turning babysitting on makes the run keep looking for work, as `w` does.
 - A babysit fix is a task like any other: refused when its skill is not
   installed or under `--no-post`, run in its own worktree, and read back
@@ -39,6 +47,7 @@ footer, which listed keys that do nothing there.
 - Babysitting lasts for one run. A new run starts with nothing babysat.
 - A fix that cannot resolve something is not retried until the PR changes,
   so a PR can stay red while babysat. The row and the detail pane show it.
-- The fix count resets only on a new thread or review decision. A
-  co-author's push without a review does not reset the cap.
+- A co-author's push without a review does not reset the cap, until the
+  PR comes clean.
+- Threads past the first 100 on a PR are not read.
 - Headless runs and cron do not babysit: the keys are the only way in.

@@ -348,6 +348,7 @@ fn my_pr(n: u64) -> crate::mine::MyPr {
         ci: crate::ci::Ci::Passing,
         open_threads: 0,
         reviewers: Vec::new(),
+        thread_ids: Vec::new(),
     }
 }
 

@@ -308,6 +308,7 @@ mod tests {
             ci: Ci::Passing,
             open_threads: 0,
             reviewers: Vec::new(),
+            thread_ids: Vec::new(),
         }
     }
 

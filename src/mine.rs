@@ -32,7 +32,7 @@ const QUERY: &str = "
               reviewDecision
               mergeable
               latestReviews(first:20) { nodes { author { login } state } }
-              reviewThreads(first:100) { nodes { isResolved } }
+              reviewThreads(first:100) { nodes { id isResolved } }
               headCommit: commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
             }
           }
@@ -98,6 +98,10 @@ pub struct MyPr {
     pub merge: Merge,
     pub ci: Ci,
     pub open_threads: usize,
+    /// The ids of the open review threads. Babysitting tells a new thread
+    /// from one that was there before by these: a count goes down when one
+    /// is resolved and another is opened in the same minute.
+    pub thread_ids: Vec<String>,
     /// Each reviewer's latest review that decided something: who, and what.
     pub reviewers: Vec<(String, Review)>,
 }
@@ -178,6 +182,8 @@ impl<T> Default for Nodes<T> {
 
 #[derive(Deserialize)]
 struct Thread {
+    #[serde(default)]
+    id: String,
     #[serde(rename = "isResolved", default)]
     is_resolved: bool,
 }
@@ -260,6 +266,7 @@ impl Node {
             merge: Merge::from_raw(self.mergeable.as_deref()),
             ci,
             open_threads: self.review_threads.nodes.iter().filter(|t| !t.is_resolved).count(),
+            thread_ids: self.review_threads.nodes.iter().filter(|t| !t.is_resolved).map(|t| t.id.clone()).collect(),
             reviewers,
         })
     }
@@ -322,6 +329,7 @@ mod tests {
             ci: Ci::Passing,
             open_threads: 0,
             reviewers: Vec::new(),
+            thread_ids: Vec::new(),
         }
     }
 
@@ -358,7 +366,7 @@ mod tests {
              "mergeable":"MERGEABLE",
              "latestReviews":{"nodes":[{"author":{"login":"alice"},"state":"CHANGES_REQUESTED"},
                                        {"author":{"login":"bob"},"state":"COMMENTED"}]},
-             "reviewThreads":{"nodes":[{"isResolved":false},{"isResolved":true},{"isResolved":false}]},
+             "reviewThreads":{"nodes":[{"id":"T1","isResolved":false},{"id":"T2","isResolved":true},{"id":"T3","isResolved":false}]},
              "headCommit":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}},
             {}
         ]}}});
@@ -368,6 +376,7 @@ mod tests {
         assert_eq!((p.number, p.branch.as_str()), (4, "me/my-own-work"));
         assert_eq!(p.review, Review::ChangesRequested);
         assert_eq!(p.open_threads, 2);
+        assert_eq!(p.thread_ids, vec!["T1".to_string(), "T3".to_string()], "the open ones, by id");
         assert_eq!(p.ci, Ci::Passing);
         assert_eq!(p.reviewers, vec![("alice".to_string(), Review::ChangesRequested)], "a comment decides nothing");
     }

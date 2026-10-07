@@ -688,12 +688,14 @@ so and starts nothing, and so does any key under `--no-post`.
 **Babysitting** runs a fix again as the PR changes. At each look, a babysat
 PR gets a fix when it needs work (conflicts, failing CI, requested changes or
 open threads) and has changed since its last fix. The push a fix makes does
-not count as a change. At most three fixes run in a row while nobody else
-acts on the PR; a new review thread or a new review decision starts the count
-again. A babysat PR that is merged or closed leaves the list. Babysitting
-needs looks, so turning it on makes the run keep looking for work, as `w`
-does. The row says `babysat`, and the detail pane says how many fixes it has
-had.
+not count as a change, but a failing build or a conflict that the fix itself
+caused does. At most three fixes run in a row while nobody else acts on the
+PR; a new review thread, a new review decision, or a look that finds the PR
+clean starts the count again. A babysat PR that is merged or closed leaves
+the list, and a PR from a fork is never babysat. Babysitting needs looks, so
+turning it on makes the run keep looking for work, and `w` turning the looking
+off stops babysitting too. The row says `babysat`, and the detail pane says
+how many fixes it has had.
 
 A task runs in the same pool as the reviews, under the same `--jobs`,
 `--timeout` and `--budget`, and only when you press the key. It runs in a

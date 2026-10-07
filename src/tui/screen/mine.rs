@@ -31,7 +31,7 @@ pub(super) struct TabState {
     pub(super) follow: bool,
 }
 
-/// The selected one of your PRs, as `b` and `c` would ask for it.
+/// The selected one of your PRs, as `f`, `c` and `u` would ask for it.
 #[derive(Clone)]
 pub(super) struct TaskPick {
     pub(super) fix: crate::task::Request,
@@ -168,6 +168,12 @@ impl Screen {
     pub(super) fn toggle_babysit(&mut self) -> Vec<Action> {
         let Some(pick) = self.mine_pick() else { return Vec::new() };
         let pr = pick.fix.pr;
+        // Before anything else: with all babysat, b on a fork would read as
+        // "stop", and turn babysitting off for PRs opened later.
+        if pick.fix.cross_repo {
+            self.flash(format!("PR #{pr} is from a fork; its branch is not on origin, so nothing can fix it here"));
+            return Vec::new();
+        }
         let on = !(self.babysat_all || self.babysat.iter().any(|(n, _)| *n == pr));
         if on && self.babysit_refused() {
             return Vec::new();
@@ -177,6 +183,18 @@ impl Screen {
         } else {
             format!("no longer babysitting PR #{pr}")
         });
+        // Shown now, and corrected by the loop when it applies it: a second
+        // press during a pass must read what the first one did.
+        if on {
+            self.babysat.push((pr, 0));
+        } else {
+            if self.babysat_all {
+                // Stopping one of all: the rest stay babysat.
+                self.babysat_all = false;
+                self.babysat = self.mine.iter().filter(|p| !p.cross_repo).map(|p| (p.number, 0)).collect();
+            }
+            self.babysat.retain(|(n, _)| *n != pr);
+        }
         vec![Action::Babysit(crate::babysit::Change::One(pr, on))]
     }
 
@@ -195,6 +213,12 @@ impl Screen {
         } else {
             "no longer babysitting your PRs"
         });
+        self.babysat_all = on;
+        self.babysat = if on {
+            self.mine.iter().filter(|p| !p.cross_repo).map(|p| (p.number, 0)).collect()
+        } else {
+            Vec::new()
+        };
         vec![Action::Babysit(crate::babysit::Change::All(on))]
     }
 

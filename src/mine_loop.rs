@@ -66,7 +66,17 @@ impl MineLoop {
 
     /// Ask for a fix on each babysat PR that is due one. A PR with a task
     /// already waiting is busy, and waits for the next look.
+    ///
+    /// Not after a failed look: the list is the last good one, and a fix
+    /// that just ended would take its state from before the fix.
+    /// Nor while `w` waits to turn the looking off: the run is stopping.
     pub fn ask_due(&mut self, ui: &mut Ui) {
+        if self.failing || ui.watch_toggle_peek() == Some(false) {
+            return;
+        }
+        // A stop pressed while the look ran is applied first, so the PR it
+        // names is not fixed on its way out.
+        self.apply(ui);
         let due = self.babysat.due(&self.list, |pr| ui.task_waiting(pr));
         for pr in due {
             let Some(found) = self.list.iter().find(|p| p.number == pr) else { continue };
@@ -88,6 +98,25 @@ impl MineLoop {
         for job in jobs.iter().filter(|j| j.task == Task::Fix) {
             self.babysat.fixed(job.pr);
         }
+    }
+
+    /// Whether anything is babysat: the run keeps looking while it is.
+    pub fn any(&self) -> bool {
+        self.babysat.any()
+    }
+
+    /// Stop babysitting everything. For `w` turning the looking off:
+    /// babysitting with no looks would say it babysits and never fix.
+    ///
+    /// A `b` pressed in the same pass is dropped too: applying it after this
+    /// would turn the looking back on.
+    pub fn stop(&mut self, ui: &mut Ui) {
+        let pending = !ui.take_babysit_changes().is_empty();
+        if self.babysat.any() || pending {
+            self.babysat.set_all(false);
+            println!("no longer babysitting your PRs: the run stopped looking for work");
+        }
+        self.show(ui);
     }
 
     fn show(&self, ui: &mut Ui) {

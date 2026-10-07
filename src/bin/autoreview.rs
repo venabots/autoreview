@@ -670,6 +670,9 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         // run does next is decided.
         if let Some(on) = ui.take_watch_toggle() {
             set_watching(on, &mut cfg, &mut watch, &mut tracker, &mut ui);
+            if !on {
+                mine.stop(&mut ui);
+            }
         }
         // Babysitting fixes a PR when a look finds it changed, so a run
         // that babysits has to keep looking.
@@ -872,6 +875,12 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             if !intake.queue.is_empty() || ui.has_tasks() {
                 break Some(intake.queue);
             }
+            // Babysitting needs the run to keep looking. A --babysit run that
+            // was not watching leaves here so the outer loop turns watching
+            // on, instead of ending with a PR still babysat.
+            if mine.any() && watch.is_none() {
+                break Some(Vec::new());
+            }
             // The same question, asked again with what the look found: a
             // held PR that was closed meanwhile is no longer a reason to
             // stay.
@@ -883,7 +892,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 // was given, so once they are all approved or closed nothing
                 // that happens next could add work. Waiting on would be
                 // waiting for something the queue is built to refuse.
-                if cfg.pick && watching.is_empty() {
+                if cfg.pick && watching.is_empty() && !mine.any() {
                     println!("\nevery picked PR is finished; nothing left to watch");
                     ended = "every picked PR is finished; nothing left to watch".into();
                     break None;
@@ -977,7 +986,9 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         // A watch run never spends it here. Its queue only ever holds PRs
         // that have already rested, so sleeping again would delay real work
         // by a full cooldown.
-        if !already_waited && watch.is_none() {
+        // Nor for a task waiting, or babysitting that needs watching turned
+        // on: a key press is asking for that now, not in an interval.
+        if !already_waited && watch.is_none() && !ui.has_tasks() && !mine.any() {
             println!(
                 "\nnext check in {} ({} left)",
                 babysit.normalized,

@@ -9,10 +9,17 @@
 //!   changed since the last fix is left alone: a second fix of the same
 //!   state would find what the first one could not fix. The push a fix
 //!   makes is not a change for this purpose -- the first look after the fix
-//!   takes the PR's new state as the one to compare with.
+//!   whose checks and merge state are known takes the PR's new state as the
+//!   one to compare with. A build or a conflict the fix itself caused is the
+//!   exception: that is work.
 //! - **A cap.** At most `MAX_STREAK` fixes in a row with nothing new from
-//!   anyone else. A new review thread or a new review decision is somebody
-//!   else acting, and starts the count again.
+//!   anyone else. A new review thread or a review decision that changed
+//!   (other than a stale approval the push dismissed) is somebody else
+//!   acting, and starts the count again; so does a settled look that finds
+//!   the PR clean.
+//!
+//! A PR with a job running is skipped, and a PR from a fork is never
+//! babysat: its branch is not on origin to fix.
 
 use crate::ci::Ci;
 use crate::mine::{Merge, MyPr, Review};
@@ -20,6 +27,11 @@ use std::collections::{HashMap, HashSet};
 
 /// The most fixes a babysat PR gets in a row while nobody else acts on it.
 pub const MAX_STREAK: u32 = 3;
+
+/// How many looks after a fix wait for its checks and merge state to be
+/// known. A check that never finishes -- one waiting for an approval --
+/// must not stop babysitting that PR for good.
+const SETTLE_LOOKS: u32 = 5;
 
 /// What a PR looked like when it was last fixed. A different one is a
 /// change worth another fix.
@@ -51,12 +63,14 @@ pub enum Change {
 struct Watch {
     /// The state at the last fix, or at the first look after it.
     baseline: Option<Fingerprint>,
-    /// A fix just ended: take the next look's state as the baseline.
+    /// A fix just ended: take the next settled look's state as the baseline.
     settle: bool,
+    /// Looks spent waiting for that settled state.
+    waited: u32,
     streak: u32,
     fixes: u32,
-    /// What others last left on the PR: open threads and the decision.
-    threads: Option<usize>,
+    /// What others last left on the PR: its open threads and the decision.
+    threads: Option<HashSet<String>>,
     review: Option<Review>,
 }
 
@@ -84,7 +98,7 @@ impl Babysat {
         }
         if self.all {
             self.all = false;
-            self.prs.extend(mine.iter().map(|p| p.number));
+            self.prs.extend(mine.iter().filter(|p| !p.cross_repo).map(|p| p.number));
         }
         self.prs.remove(&pr);
         self.watches.remove(&pr);
@@ -117,9 +131,13 @@ impl Babysat {
         self.watches.get(&pr).map_or(0, |w| w.fixes)
     }
 
-    /// The babysat PRs among `mine`, for the view.
+    /// The babysat PRs among `mine`, for the view. A PR from a fork is
+    /// never fixed, so it is not shown as babysat either.
     pub fn listed(&self, mine: &[MyPr]) -> Vec<(u64, u32)> {
-        mine.iter().filter(|p| self.is_babysat(p.number)).map(|p| (p.number, self.fixes(p.number))).collect()
+        mine.iter()
+            .filter(|p| self.is_babysat(p.number) && !p.cross_repo)
+            .map(|p| (p.number, self.fixes(p.number)))
+            .collect()
     }
 
     /// The PRs to fix now, given what this look found. `busy` says which
@@ -130,27 +148,62 @@ impl Babysat {
         self.prs.retain(|pr| open.contains(pr));
         self.watches.retain(|pr, _| open.contains(pr));
         let mut out = Vec::new();
-        let babysat: Vec<&MyPr> = mine.iter().filter(|p| self.is_babysat(p.number)).collect();
+        // A PR from a fork has no branch on origin to fix: every fix would
+        // be refused, and would still count against the cap.
+        let babysat: Vec<&MyPr> = mine.iter().filter(|p| self.is_babysat(p.number) && !p.cross_repo).collect();
         for pr in babysat {
-            let watch = self.watches.entry(pr.number).or_default();
-            let someone_acted = watch.threads.is_some_and(|t| pr.open_threads > t)
-                || watch.review.is_some_and(|r| r != pr.review);
-            if someone_acted {
-                watch.streak = 0;
-            }
-            watch.threads = Some(pr.open_threads);
-            watch.review = Some(pr.review);
+            // A PR with a job running is not looked at at all. What a
+            // reviewer does meanwhile must still read as new at the first
+            // look after the fix, not be recorded as already seen.
             if busy(pr.number) {
                 continue;
             }
+            let watch = self.watches.entry(pr.number).or_default();
+            let threads: HashSet<String> = pr.thread_ids.iter().cloned().collect();
+            // A push dismisses a stale approval on some repos. That is the
+            // fix's own push, not a reviewer acting.
+            let dismissed = |before: Review| before == Review::Approved && pr.review == Review::Required;
+            let someone_acted = watch.threads.as_ref().is_some_and(|before| !threads.is_subset(before))
+                || watch.review.is_some_and(|r| r != pr.review && !dismissed(r));
+            // Somebody acting starts the count again, and so does a PR that
+            // came clean -- once its checks and merge state are known: a
+            // push makes both look clean for a minute.
+            let settled = pr.ci != Ci::Pending && pr.merge != Merge::Unknown;
+            if someone_acted || (settled && !needs_work(pr)) {
+                watch.streak = 0;
+            }
+            watch.threads = Some(threads);
+            watch.review = Some(pr.review);
             let now = Fingerprint::of(pr);
-            if watch.settle {
+            // The first look after a fix records what the fix left, without
+            // acting on it -- unless somebody acted meanwhile, which is new
+            // work. Checks still running and a merge GitHub has not worked
+            // out yet are not what the fix left: the look waits for them, or
+            // their settling would read as a change.
+            if watch.settle && !someone_acted {
+                if !settled && watch.waited < SETTLE_LOOKS {
+                    watch.waited += 1;
+                    continue;
+                }
                 watch.settle = false;
-                watch.baseline = Some(now);
+                watch.waited = 0;
+                // The fix's own push broke the build or left conflicts that
+                // were not there before it: that is work, not its baseline.
+                let before = watch.baseline.replace(now.clone());
+                let broke = before.is_some_and(|b| {
+                    (now.ci == Ci::Failing && b.ci != Ci::Failing) || (now.merge == Merge::Conflicts && b.merge != Merge::Conflicts)
+                });
+                if broke && watch.streak < MAX_STREAK {
+                    watch.streak += 1;
+                    watch.fixes += 1;
+                    out.push(pr.number);
+                }
                 continue;
             }
+            watch.settle = false;
+            watch.waited = 0;
             let changed = watch.baseline.as_ref() != Some(&now);
-            if needs_work(pr) && changed && watch.streak < MAX_STREAK {
+            if needs_work(pr) && (changed || someone_acted) && watch.streak < MAX_STREAK {
                 watch.baseline = Some(now);
                 watch.streak += 1;
                 watch.fixes += 1;
@@ -187,6 +240,7 @@ mod tests {
             ci: Ci::Passing,
             open_threads: 1,
             reviewers: Vec::new(),
+            thread_ids: Vec::new(),
         }
     }
 
@@ -239,8 +293,137 @@ mod tests {
         }
         let again = MyPr { head: "sha-more".into(), ..pr(4) };
         assert!(b.due(&[again], idle).is_empty(), "the cap holds");
-        let new_thread = MyPr { head: "sha-more2".into(), open_threads: 2, ..pr(4) };
+        let new_thread = MyPr { head: "sha-more2".into(), open_threads: 2, thread_ids: vec!["t9".into()], ..pr(4) };
         assert_eq!(b.due(&[new_thread], idle), vec![4], "a reviewer's new thread starts the count again");
+    }
+
+    #[test]
+    fn a_reviewer_who_acts_during_a_fix_gets_a_fix() {
+        let mut b = Babysat::default();
+        b.set(4, true, &[]);
+        let one = MyPr { thread_ids: vec!["t1".into()], ..pr(4) };
+        assert_eq!(b.due(std::slice::from_ref(&one), idle), vec![4]);
+        b.fixed(4);
+        let new_thread = MyPr { head: "sha-fix".into(), thread_ids: vec!["t1".into(), "t2".into()], open_threads: 2, ..pr(4) };
+        assert_eq!(b.due(&[new_thread], idle), vec![4], "not swallowed by the look after the fix");
+    }
+
+    #[test]
+    fn the_look_after_a_fix_waits_for_checks_to_settle() {
+        let mut b = Babysat::default();
+        b.set(4, true, &[]);
+        let asked = MyPr { review: Review::ChangesRequested, open_threads: 0, ..pr(4) };
+        assert_eq!(b.due(std::slice::from_ref(&asked), idle), vec![4]);
+        b.fixed(4);
+        let pending = MyPr { head: "sha-fix".into(), ci: Ci::Pending, merge: Merge::Unknown, ..asked.clone() };
+        assert!(b.due(&[pending], idle).is_empty());
+        let settled = MyPr { head: "sha-fix".into(), ..asked };
+        assert!(b.due(std::slice::from_ref(&settled), idle).is_empty(), "checks settling is not a change");
+        assert!(b.due(&[settled], idle).is_empty());
+    }
+
+    #[test]
+    fn a_new_thread_counts_even_when_another_closed() {
+        let mut b = Babysat::default();
+        b.set(4, true, &[]);
+        let three = MyPr { thread_ids: vec!["a".into(), "b".into(), "c".into()], open_threads: 3, ..pr(4) };
+        for i in 0..MAX_STREAK {
+            assert_eq!(b.due(&[MyPr { head: format!("sha{i}"), ..three.clone() }], idle), vec![4]);
+        }
+        let swapped = MyPr { head: "sha-x".into(), thread_ids: vec!["d".into()], open_threads: 1, ..pr(4) };
+        assert_eq!(b.due(&[swapped], idle), vec![4], "thread d is new, though the count went down");
+    }
+
+    #[test]
+    fn the_cap_starts_again_once_the_pr_came_clean() {
+        let mut b = Babysat::default();
+        b.set(4, true, &[]);
+        for i in 0..MAX_STREAK {
+            assert_eq!(b.due(&[MyPr { head: format!("sha{i}"), ..pr(4) }], idle), vec![4]);
+        }
+        assert!(b.due(&[MyPr { head: "clean".into(), open_threads: 0, ..pr(4) }], idle).is_empty());
+        let conflicts = MyPr { head: "clean".into(), open_threads: 0, merge: Merge::Conflicts, ..pr(4) };
+        assert_eq!(b.due(&[conflicts], idle), vec![4], "new trouble after a clean look");
+    }
+
+    #[test]
+    fn a_thread_opened_while_the_fix_runs_is_new_work_after_it() {
+        let mut b = Babysat::default();
+        b.set(4, true, &[]);
+        let one = MyPr { thread_ids: vec!["t1".into()], ..pr(4) };
+        assert_eq!(b.due(std::slice::from_ref(&one), idle), vec![4]);
+        let two = MyPr { thread_ids: vec!["t1".into(), "t2".into()], open_threads: 2, ..pr(4) };
+        assert!(b.due(std::slice::from_ref(&two), |_| true).is_empty(), "the fix is running");
+        b.fixed(4);
+        let after = MyPr { head: "sha-fix".into(), ..two };
+        assert_eq!(b.due(&[after], idle), vec![4], "t2 arrived during the fix and is new");
+    }
+
+    #[test]
+    fn a_build_the_fix_broke_gets_a_fix() {
+        let mut b = Babysat::default();
+        b.set(4, true, &[]);
+        assert_eq!(b.due(&[pr(4)], idle), vec![4]);
+        b.fixed(4);
+        let red = MyPr { head: "sha-fix".into(), ci: Ci::Failing, ..pr(4) };
+        assert_eq!(b.due(&[red], idle), vec![4], "it was green before the fix");
+    }
+
+    #[test]
+    fn a_pending_build_does_not_reset_the_cap() {
+        let mut b = Babysat::default();
+        b.set(4, true, &[]);
+        let red = |i: u32| MyPr { head: format!("sha{i}"), ci: Ci::Failing, open_threads: 0, ..pr(4) };
+        for i in 0..MAX_STREAK {
+            assert_eq!(b.due(&[red(i)], idle), vec![4]);
+            let pending = MyPr { head: format!("p{i}"), ci: Ci::Pending, open_threads: 0, ..pr(4) };
+            b.due(&[pending], idle);
+        }
+        assert!(b.due(&[red(9)], idle).is_empty(), "the cap holds through pending checks");
+    }
+
+    #[test]
+    fn a_check_that_never_finishes_does_not_stop_babysitting() {
+        let mut b = Babysat::default();
+        b.set(4, true, &[]);
+        assert_eq!(b.due(&[pr(4)], idle), vec![4]);
+        b.fixed(4);
+        let stuck = MyPr { head: "sha-fix".into(), ci: Ci::Pending, ..pr(4) };
+        for _ in 0..=SETTLE_LOOKS {
+            assert!(b.due(std::slice::from_ref(&stuck), idle).is_empty());
+        }
+        let conflicts = MyPr { merge: Merge::Conflicts, ..stuck };
+        assert_eq!(b.due(&[conflicts], idle), vec![4], "a later conflict still gets a fix");
+    }
+
+    #[test]
+    fn stopping_one_of_all_never_babysits_a_fork() {
+        let mut b = Babysat::default();
+        b.set_all(true);
+        let mine = vec![pr(4), MyPr { cross_repo: true, ..pr(5) }];
+        b.set(4, false, &mine);
+        assert!(!b.any(), "the fork is not left behind to keep the run looking");
+    }
+
+    #[test]
+    fn a_stale_approval_dismissed_by_the_push_is_not_a_reviewer() {
+        let mut b = Babysat::default();
+        b.set(4, true, &[]);
+        for i in 0..MAX_STREAK {
+            assert_eq!(b.due(&[MyPr { head: format!("sha{i}"), review: Review::Approved, ..pr(4) }], idle), vec![4]);
+        }
+        let dismissed = MyPr { head: "sha-x".into(), review: Review::Required, ..pr(4) };
+        assert!(b.due(&[dismissed], idle).is_empty(), "the cap still holds");
+    }
+
+    #[test]
+    fn a_pr_from_a_fork_is_never_scheduled() {
+        let mut b = Babysat::default();
+        b.set_all(true);
+        let fork = MyPr { cross_repo: true, ..pr(4) };
+        assert!(b.due(std::slice::from_ref(&fork), idle).is_empty());
+        assert_eq!(b.fixes(4), 0);
+        assert!(b.listed(&[fork]).is_empty(), "not shown as babysat");
     }
 
     #[test]
