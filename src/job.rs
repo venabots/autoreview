@@ -575,6 +575,7 @@ mod tests {
         cfg.focus = Some("be strict".into());
         assert_eq!(task(Task::Fix).prompt(&cfg), "/babysit-pr 4", "no focus: a task reviews nothing");
         assert_eq!(task(Task::Comments).prompt(&cfg), "/pr-comment-handler 4");
+        assert_eq!(task(Task::Conflicts).prompt(&cfg), "/sync-main 4");
         let mut codex = task(Task::Fix);
         codex.orchestrator = Orchestrator::parse("codex").unwrap();
         assert_eq!(codex.prompt(&cfg), "$babysit-pr 4");

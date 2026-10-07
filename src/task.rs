@@ -22,6 +22,8 @@ pub enum Task {
     Fix,
     /// Answer the review comments on your own PR.
     Comments,
+    /// Merge the base branch into your own PR and resolve the conflicts.
+    Conflicts,
 }
 
 impl Task {
@@ -32,6 +34,7 @@ impl Task {
             Task::Review => None,
             Task::Fix => Some("babysit-pr"),
             Task::Comments => Some("pr-comment-handler"),
+            Task::Conflicts => Some("sync-main"),
         }
     }
 
@@ -41,6 +44,7 @@ impl Task {
             Task::Review => "reviewing",
             Task::Fix => "fixing",
             Task::Comments => "fixing comments",
+            Task::Conflicts => "fixing conflicts",
         }
     }
 
@@ -51,6 +55,7 @@ impl Task {
             Task::Review => None,
             Task::Fix => Some("fix"),
             Task::Comments => Some("comments"),
+            Task::Conflicts => Some("conflicts"),
         }
     }
 
@@ -126,6 +131,7 @@ mod tests {
         assert_eq!(Task::Review.skill(), None, "a review's skill depends on the run");
         assert_eq!(Task::Fix.skill(), Some("babysit-pr"));
         assert_eq!(Task::Comments.skill(), Some("pr-comment-handler"));
+        assert_eq!(Task::Conflicts.skill(), Some("sync-main"));
     }
 
     #[test]
@@ -133,6 +139,7 @@ mod tests {
         assert_eq!(Task::Review.doing(), "reviewing");
         assert_eq!(Task::Fix.doing(), "fixing");
         assert_eq!(Task::Comments.doing(), "fixing comments");
+        assert_eq!(Task::Conflicts.doing(), "fixing conflicts");
     }
 
     #[test]
@@ -140,6 +147,7 @@ mod tests {
         assert_eq!(Task::Review.file_tag(), None);
         assert_eq!(Task::Fix.file_tag(), Some("fix"));
         assert_eq!(Task::Comments.file_tag(), Some("comments"));
+        assert_eq!(Task::Conflicts.file_tag(), Some("conflicts"));
         assert_eq!(Task::default(), Task::Review);
     }
 }
