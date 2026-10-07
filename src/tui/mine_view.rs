@@ -277,6 +277,8 @@ mod tests {
             title: "My own work".into(),
             draft: false,
             branch: "me/my-own-work".into(),
+            head: "sha4".into(),
+            updated_at: "2026-10-07T10:00:00Z".into(),
             cross_repo: false,
             review: Review::Required,
             merge: Merge::Clean,

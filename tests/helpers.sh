@@ -774,7 +774,7 @@ default_prs() {
   cat >"$SANDBOX/fixtures/mine.json" <<'EOF'
 {"data":{"search":{"nodes":[
   {"number":4,"title":"My own work","isDraft":false,"headRefName":"me/my-own-work",
-   "headRefOid":"sha4","isCrossRepository":false,"reviewDecision":"REVIEW_REQUIRED",
+   "headRefOid":"sha4","updatedAt":"2026-08-05T10:00:00Z","isCrossRepository":false,"reviewDecision":"REVIEW_REQUIRED",
    "mergeable":"MERGEABLE","latestReviews":{"nodes":[]},"reviewThreads":{"nodes":[]},
    "headCommit":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}}
 ]}}}

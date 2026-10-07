@@ -26,6 +26,8 @@ const QUERY: &str = "
               title
               isDraft
               headRefName
+              headRefOid
+              updatedAt
               isCrossRepository
               reviewDecision
               mergeable
@@ -85,6 +87,10 @@ pub struct MyPr {
     pub title: String,
     pub draft: bool,
     pub branch: String,
+    /// The head commit and when the PR last changed: what babysitting
+    /// compares to tell a PR that changed from one that did not.
+    pub head: String,
+    pub updated_at: String,
     /// From a fork: its branch is not on `origin`, so no worktree can be
     /// made for it here.
     pub cross_repo: bool,
@@ -203,6 +209,10 @@ struct Node {
     is_draft: bool,
     #[serde(rename = "headRefName", default)]
     head_ref_name: String,
+    #[serde(rename = "headRefOid", default)]
+    head_ref_oid: String,
+    #[serde(rename = "updatedAt", default)]
+    updated_at: String,
     #[serde(rename = "isCrossRepository", default)]
     is_cross_repository: bool,
     #[serde(rename = "reviewDecision")]
@@ -243,6 +253,8 @@ impl Node {
             title: self.title,
             draft: self.is_draft,
             branch: self.head_ref_name,
+            head: self.head_ref_oid,
+            updated_at: self.updated_at,
             cross_repo: self.is_cross_repository,
             review: Review::from_raw(self.review_decision.as_deref()),
             merge: Merge::from_raw(self.mergeable.as_deref()),
@@ -302,6 +314,8 @@ mod tests {
             title: "My own work".into(),
             draft: false,
             branch: "me/my-own-work".into(),
+            head: "sha4".into(),
+            updated_at: "2026-10-07T10:00:00Z".into(),
             cross_repo: false,
             review: Review::Required,
             merge: Merge::Clean,
