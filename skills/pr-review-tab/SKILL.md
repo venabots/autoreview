@@ -3,7 +3,8 @@ name: pr-review-tab
 description: >
   Run an unattended PR review inside a terminal tab spawned by the
   `review-prs` tool, then manage that tab's lifecycle: delegate to
-  `auto-review` (review, post comments, approve if the gate passes), and
+  `auto-review` (review, then one GitHub review: approve, request changes,
+  or comment), and
   when the PR is approved, close the enclosing Herdr/cmux tab so a finished
   review cleans up after itself. With `--babysit`, a PR that does not come
   back approvable starts an in-session `/loop` that re-runs `recheck-pr`
@@ -32,8 +33,9 @@ else:
    approved without you re-running anything.
 
 It does **not** reimplement reviewing. `auto-review` does the review, the
-posting, and the approval gate; `recheck-pr` does the second look;
-`approve-pr` does the stamp. This skill only wires them to the tab.
+approval gate, and the one review it submits; `recheck-pr` does the second
+look and submits its own; `approve-pr` does the follow-up after an
+approval. This skill only wires them to the tab.
 
 Those skills also own the wording of everything that reaches GitHub, and
 each holds itself to ASD-STE100 Simplified Technical English. Write the
@@ -43,7 +45,7 @@ sentence, active voice, no jargon.
 ```
 pr-review-tab <PR> [--babysit <interval>]
       │
-      ├─► auto-review <PR>            (review → post → approve-if-clean)
+      ├─► auto-review <PR>            (review → one review on the PR)
       │
       ├─► approved?  ─yes─►  close this tab.  done.
       │
@@ -113,14 +115,17 @@ fi
 
 Invoke the `auto-review` skill for the PR with approval intent (the `auto`
 sweep that seeded this tab _is_ the approval intent). Let it run end to
-end: it reviews, posts the legitimate findings, and approves iff its gate
-passes. Do not reimplement or second-guess its gate — its decision is the
-input to everything below.
+end: it reviews, then submits one review with the legitimate findings
+inside it. That review approves iff its gate passes, requests changes when
+a finding blocks, and is a comment review otherwise. Do not reimplement or
+second-guess its gate — its decision is the input to everything below.
 
 ### 3. Determine the outcome
 
-`auto-review` reports whether it approved. Confirm authoritatively against
-the PR — the tab should close only if an approval actually landed:
+`auto-review` reports which review it submitted. Confirm authoritatively
+against the PR — the tab should close only if an approval actually landed.
+The review is the last thing a pass posts, so your latest review is the
+verdict:
 
 ```bash
 state="$(gh pr view <N> --json reviews \
@@ -146,9 +151,10 @@ line) so the outcome is in the transcript before the pane goes away.
 
 ### 4b. Not approved, no `--babysit`
 
-Leave the tab open — the author needs to see the comments and someone may
-want to drive it interactively. Report `auto-review`'s decision and the
-blocking reason, and stop. Do **not** close the tab; do **not** loop.
+Leave the tab open — the author needs to act on the review and someone may
+want to drive it interactively. Report `auto-review`'s decision (changes
+requested, or no decision) and the reason, and stop. Do **not** close the
+tab; do **not** loop.
 
 ### 4c. Not approved, `--babysit` → the re-check loop
 
@@ -189,7 +195,8 @@ Then stop and let the wakeups run. Notes that matter:
 
 - **Don't reimplement the review.** `auto-review` and `recheck-pr` do the
   work; this skill only closes the tab and starts the loop. If you find
-  yourself running `panel-review.sh` or posting comments directly, stop.
+  yourself running `panel-review.sh`, posting comments or submitting a
+  review directly, stop.
 - **Close only your own tab.** Use `$HERDR_TAB_ID` / `$CMUX_SURFACE_ID`
   from the environment — the tab this session runs in. Never target a tab
   id you read from a listing; that's someone else's work.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compute a GitHub PR file-line anchor URL for a given path:line, so this skill
 # can emit tappable deep-links in the disposition report, in Linear ticket
-# bodies, and in top-level fallback comments (see SKILL.md "Deep-links").
+# bodies, and in the review body (see SKILL.md "Deep-links").
 #
 # The logic below is duplicated in
 # skills/post-panel-review-comments/scripts/pr-line-url.sh (each skill installs

@@ -81,7 +81,7 @@ pub struct Panelist {
 /// The one-line system-prompt instruction that asks for the trailer. One line
 /// on purpose: it travels through dash-p as a single `=`-form token, and the
 /// test suite logs each reviewer call on a single line.
-pub const TRAILER_INSTRUCTION: &str = "When your reply concludes a PR review task, end it with a fenced code block tagged autoreview containing exactly one JSON object shaped like {\"decision\":\"approved|commented|changes-requested|none\",\"risk\":\"LOW|MEDIUM|HIGH|CRITICAL\",\"findings\":{\"must_fix\":0,\"should_fix\":0,\"polish\":0},\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":2,\"top\":\"MEDIUM\"}],\"blockers\":[{\"severity\":\"HIGH\",\"domain\":\"money\",\"reversible\":false,\"location\":\"src/pay.rs:88\",\"gist\":\"a retried checkout charges the card twice\"}]}. decision is what actually happened on the PR: approved = an approving review was submitted, commented = findings were posted without approval, changes-requested = a blocking review was submitted, none = nothing landed on the PR. risk and findings come from the synthesized review. panel lists every launched panelist with its self-reported model, whether it returned a verdict (ok), its finding count, and its top severity. blockers says why the PR is not approved yet, worst first, one entry per must-fix or should-fix finding and none for polish: domain is money, data, security, correctness, ui, perf or docs; reversible is false when the damage cannot be undone once it lands, such as money moved or data lost; gist is one short sentence. Leave blockers empty when you approved. Use null for anything unknown. No prose inside the block.";
+pub const TRAILER_INSTRUCTION: &str = "When your reply concludes a PR review task, end it with a fenced code block tagged autoreview containing exactly one JSON object shaped like {\"decision\":\"approved|commented|changes-requested|none\",\"risk\":\"LOW|MEDIUM|HIGH|CRITICAL\",\"findings\":{\"must_fix\":0,\"should_fix\":0,\"polish\":0},\"panel\":[{\"name\":\"codex\",\"model\":\"gpt-5.5\",\"ok\":true,\"findings\":2,\"top\":\"MEDIUM\"}],\"blockers\":[{\"severity\":\"HIGH\",\"domain\":\"money\",\"reversible\":false,\"location\":\"src/pay.rs:88\",\"gist\":\"a retried checkout charges the card twice\"}]}. decision is the review that actually landed on the PR: approved = an approving review was submitted, changes-requested = a review that requests changes was submitted, commented = a comment review, or comments alone, landed with no verdict, none = nothing landed on the PR. risk and findings come from the synthesized review. panel lists every launched panelist with its self-reported model, whether it returned a verdict (ok), its finding count, and its top severity. blockers says why the PR is not approved yet, worst first, one entry per must-fix or should-fix finding and none for polish: domain is money, data, security, correctness, ui, perf or docs; reversible is false when the damage cannot be undone once it lands, such as money moved or data lost; gist is one short sentence. Leave blockers empty when you approved. Use null for anything unknown. No prose inside the block.";
 
 /// The trailer the summary reads: from the session transcript when there is
 /// one, and from dash-p's stdout envelope otherwise. The last fenced block
@@ -435,7 +435,10 @@ fn verdict_word(state: &str) -> Option<String> {
 /// own decision -- and a successful empty readback vetoes it: an agent
 /// claiming its approval landed when GitHub says nothing did is exactly the
 /// self-belief the verdict column exists to prevent. "commented" survives the
-/// veto because plain comments never appear in latestReviews.
+/// veto because plain comments never appear in latestReviews. The bundled
+/// skills post a comment review now, which does appear there, but an older
+/// installed copy and a command override can still post a plain comment, and
+/// a wrong "commented" claims no verdict at all.
 pub fn resolve_verdict(gh: &Readback, trailer: Option<&Trailer>) -> Option<String> {
     if let Readback::Landed(word) = gh {
         return Some(word.clone());

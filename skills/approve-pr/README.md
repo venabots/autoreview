@@ -30,6 +30,7 @@ If you don't name a PR, the skill auto-detects from your current branch via `gh 
 ## Gotchas
 
 - **You can't approve your own PR.** GitHub rejects a self-approval. If you're the author, the skill says so and offers a plain comment review instead.
-- **Approve only.** This skill never requests changes — it's purely the approving stamp. For change requests, use `gh pr review --comment`/`--request-changes` directly.
+- **Approve only.** This skill never requests changes — it's purely the approving stamp. For a review that requests changes, use [`auto-review`](../auto-review), or `gh pr review --request-changes` directly.
+- **Follow-up only, after `auto-review` or `recheck-pr`.** Those skills submit their own approving review, with the comments of the pass inside it. They then call this skill for the Slack step, and it does not approve a second time.
 - **It doesn't re-review.** Approval assumes the review already happened (usually a prior `panel-review`). The skill stamps; it doesn't read the diff. Run `panel-review` first if you want confidence before approving.
 - **The fun body stands alone.** When defaulting, the emoji or short phrase is the entire body — no rationale, summary, or attribution appended.
