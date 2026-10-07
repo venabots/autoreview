@@ -13,12 +13,16 @@ use crate::report;
 use crate::repo::RepoContext;
 use crate::rundir::RunDir;
 use crate::session::{self, SessionFlag};
+use crate::task::{self, Request};
+use crate::task_run;
+use crate::task_worktree::Prepared;
 use crate::activity::Tail;
 use crate::tui::Action;
 use crate::ui::Ui;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
@@ -35,6 +39,12 @@ pub enum Event {
         /// answer never blocks the event loop. None when the job did not
         /// exit cleanly -- an unfinished review has no verdict to read.
         readback: Option<report::Readback>,
+    },
+    /// A task's worktree is ready, or could not be made. Made on a thread of
+    /// its own, because a fetch can take seconds.
+    TaskReady {
+        request: crate::task::Request,
+        worktree: Result<crate::task_worktree::Prepared, String>,
     },
     Signal,
 }
@@ -56,7 +66,7 @@ pub fn stop_group(pgid: i32) {
 /// Ctrl-C (or a dropped ssh session) must not leave reviews running, and the
 /// reviews that already finished are still worth reopening -- so hand back
 /// their session ids on the way out rather than dropping them.
-fn interrupt(jobs: &[Job], marks: &mut Marks, ui: &mut Ui) -> ! {
+fn interrupt(jobs: &[Job], marks: &mut Marks, tasks: &mut Tasks, rx: &Receiver<Event>, ctx: &RepoContext, ui: &mut Ui) -> ! {
     // The reviews before anything prints. A hangup leaves no terminal to
     // print to, and a print that fails panics, which would end the process
     // with the reviewers still running and still spending.
@@ -72,10 +82,27 @@ fn interrupt(jobs: &[Job], marks: &mut Marks, ui: &mut Ui) -> ! {
     // would take its reaction off the PR.
     marks.clear_all();
     marks.settle();
+    // And each task's worktree: removed when it holds nothing, kept and
+    // named when it does. A worktree left behind pins its branch, and the
+    // next task on that PR would be refused for it.
+    // A task still making its worktree has its fetch stopped and is waited
+    // for, briefly: the worktree it makes would otherwise outlive the run
+    // and pin its branch.
+    crate::task_worktree::stop_fetches();
+    // The notes name worktrees kept for their work. They go under the
+    // summary, which is printed once the terminal is back: with the view
+    // up, stderr is the run log.
+    for note in tasks.settle_preparing(rx, ctx).into_iter().chain(tasks.finish_all(ctx)) {
+        eprintln!("{note}");
+        ui.after_summary(note);
+    }
     // Then the terminal: the full-screen view holds it in raw mode, and the
     // summary must land on a terminal that has been given back.
     ui.interrupted(jobs)
 }
+
+/// How long an interrupt waits for a task still making its worktree.
+const SETTLE_FOR: Duration = Duration::from_secs(5);
 
 struct Deadline {
     at: Instant,
@@ -162,6 +189,191 @@ fn follow(job: &Job, is_override: bool, rundir: &RunDir) -> Tail {
     }
 }
 
+/// The tasks of one pass: the ones whose worktree is still being made, and
+/// what each running one needs beside its job.
+struct Tasks {
+    /// Where the orchestrator finds an installed skill, read once a pass.
+    roots: Vec<PathBuf>,
+    /// PRs whose worktree is being made. The pass does not end while any is.
+    preparing: Vec<u64>,
+    /// Where task worktrees are made, to name one an interrupt cut short.
+    run_root: PathBuf,
+    running: HashMap<usize, task_run::Running>,
+}
+
+impl Tasks {
+    fn new(cfg: &Config, ctx: &RepoContext, run_root: &std::path::Path) -> Tasks {
+        Tasks {
+            roots: task::skill_roots(&cfg.orchestrator, &ctx.repo_root),
+            preparing: Vec::new(),
+            run_root: run_root.to_path_buf(),
+            running: HashMap::new(),
+        }
+    }
+
+    fn preparing(&self) -> bool {
+        !self.preparing.is_empty()
+    }
+
+    /// Where job `idx` writes its files: the task's own directory, or the
+    /// pass for a review.
+    fn dir<'a>(&'a self, idx: usize, rundir: &'a RunDir) -> &'a RunDir {
+        self.running.get(&idx).map_or(rundir, |t| &t.dir)
+    }
+
+    /// The PR's head before task `idx` started, which the readback compares
+    /// with. None for a review.
+    fn head(&self, idx: usize) -> Option<String> {
+        self.running.get(&idx).map(|t| t.worktree.head.clone())
+    }
+
+    /// A person asked for a task. Refused with a note, or its worktree is
+    /// started on a thread of its own.
+    #[allow(clippy::too_many_arguments)]
+    fn ask(&mut self, request: Request, jobs: &[Job], cfg: &Config, ctx: &RepoContext, rundir: &RunDir, tx: &Sender<Event>, ui: &mut Ui) {
+        let pr = request.pr;
+        let busy = self.preparing.contains(&pr)
+            || jobs.iter().any(|j| j.pr == pr && matches!(j.state, JobState::Queued | JobState::Running));
+        if let Some(note) = task_run::refusal(&request, cfg, &self.roots, busy) {
+            ui.note(note);
+            return;
+        }
+        self.preparing.push(pr);
+        task_run::prepare(request, ctx.repo_root.clone(), rundir.root.clone(), tx.clone());
+    }
+
+    /// A worktree is ready, or could not be made. The new job's index when
+    /// the task joins the pass.
+    #[allow(clippy::too_many_arguments)]
+    fn ready(
+        &mut self,
+        request: Request,
+        worktree: Result<Prepared, String>,
+        jobs: &mut Vec<Job>,
+        cfg: &Config,
+        ctx: &RepoContext,
+        rundir: &RunDir,
+        ui: &mut Ui,
+    ) -> Option<usize> {
+        self.preparing.retain(|&pr| pr != request.pr);
+        let refused = |why: String| format!("note: not {} PR #{}: {why}", request.task.doing(), request.pr);
+        let worktree = match worktree {
+            Ok(w) => w,
+            Err(why) => {
+                ui.note(refused(why));
+                return None;
+            }
+        };
+        let dir = match rundir.for_task(request.task) {
+            Ok(dir) => dir,
+            Err(e) => {
+                ui.note(refused(format!("could not make its log directory: {e}")));
+                if let Some(note) = task_run::finish(&ctx.repo_root, request.pr, &worktree) {
+                    kept(ui, note);
+                }
+                return None;
+            }
+        };
+        let idx = jobs.len();
+        jobs.push(task_run::job(&request, &worktree, cfg, ctx));
+        self.running.insert(idx, task_run::Running { worktree, dir });
+        Some(idx)
+    }
+
+    /// Task `job` ended. What it did to the PR is GitHub's word, read back
+    /// on its monitor thread; its worktree goes unless it holds work.
+    #[allow(clippy::too_many_arguments)]
+    fn finished(
+        &mut self,
+        idx: usize,
+        job: &mut Job,
+        state: JobState,
+        code: Option<i32>,
+        readback: Option<report::Readback>,
+        ctx: &RepoContext,
+        ui: &mut Ui,
+    ) {
+        job.state = state;
+        job.exit_code = code;
+        let Some(running) = self.running.remove(&idx) else { return };
+        if state == JobState::Failed && !job.stopped {
+            job.error = report::read_agent_error(&running.dir.stdout_path(job.pr));
+        }
+        let (verdict, note) = task_run::verdict(job.pr, readback);
+        job.verdict = verdict;
+        if let Some(note) = note {
+            ui.note(note);
+        }
+        if let Some(note) = task_run::finish(&ctx.repo_root, job.pr, &running.worktree) {
+            kept(ui, note);
+        }
+    }
+
+    /// Let task `idx`'s worktree go: removed, or kept with a note.
+    fn release(&mut self, idx: usize, ctx: &RepoContext) -> Option<String> {
+        let running = self.running.remove(&idx)?;
+        task_run::finish(&ctx.repo_root, running.worktree.pr, &running.worktree)
+    }
+
+    /// Let every task's worktree go, for a pass that is being interrupted.
+    fn finish_all(&self, ctx: &RepoContext) -> Vec<String> {
+        self.running
+            .values()
+            .filter_map(|t| task_run::finish(&ctx.repo_root, t.worktree.pr, &t.worktree))
+            .collect()
+    }
+
+    /// Wait, up to `SETTLE_FOR`, for the tasks still making their worktree,
+    /// and let each one that was made go. For an interrupt: nothing else
+    /// would remove them.
+    fn settle_preparing(&mut self, rx: &Receiver<Event>, ctx: &RepoContext) -> Vec<String> {
+        let until = Instant::now() + SETTLE_FOR;
+        let mut notes = Vec::new();
+        while self.preparing() {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                // Its git may still finish after the run is gone. Say where
+                // the worktree would be, so a refusal later has a cause.
+                notes.extend(self.preparing.iter().map(|&pr| {
+                    let at = crate::task_worktree::path_for(&self.run_root, pr);
+                    format!("note: PR #{pr}'s worktree was still being made; check {}", at.display())
+                }));
+                break;
+            }
+            if let Ok(Event::TaskReady { request, worktree }) = rx.recv_timeout(left) {
+                self.preparing.retain(|&pr| pr != request.pr);
+                if let Ok(w) = worktree {
+                    notes.extend(task_run::finish(&ctx.repo_root, w.pr, &w));
+                }
+            }
+        }
+        notes
+    }
+
+    /// How many tasks are making their worktree, for the view's quit.
+    fn preparing_count(&self) -> usize {
+        self.preparing.len()
+    }
+}
+
+/// Say that a worktree was kept for the work in it, now and again under the
+/// summary: the flash goes, and the summary is what a person reads last.
+fn kept(ui: &mut Ui, note: String) {
+    ui.note(note.clone());
+    ui.after_summary(note);
+}
+
+/// Whether this job runs the review override. Only a review does: a task
+/// runs its own skill through dash-p whatever the override says.
+fn overridden(job: &Job, cfg: &Config) -> bool {
+    cfg.review_cmd.is_some() && job.task.is_review()
+}
+
+/// What a job is, for the one message that names it.
+fn what(job: &Job) -> &'static str {
+    if job.task.is_review() { "review" } else { "task" }
+}
+
 fn deadline_for(cfg: &Config, is_override: bool) -> Option<Duration> {
     if cfg.timeout_secs == 0 {
         return None;
@@ -189,8 +401,9 @@ fn launch(
     dashp: &str,
     tx: &Sender<Event>,
     ui: &mut Ui,
+    task_head: Option<String>,
 ) -> bool {
-    let is_override = cfg.review_cmd.is_some();
+    let is_override = overridden(&jobs[idx], cfg);
     match job::spawn(&jobs[idx], cfg, ctx, rundir, dashp) {
         Ok(child) => {
             let started = Instant::now();
@@ -201,7 +414,9 @@ fn launch(
             jobs[idx].activity = follow(&jobs[idx], is_override, rundir);
             deadlines[idx] = deadline_for(cfg, is_override).map(|d| Deadline { at: Instant::now() + d });
             ui.note_transition(&jobs[idx]);
-            marks.show(jobs[idx].pr);
+            if jobs[idx].task.is_review() {
+                marks.show(jobs[idx].pr);
+            }
             let tx = tx.clone();
             let pr = jobs[idx].pr;
             let me = ctx.me.clone();
@@ -220,19 +435,27 @@ fn launch(
                 // deadline -- delays only this slot's release, never
                 // the guard, the clock, or the other jobs.
                 let _ = tx.send(Event::JobReaped { idx, elapsed_secs: started.elapsed().as_secs() });
-                let readback = status.success().then(|| report::github_verdict(pr, &me, started_epoch));
+                // A task is read back whether or not it exited cleanly: one
+                // that failed late may still have pushed, and the reader
+                // must know.
+                let readback = match &task_head {
+                    Some(before) => Some(crate::task_run::readback(pr, before)),
+                    None => status.success().then(|| report::github_verdict(pr, &me, started_epoch)),
+                };
                 let _ = tx.send(Event::JobExited { idx, status, readback });
             });
             true
         }
         Err(e) => {
-            ui.note(format!("error: could not start the review for PR #{}: {e}", jobs[idx].pr));
+            ui.note(format!("error: could not start the {} for PR #{}: {e}", what(&jobs[idx]), jobs[idx].pr));
             jobs[idx].state = JobState::Failed;
             jobs[idx].exit_code = Some(127);
             // The failed marker too, like the exit path: the next babysit
             // pass must review fresh, not re-check a stale session for a PR
             // this run never reviewed.
-            rundir.mark_failed(jobs[idx].pr);
+            if jobs[idx].task.is_review() {
+                rundir.mark_failed(jobs[idx].pr);
+            }
             ui.note_transition(&jobs[idx]);
             // Only a retry has a mark by now, from its first attempt.
             marks.clear(jobs[idx].pr);
@@ -273,22 +496,30 @@ pub fn focus_note(focus: Option<&str>) -> String {
     }
 }
 
-/// Stop one running review because a person asked. It ends as a failure,
-/// like a review killed from outside, and the next pass reviews the PR from
-/// scratch. A reaped review has nothing left to stop, and its process group
-/// id may already belong to something else.
-fn stop_review(jobs: &mut [Job], deadlines: &mut [Option<Deadline>], pr: u64, ui: &mut Ui) {
-    let Some(idx) = jobs.iter().position(|j| j.pr == pr) else { return };
-    let job = &mut jobs[idx];
-    let pgid = job.pgid.filter(|_| job.state == JobState::Running && !job.reaped);
-    let Some(pgid) = pgid else {
-        ui.note(format!("note: PR #{pr} has no review running; nothing to stop"));
+/// Stop one running job -- a review or a task -- because a person asked. It
+/// ends as a failure, like a job killed from outside. A stopped review is
+/// reviewed from scratch by the next pass; a stopped task lets its worktree
+/// go, or keeps it when it holds work. A reaped job has nothing left to
+/// stop, and its process group id may already belong to something else.
+fn stop_job(jobs: &mut [Job], deadlines: &mut [Option<Deadline>], pr: u64, ui: &mut Ui) {
+    let Some(idx) = stoppable(jobs, pr) else {
+        ui.note(format!("note: PR #{pr} has nothing running; nothing to stop"));
         return;
     };
+    let job = &mut jobs[idx];
+    let Some(pgid) = job.pgid else { return };
     job.stopped = true;
     deadlines[idx] = None;
     stop_group(pgid);
-    ui.note(format!("note: stopped the review of PR #{pr}"));
+    ui.note(format!("note: stopped the {} of PR #{pr}", what(job)));
+}
+
+/// The job `x` stops on PR `pr`: the one running now. A pass can hold an
+/// earlier job on the same PR that has ended -- a task, then a second task
+/// -- and stopping the first match would stop nothing.
+fn stoppable(jobs: &[Job], pr: u64) -> Option<usize> {
+    jobs.iter()
+        .position(|j| j.pr == pr && j.state == JobState::Running && !j.reaped && j.pgid.is_some())
 }
 
 /// Whether a finished attempt is one the fallback should retry: the
@@ -299,7 +530,10 @@ fn stop_review(jobs: &mut [Job], deadlines: &mut [Option<Deadline>], pr: u64, ui
 /// is judged by its exit status alone, with no dash-p behind it to have
 /// said what the status means.
 fn should_fall_back(job: &Job, state: JobState, code: Option<i32>, cfg: &Config) -> bool {
-    !job.stopped
+    // A task's skill is the one the person installed for the orchestrator
+    // they chose; the other one may not have it.
+    job.task.is_review()
+        && !job.stopped
         && state == JobState::Failed
         && code == Some(10)
         && cfg.review_cmd.is_none()
@@ -319,7 +553,6 @@ pub fn run_pass(
     tx: &Sender<Event>,
     ui: &mut Ui,
 ) -> Vec<Job> {
-    let is_override = cfg.review_cmd.is_some();
     let mut jobs: Vec<Job> = queue
         .iter()
         .map(|&n| {
@@ -335,10 +568,15 @@ pub fn run_pass(
     // The eyes reaction each PR carries while its review runs. Not under
     // --no-post: that run promised to leave the PR alone.
     let mut marks = Marks::new(&ctx.owner, &ctx.name, !cfg.no_post);
-    let total = jobs.len();
+    let mut total = jobs.len();
     let jobs_max = cfg.jobs as usize;
+    let mut tasks = Tasks::new(cfg, ctx, &rundir.root);
+    let asked = ui.take_tasks();
 
-    ui.begin_pass(total, cfg.jobs, &rundir.pass_dir);
+    ui.begin_pass(total, asked.len(), cfg.jobs, &rundir.pass_dir);
+    for request in asked {
+        tasks.ask(request, &jobs, cfg, ctx, rundir, tx, ui);
+    }
 
     let mut running = 0usize;
     // The reviews not started yet, in the order they start. Queue order
@@ -351,7 +589,9 @@ pub fn run_pass(
     // review, and --jobs is the promise about how many run at once.
     let mut retries: Vec<usize> = Vec::new();
 
-    while finished < total {
+    // A task whose worktree is still being made is part of the pass: it
+    // joins the queue when its worktree is ready.
+    while finished < total || tasks.preparing() {
         // Before anything is started: a focus typed while the run waited
         // belongs to the reviews it was waiting to start, and one typed
         // mid-pass belongs to whatever has not started yet.
@@ -366,20 +606,27 @@ pub fn run_pass(
             let Some((idx, unplanned)) = next_start(&mut retries, &mut order) else { break };
             // A retry is already planned: it is always a fresh, unpinned
             // review.
-            if unplanned {
+            if unplanned && jobs[idx].task.is_review() {
                 plan_job(&mut jobs[idx], cfg, ctx, rundir, ui);
             }
-            if launch(idx, &mut jobs, &mut deadlines, &mut marks, cfg, ctx, rundir, dashp, tx, ui) {
+            let dir = tasks.dir(idx, rundir);
+            let head = tasks.head(idx);
+            if launch(idx, &mut jobs, &mut deadlines, &mut marks, cfg, ctx, dir, dashp, tx, ui, head) {
                 running += 1;
             } else {
                 finished += 1;
+                // A task that never started has no monitor to end it, so
+                // its worktree is let go here.
+                if let Some(note) = tasks.release(idx, ctx) {
+                    kept(ui, note);
+                }
             }
         }
 
         // A spawn failure can finish the last job right here, with nothing
         // running and nothing to receive -- waiting on the channel then would
         // stall the end of the pass for the full receive timeout.
-        if finished >= total {
+        if finished >= total && !tasks.preparing() {
             break;
         }
 
@@ -407,7 +654,9 @@ pub fn run_pass(
                 // clock stops at the real exit, and the slot frees for the
                 // next queued review -- only the readback remains, and it
                 // belongs to no process group.
+                let dir = tasks.dir(idx, rundir);
                 let job = &mut jobs[idx];
+                let is_override = overridden(job, cfg);
                 deadlines[idx] = None;
                 job.reaped = true;
                 job.elapsed_secs = elapsed_secs;
@@ -416,7 +665,7 @@ pub fn run_pass(
                 // The meta envelope is complete once the child is reaped, so
                 // even a summary printed mid-readback -- an interrupt --
                 // hands back this review's session id and cost.
-                let meta = job::read_meta(rundir, job.pr);
+                let meta = job::read_meta(dir, job.pr);
                 if let Some(m) = &meta
                     && m.total_cost_usd > 0.0
                     && !is_override
@@ -431,7 +680,25 @@ pub fn run_pass(
                 }
                 job.sid = job::summary_sid(job, meta.as_ref(), is_override);
             }
+            Ok(Event::TaskReady { request, worktree }) => {
+                if let Some(idx) = tasks.ready(request, worktree, &mut jobs, cfg, ctx, rundir, ui) {
+                    deadlines.push(None);
+                    order.push_back(idx);
+                    total += 1;
+                }
+            }
+            Ok(Event::JobExited { idx, status, readback }) if !jobs[idx].task.is_review() => {
+                let (state, code) = if jobs[idx].stopped {
+                    (JobState::Failed, None)
+                } else {
+                    job::classify(status, jobs[idx].guard_tripped, false)
+                };
+                finished += 1;
+                tasks.finished(idx, &mut jobs[idx], state, code, readback, ctx, ui);
+                ui.note_transition(&jobs[idx]);
+            }
             Ok(Event::JobExited { idx, status, readback }) => {
+                let is_override = overridden(&jobs[idx], cfg);
                 // A stopped review is a failure with no result, whatever the
                 // kill made the reviewer exit with: dash-p may answer TERM
                 // with 10, which would otherwise read as an outage and be
@@ -575,7 +842,7 @@ pub fn run_pass(
                 }
                 ui.note_transition(job);
             }
-            Ok(Event::Signal) => interrupt(&jobs, &mut marks, ui),
+            Ok(Event::Signal) => interrupt(&jobs, &mut marks, &mut tasks, rx, ctx, ui),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
@@ -584,11 +851,12 @@ pub fn run_pass(
         // rather than a signal. Read here, on this thread, after every wake.
         for action in ui.poll_input() {
             match action {
-                Action::Stop => interrupt(&jobs, &mut marks, ui),
-                Action::StopReview(pr) => stop_review(&mut jobs, &mut deadlines, pr, ui),
+                Action::Stop => interrupt(&jobs, &mut marks, &mut tasks, rx, ctx, ui),
+                Action::StopJob(pr) => stop_job(&mut jobs, &mut deadlines, pr, ui),
                 // Started next if this pass has it waiting; otherwise the
                 // loop takes it into the next pass.
                 Action::ReviewNow(pr) if !move_to_front(&mut order, &jobs, pr) => ui.request(pr),
+                Action::RunTask(request) => tasks.ask(request, &jobs, cfg, ctx, rundir, tx, ui),
                 _ => {}
             }
         }
@@ -618,9 +886,11 @@ pub fn run_pass(
             }
         }
 
+        ui.preparing(tasks.preparing_count());
         ui.render(&jobs);
     }
 
+    ui.preparing(0);
     ui.render(&jobs);
     // The last review's mark is still coming off. The view keeps drawing
     // while it does, so a slow GitHub reads as a wait and not a hang.
@@ -675,6 +945,21 @@ mod tests {
             panic!("an empty command line parses");
         };
         Config { fallback: Fallback::Spec(crate::orchestrator::Orchestrator::parse("codex").unwrap()), ..*cfg }
+    }
+
+    #[test]
+    fn x_stops_the_job_that_is_running_not_the_first_on_the_pr() {
+        let mut done = Job::new(4);
+        done.state = JobState::Done;
+        let mut live = Job::new(4);
+        live.state = JobState::Running;
+        live.pgid = Some(1);
+        let mut finishing = Job::new(4);
+        finishing.state = JobState::Running;
+        finishing.reaped = true;
+        assert_eq!(stoppable(&[done.clone(), live.clone()], 4), Some(1));
+        assert_eq!(stoppable(&[done, finishing], 4), None, "an exited job has no group to stop");
+        assert_eq!(stoppable(&[live], 9), None);
     }
 
     #[test]

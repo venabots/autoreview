@@ -12,6 +12,9 @@ use super::keys::{self, Action, Armed, Intent, Pending, Press};
 use super::layout;
 use super::list;
 use super::help;
+mod mine;
+use mine::{TabState, TaskPick};
+use super::mine_view::{self, Tab};
 use super::model::{self, Archived, Row, Section, Sources, Wait};
 use super::terminal::{self, Term};
 use super::text::expand_tabs;
@@ -46,6 +49,10 @@ pub struct Header {
     pub log: PathBuf,
     /// Whether the run looks for work again after a pass.
     pub looping: bool,
+    /// The tasks this run will not start, and why: a skill that is not
+    /// installed, a run under --no-post. Said at the key, before a pass is
+    /// spent finding out.
+    pub task_refusals: Vec<(crate::task::Task, String)>,
 }
 
 /// What the right pane shows.
@@ -122,6 +129,15 @@ pub struct Screen {
     focus: Option<String>,
     /// The focus being typed. While this is open every key belongs to it.
     editing: Option<Input>,
+    /// Which list is shown, and what the other one remembers.
+    tab: Tab,
+    stash: TabState,
+    /// Your own open PRs, as the latest look found them.
+    mine: Vec<crate::mine::MyPr>,
+    task_pick: Option<TaskPick>,
+    /// Tasks making their worktree, as the pool last said. They count as
+    /// running for the quit.
+    preparing: usize,
 }
 
 /// Whether a point is inside an area. The pointer arrives in screen
@@ -173,6 +189,23 @@ impl Screen {
             mouse: true,
             focus: None,
             editing: None,
+            tab: Tab::Review,
+            stash: TabState::default(),
+            mine: Vec::new(),
+            task_pick: None,
+            preparing: 0,
+        }
+    }
+
+    pub fn set_preparing(&mut self, n: usize) {
+        self.preparing = n;
+    }
+
+    /// What `x` stops on the tab shown: a task on My PRs, a review on Review.
+    fn job_word(&self) -> &'static str {
+        match self.tab {
+            Tab::Mine => "task",
+            Tab::Review => "review",
         }
     }
 
@@ -259,55 +292,37 @@ impl Screen {
         // rest of the screen's state changes.
         let waiting = std::mem::take(&mut self.waiting);
         let info = std::mem::take(&mut self.info);
+        let mine = std::mem::take(&mut self.mine);
         {
             let src = Sources { jobs, pass_dir, archive, waiting: &waiting, info: &info };
             let rows = model::rows(&src);
-            self.render_rows(f, &rows);
+            // Counted from every review and every task, whichever tab is
+            // shown: q on My PRs must not quit past a running review.
+            self.running = rows.iter().filter(|r| r.running()).count() + mine_view::running(jobs) + self.preparing;
+            let counts = (rows.len(), mine.len());
+            match self.tab {
+                Tab::Review => self.render_rows(f, &rows, counts),
+                Tab::Mine => {
+                    let mine_rows = mine_view::rows(&mine, jobs, pass_dir, archive);
+                    self.render_mine(f, &rows, &mine_rows, counts);
+                }
+            }
         }
         self.waiting = waiting;
         self.info = info;
+        self.mine = mine;
     }
 
-    fn render_rows(&mut self, f: &mut Frame, rows: &[Row]) {
-        let now = crate::clock::epoch_secs();
-        self.frame += 1;
-        let spinner = SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()];
-        let at = model::position(rows, self.selected);
-        let row = at.map(|i| &rows[i]);
-        self.selected = row.map(|r| r.pr);
-        self.order = rows.iter().map(|r| r.pr).collect();
-        self.running = rows.iter().filter(|r| r.running()).count();
-        let shown = row.map(|r| (r.pr, r.section));
-        if self.drawn_for != shown {
-            self.drawn_for = shown;
-            self.scroll = 0;
-            self.follow = row.is_some_and(|r| r.section == Section::Running);
-        }
-        self.picked = row.map(|r| self.pick(r));
-        let review_path = row
-            .and_then(|r| r.last)
-            .filter(|l| l.job.state == JobState::Done)
-            .map(|l| rundir::review_file(l.pass_dir, l.job.pr));
-        self.load_review(review_path);
-
-        let areas = layout::areas(f.area());
+    /// The header and the tab bar, the same on both tabs.
+    fn draw_top(&self, f: &mut Frame, areas: &layout::Areas, counts: (usize, usize)) {
         let log = self.header.log.display().to_string();
-        let header = layout::header(
-            &self.header.repo,
-            &self.header.mode,
-            self.focus.as_deref(),
-            &log,
-            areas.header.width as usize,
-        );
+        let header = layout::header(&self.header.repo, &self.header.mode, self.focus.as_deref(), &log, areas.header.width as usize);
         f.render_widget(header, areas.header);
+        f.render_widget(mine_view::tab_bar(self.tab, counts.0, counts.1, areas.tabs.width as usize), areas.tabs);
+    }
 
-        let (lines, selected_line) = list::lines(rows, at, areas.list.width as usize, spinner, now);
-        let height = areas.list.height as usize;
-        self.list_offset = list::offset(selected_line, height, self.list_offset, lines.len());
-        let visible: Vec<Line> = lines.into_iter().skip(self.list_offset).take(height).collect();
-        self.list_area = areas.list;
-        f.render_widget(Paragraph::new(visible), areas.list);
-
+    /// The right pane, scrolled as the keys left it.
+    fn draw_detail(&mut self, f: &mut Frame, areas: &layout::Areas, body: Vec<Line<'static>>) {
         let borders = if areas.detail.x > areas.list.x { Borders::LEFT } else { Borders::TOP };
         let block = Block::new()
             .borders(borders)
@@ -315,7 +330,6 @@ impl Screen {
             .padding(Padding::left(1));
         let inner = block.inner(areas.detail);
         self.detail_area = inner;
-        let body = self.detail_lines(row, now);
         let paragraph = Paragraph::new(body).wrap(Wrap { trim: false });
         let total = paragraph.line_count(inner.width);
         let height = inner.height as usize;
@@ -324,7 +338,10 @@ impl Screen {
         self.scroll = if self.follow { self.scroll_max } else { self.scroll.min(self.scroll_max) };
         let scroll = u16::try_from(self.scroll).unwrap_or(u16::MAX);
         f.render_widget(paragraph.scroll((scroll, 0)).block(block), areas.detail);
+    }
 
+    /// The footer: the status, or the latest message, and the keys.
+    fn draw_footer(&mut self, f: &mut Frame, areas: &layout::Areas, rows: &[Row], now: i64) {
         if self.message.as_ref().is_some_and(|(_, at)| at.elapsed() > MESSAGE_FOR) {
             self.message = None;
         }
@@ -339,6 +356,43 @@ impl Screen {
             }
         };
         f.render_widget(footer, areas.footer);
+    }
+
+    fn render_rows(&mut self, f: &mut Frame, rows: &[Row], counts: (usize, usize)) {
+        let now = crate::clock::epoch_secs();
+        self.frame += 1;
+        let spinner = SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()];
+        let at = model::position(rows, self.selected);
+        let row = at.map(|i| &rows[i]);
+        self.selected = row.map(|r| r.pr);
+        self.order = rows.iter().map(|r| r.pr).collect();
+        self.task_pick = None;
+        let shown = row.map(|r| (r.pr, r.section));
+        if self.drawn_for != shown {
+            self.drawn_for = shown;
+            self.scroll = 0;
+            self.follow = row.is_some_and(|r| r.section == Section::Running);
+        }
+        self.picked = row.map(|r| self.pick(r));
+        let review_path = row
+            .and_then(|r| r.last)
+            .filter(|l| l.job.state == JobState::Done)
+            .map(|l| rundir::review_file(l.pass_dir, l.job.pr));
+        self.load_review(review_path);
+
+        let areas = layout::areas(f.area());
+        self.draw_top(f, &areas, counts);
+
+        let (lines, selected_line) = list::lines(rows, at, areas.list.width as usize, spinner, now);
+        let height = areas.list.height as usize;
+        self.list_offset = list::offset(selected_line, height, self.list_offset, lines.len());
+        let visible: Vec<Line> = lines.into_iter().skip(self.list_offset).take(height).collect();
+        self.list_area = areas.list;
+        f.render_widget(Paragraph::new(visible), areas.list);
+
+        let body = self.detail_lines(row, now);
+        self.draw_detail(f, &areas, body);
+        self.draw_footer(f, &areas, rows, now);
     }
 
     fn pick(&self, row: &Row) -> Picked {
@@ -524,6 +578,9 @@ impl Screen {
             Intent::Keys => {
                 self.show(self.side.toggle(Side::Keys));
             }
+            Intent::SwitchTab => self.switch_tab(),
+            Intent::Babysit => return self.ask_task(crate::task::Task::Babysit),
+            Intent::Comments => return self.ask_task(crate::task::Task::Comments),
             Intent::Back => {
                 if self.side != Side::Detail {
                     self.side = Side::Detail;
@@ -548,12 +605,12 @@ impl Screen {
                 Some((pr, Ok(()))) => match keys::confirm(self.armed, Pending::Stop(pr), now) {
                     Press::Arm(armed) => {
                         self.armed = Some(armed);
-                        self.flash(format!("press x again to stop PR #{pr}'s review"));
+                        self.flash(format!("press x again to stop PR #{pr}'s {}", self.job_word()));
                     }
                     Press::Fire => {
                         self.armed = None;
-                        self.flash(format!("stopping PR #{pr}'s review"));
-                        return vec![Action::StopReview(pr)];
+                        self.flash(format!("stopping PR #{pr}'s {}", self.job_word()));
+                        return vec![Action::StopJob(pr)];
                     }
                 },
                 Some((_, Err(why))) => self.flash(why),
@@ -585,7 +642,7 @@ impl Screen {
                 match keys::confirm(self.armed, Pending::Quit, now) {
                     Press::Arm(armed) => {
                         self.armed = Some(armed);
-                        self.flash(format!("press q again to stop {} and quit", count(self.running, "running review")));
+                        self.flash(format!("press q again to stop {} and quit", count(self.running, "running job")));
                     }
                     Press::Fire => return vec![Action::Stop],
                 }
@@ -633,374 +690,4 @@ fn read_tail(path: &Path, len: u64) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ratatui::Terminal;
-    use ratatui::backend::TestBackend;
-
-    fn header(looping: bool) -> Header {
-        Header {
-            repo: "acme/app".into(),
-            mode: "watching every 2m".into(),
-            repo_root: PathBuf::from("/src/app"),
-            log: PathBuf::from("/nonexistent/autoreview.log"),
-            looping,
-        }
-    }
-
-    fn job(pr: u64, state: JobState) -> Job {
-        let mut job = Job::new(pr);
-        job.state = state;
-        job.title = format!("Change {pr}");
-        job.author = "alice".into();
-        if state == JobState::Running {
-            job.pgid = Some(1);
-        }
-        job
-    }
-
-    fn done(pr: u64) -> Archived {
-        let mut job = job(pr, JobState::Done);
-        job.verdict = Some("approved".into());
-        job.sid = Some("7442b624-5cba-5d44-ae67-9c390cfe70a1".into());
-        Archived { job, pass_dir: PathBuf::from("/nonexistent/pass-1") }
-    }
-
-    fn screen_text(t: &Terminal<TestBackend>) -> String {
-        let buf = t.backend().buffer();
-        (0..buf.area.height)
-            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    fn frame(screen: &mut Screen, jobs: &[Job], archive: &[Archived], width: u16) -> String {
-        let mut t = Terminal::new(TestBackend::new(width, 24)).unwrap();
-        t.draw(|f| screen.render(f, jobs, Path::new("/nonexistent/pass-2"), archive)).unwrap();
-        screen_text(&t)
-    }
-
-    #[test]
-    fn a_frame_has_the_list_the_detail_and_the_keys() {
-        let mut screen = Screen::new(None, header(true));
-        let jobs = vec![job(9, JobState::Running), job(8, JobState::Queued)];
-        let archive = vec![done(7)];
-        let out = frame(&mut screen, &jobs, &archive, 120);
-        assert!(out.starts_with("autoreview · acme/app · watching every 2m"), "{out}");
-        // Two lines a row, most pressing first, and no headings.
-        assert!(out.contains("#9 · reviewing 0s"), "{out}");
-        assert!(out.contains("@alice Change 9"), "{out}");
-        assert!(out.contains("#8 · queued"), "{out}");
-        assert!(out.contains("#7 · approved"), "{out}");
-        assert!(!out.contains("RUNNING") && !out.contains("FINISHED"), "{out}");
-        // The first row is selected, and the detail pane is about it.
-        assert!(out.contains("#9 Change 9"), "{out}");
-        assert!(out.contains("reviewing 0s · claude"), "{out}");
-        assert!(out.contains("1 running · 1 queued · 1 finished"), "{out}");
-        assert!(out.contains("q quit"), "{out}");
-    }
-
-    #[test]
-    fn the_keys_move_the_selection_and_the_detail_follows() {
-        let mut screen = Screen::new(None, header(true));
-        let jobs = vec![job(9, JobState::Running)];
-        let archive = vec![done(7)];
-        frame(&mut screen, &jobs, &archive, 120);
-        assert!(screen.press(Intent::Down, Instant::now()).is_empty());
-        let out = frame(&mut screen, &jobs, &archive, 120);
-        assert!(out.contains("#7 Change 7"), "{out}");
-        assert!(out.contains("claude --resume 7442b624"), "{out}");
-        assert!(out.contains("no review text at /nonexistent/pass-1/pr-7.review.md"), "{out}");
-        // Held at the end.
-        screen.press(Intent::Down, Instant::now());
-        assert_eq!(screen.selected, Some(7));
-        screen.press(Intent::Top, Instant::now());
-        assert_eq!(screen.selected, Some(9));
-    }
-
-    #[test]
-    fn a_review_that_finishes_is_read_from_the_top() {
-        let mut screen = Screen::new(None, header(true));
-        let running = vec![job(9, JobState::Running)];
-        frame(&mut screen, &running, &[], 120);
-        assert!(screen.follow, "a running review follows its activity");
-        let out = frame(&mut screen, &[], &[done(9)], 120);
-        assert!(!screen.follow);
-        assert_eq!(screen.scroll, 0);
-        assert!(out.contains("#9 Change 9"), "{out}");
-    }
-
-    #[test]
-    fn a_narrow_terminal_still_draws_both_panes() {
-        let mut screen = Screen::new(None, header(true));
-        let archive = vec![done(7)];
-        let out = frame(&mut screen, &[], &archive, 60);
-        assert!(out.contains("#7 · approved") && out.contains("LAST REVIEW"), "{out}");
-    }
-
-    #[test]
-    fn stopping_a_review_takes_two_presses_on_the_same_pr() {
-        let mut screen = Screen::new(None, header(true));
-        let jobs = vec![job(9, JobState::Running)];
-        frame(&mut screen, &jobs, &[], 120);
-        let t0 = Instant::now();
-        assert!(screen.press(Intent::Stop, t0).is_empty());
-        assert!(screen.message.as_ref().unwrap().0.contains("press x again"));
-        assert_eq!(screen.press(Intent::Stop, t0), vec![Action::StopReview(9)]);
-        // Any other key in between disarms.
-        screen.press(Intent::Stop, t0);
-        screen.press(Intent::Down, t0);
-        assert!(screen.press(Intent::Stop, t0).is_empty());
-    }
-
-    #[test]
-    fn a_finished_review_cannot_be_stopped() {
-        let mut screen = Screen::new(None, header(true));
-        frame(&mut screen, &[], &[done(7)], 120);
-        assert!(screen.press(Intent::Stop, Instant::now()).is_empty());
-        assert!(screen.message.as_ref().unwrap().0.contains("has no review running"));
-    }
-
-    #[test]
-    fn quitting_asks_again_only_while_reviews_run() {
-        let mut screen = Screen::new(None, header(true));
-        frame(&mut screen, &[job(9, JobState::Running)], &[], 120);
-        let t0 = Instant::now();
-        assert!(screen.press(Intent::Quit, t0).is_empty());
-        assert!(screen.message.as_ref().unwrap().0.contains("stop 1 running review and quit"));
-        assert_eq!(screen.press(Intent::Quit, t0), vec![Action::Stop]);
-
-        let mut idle = Screen::new(None, header(true));
-        frame(&mut idle, &[], &[done(7)], 120);
-        assert_eq!(idle.press(Intent::Quit, t0), vec![Action::Stop]);
-        // ctrl-C never asks.
-        let mut busy = Screen::new(None, header(true));
-        frame(&mut busy, &[job(9, JobState::Running)], &[], 120);
-        assert_eq!(busy.press(Intent::Interrupt, t0), vec![Action::Stop]);
-    }
-
-    #[test]
-    fn w_turns_the_looking_for_work_on_and_off() {
-        let mut screen = Screen::new(None, header(false));
-        frame(&mut screen, &[], &[], 120);
-        assert_eq!(screen.press(Intent::Watch, Instant::now()), vec![Action::Watch(true)]);
-        assert!(screen.message.as_ref().unwrap().0.contains("look for work"));
-        // The engine says what it did; the header follows it, not the key.
-        screen.set_mode("watching every 2m", true);
-        let out = frame(&mut screen, &[], &[], 120);
-        assert!(out.contains("watching every 2m"), "{out}");
-        assert_eq!(screen.press(Intent::Watch, Instant::now()), vec![Action::Watch(false)]);
-        assert!(screen.message.as_ref().unwrap().0.contains("no longer looking"));
-    }
-
-    fn wheel(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
-        MouseEvent { kind, column, row, modifiers: crossterm::event::KeyModifiers::NONE }
-    }
-
-    #[test]
-    fn the_wheel_scrolls_whichever_pane_it_points_at() {
-        let mut screen = Screen::new(None, header(true));
-        let mut long = done(7);
-        long.job.title = "Change 7".into();
-        frame(&mut screen, &[], &[long], 120);
-        // The detail pane is taller than its content here, so there is
-        // nothing to scroll and the wheel leaves it at the end.
-        screen.scroll_max = 40;
-        screen.follow = false;
-        let over_detail = (screen.detail_area.x + 2, screen.detail_area.y + 1);
-        screen.point(wheel(MouseEventKind::ScrollDown, over_detail.0, over_detail.1));
-        assert_eq!(screen.scroll, 3, "three lines a notch");
-        screen.point(wheel(MouseEventKind::ScrollUp, over_detail.0, over_detail.1));
-        assert_eq!(screen.scroll, 0);
-        screen.point(wheel(MouseEventKind::ScrollUp, over_detail.0, over_detail.1));
-        assert_eq!(screen.scroll, 0, "and never past the top");
-    }
-
-    #[test]
-    fn the_wheel_over_the_list_moves_the_selection() {
-        let mut screen = Screen::new(None, header(true));
-        let jobs = vec![job(9, JobState::Running), job(8, JobState::Queued)];
-        frame(&mut screen, &jobs, &[], 120);
-        let over_list = (screen.list_area.x + 1, screen.list_area.y + 1);
-        screen.point(wheel(MouseEventKind::ScrollDown, over_list.0, over_list.1));
-        assert_eq!(screen.selected, Some(8));
-        screen.point(wheel(MouseEventKind::ScrollUp, over_list.0, over_list.1));
-        assert_eq!(screen.selected, Some(9));
-    }
-
-    #[test]
-    fn a_click_selects_the_row_it_lands_on() {
-        let mut screen = Screen::new(None, header(true));
-        let jobs = vec![job(9, JobState::Running), job(8, JobState::Queued)];
-        frame(&mut screen, &jobs, &[], 120);
-        let x = screen.list_area.x + 1;
-        // Each row is two lines: the second row starts two lines down.
-        screen.point(wheel(MouseEventKind::Down(MouseButton::Left), x, screen.list_area.y + 2));
-        assert_eq!(screen.selected, Some(8));
-        screen.point(wheel(MouseEventKind::Down(MouseButton::Left), x, screen.list_area.y));
-        assert_eq!(screen.selected, Some(9));
-        // Past the last row, and outside the pane: nothing moves.
-        screen.point(wheel(MouseEventKind::Down(MouseButton::Left), x, screen.list_area.y + 9));
-        screen.point(wheel(MouseEventKind::Down(MouseButton::Left), screen.detail_area.x + 2, screen.list_area.y + 2));
-        assert_eq!(screen.selected, Some(9));
-    }
-
-    #[test]
-    fn m_hands_the_mouse_back_to_the_terminal() {
-        let mut screen = Screen::new(None, header(true));
-        frame(&mut screen, &[], &[done(7)], 120);
-        assert!(screen.mouse, "the screen takes it to begin with");
-        assert!(screen.press(Intent::Mouse, Instant::now()).is_empty());
-        assert!(!screen.mouse);
-        assert!(screen.message.as_ref().unwrap().0.contains("drag to select text"));
-        screen.press(Intent::Mouse, Instant::now());
-        assert!(screen.mouse);
-    }
-
-    #[test]
-    fn a_focus_is_typed_in_place_and_handed_to_the_engine() {
-        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-        let mut screen = Screen::new(None, header(true));
-        screen.set_focus(Some("the ledger"));
-        frame(&mut screen, &[], &[done(7)], 120);
-        assert!(screen.press(Intent::Focus, Instant::now()).is_empty());
-        // The editor opens on what the run is already being told.
-        let out = frame(&mut screen, &[], &[done(7)], 120);
-        assert!(out.contains("focus the ledger"), "{out}");
-        assert!(out.contains("enter to apply"), "{out}");
-
-        // Every key is the editor's now, j and k included.
-        let key = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
-        for c in " jk".chars() {
-            assert!(screen.edit(key(c)).is_empty());
-        }
-        let done_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(
-            screen.edit(done_key),
-            vec![Action::Focus(Some("the ledger jk".into()))],
-            "what was typed, as the flag would have taken it"
-        );
-        assert!(screen.editing.is_none(), "and the editor closes");
-
-        // Esc leaves it alone; an empty line clears it.
-        screen.press(Intent::Focus, Instant::now());
-        screen.edit(key('x'));
-        assert!(screen.edit(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).is_empty());
-        screen.press(Intent::Focus, Instant::now());
-        for _ in 0..40 {
-            screen.edit(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-        }
-        assert_eq!(screen.edit(done_key), vec![Action::Focus(None)]);
-    }
-
-    #[test]
-    fn the_header_shows_what_the_reviewers_are_told() {
-        let mut screen = Screen::new(None, header(true));
-        let out = frame(&mut screen, &[], &[done(7)], 120);
-        assert!(!out.contains("focus:"), "nothing to say yet: {out}");
-        screen.set_focus(Some("be strict about the ledger"));
-        let out = frame(&mut screen, &[], &[done(7)], 120);
-        assert!(out.contains("focus: be strict about the ledger"), "{out}");
-    }
-
-    #[test]
-    fn what_review_now_takes() {
-        // A looping run has dropped what it lists as finished.
-        let mut screen = Screen::new(None, header(true));
-        frame(&mut screen, &[], &[done(7)], 120);
-        assert!(screen.press(Intent::ReviewNow, Instant::now()).is_empty());
-        assert!(screen.message.as_ref().unwrap().0.contains("finished for this run"));
-
-        let mut waiting = Screen::new(None, header(true));
-        waiting.set_waiting(vec![(5, Wait::Quiet)]);
-        frame(&mut waiting, &[], &[], 120);
-        assert_eq!(waiting.press(Intent::ReviewNow, Instant::now()), vec![Action::ReviewNow(5)]);
-
-        // A one-shot run reviews a PR it has already reviewed, on request.
-        let mut once = Screen::new(None, header(false));
-        frame(&mut once, &[], &[done(7)], 120);
-        assert_eq!(once.press(Intent::ReviewNow, Instant::now()), vec![Action::ReviewNow(7)]);
-    }
-
-    #[test]
-    fn an_ended_run_says_so_and_quits_at_once() {
-        let mut screen = Screen::new(None, header(true));
-        screen.set_ended(Some("nothing left to babysit"));
-        screen.set_waiting(vec![(5, Wait::Quiet)]);
-        let out = frame(&mut screen, &[], &[done(7)], 120);
-        assert!(out.contains("nothing left to babysit · q quits"), "{out}");
-        assert_eq!(screen.press(Intent::Quit, Instant::now()), vec![Action::Stop]);
-        // A run waiting for q still takes a request: it is what starts
-        // another pass. #7 is reviewed and above #5, which is only quiet,
-        // and a key acts on the frame the person saw -- so move, draw, ask.
-        screen.press(Intent::Down, Instant::now());
-        frame(&mut screen, &[], &[done(7)], 120);
-        assert_eq!(screen.press(Intent::ReviewNow, Instant::now()), vec![Action::ReviewNow(5)]);
-        screen.set_ended(None);
-        let out = frame(&mut screen, &[], &[done(7)], 120);
-        assert!(!out.contains("q quits"), "{out}");
-    }
-
-    #[test]
-    fn the_status_says_what_the_loop_is_doing() {
-        let mut screen = Screen::new(None, header(true));
-        let now = crate::clock::epoch_secs();
-        screen.set_next_check(Some(now + 100));
-        let out = frame(&mut screen, &[], &[], 120);
-        assert!(out.contains("nothing to review yet · next check in 1m"), "{out}");
-        screen.set_busy(Some("checking the PR list"));
-        let out = frame(&mut screen, &[], &[], 120);
-        assert!(out.contains("checking the PR list…"), "{out}");
-    }
-
-    #[test]
-    fn the_log_view_shows_the_end_of_the_run_log() {
-        let dir = std::env::temp_dir().join(format!("ar-screen-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let log = dir.join("autoreview.log");
-        std::fs::write(&log, "start   #9 (reviewing)\n\u{1b}[31mdone    #9 (3s)\n").unwrap();
-        let mut screen = Screen::new(None, Header { log: log.clone(), ..header(true) });
-        screen.press(Intent::Log, Instant::now());
-        let out = frame(&mut screen, &[], &[], 120);
-        assert!(out.contains("start   #9 (reviewing)"), "{out}");
-        assert!(out.contains("[31mdone    #9 (3s)"), "the escape byte is gone: {out}");
-        screen.press(Intent::Back, Instant::now());
-        let out = frame(&mut screen, &[], &[], 120);
-        assert!(!out.contains("start   #9"), "{out}");
-    }
-
-    #[test]
-    fn question_mark_lists_every_key_in_the_right_pane() {
-        let mut screen = Screen::new(None, header(true));
-        let archive = vec![done(7)];
-        let out = frame(&mut screen, &[], &archive, 120);
-        assert!(out.contains("? keys"), "the footer names it: {out}");
-        screen.press(Intent::Keys, Instant::now());
-        let out = frame(&mut screen, &[], &archive, 120);
-        assert!(out.contains("KEYS"), "{out}");
-        assert!(out.contains("review the selected PR now, even one that is capped or resting"), "{out}");
-        assert!(out.contains("#7 · approved"), "the list stays: {out}");
-        // ? again, or esc, puts it away.
-        screen.press(Intent::Keys, Instant::now());
-        assert!(!frame(&mut screen, &[], &archive, 120).contains("KEYS"));
-        screen.press(Intent::Keys, Instant::now());
-        screen.press(Intent::Back, Instant::now());
-        assert!(!frame(&mut screen, &[], &archive, 120).contains("KEYS"));
-        // l from the keys goes to the log, not back to the PR.
-        screen.press(Intent::Keys, Instant::now());
-        screen.press(Intent::Log, Instant::now());
-        let out = frame(&mut screen, &[], &archive, 120);
-        assert!(out.contains("run log") && !out.contains("KEYS"), "{out}");
-    }
-
-    #[test]
-    fn a_long_tail_drops_its_partial_first_line() {
-        let dir = std::env::temp_dir().join(format!("ar-tail-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let log = dir.join("big.log");
-        let body = format!("{}\nlast line\n", "x".repeat(LOG_TAIL_BYTES as usize + 10));
-        std::fs::write(&log, &body).unwrap();
-        let lines = read_tail(&log, body.len() as u64);
-        assert_eq!(lines, vec!["last line"]);
-    }
-}
+mod tests;

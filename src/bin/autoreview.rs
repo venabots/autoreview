@@ -23,7 +23,8 @@ use autoreview::stack::{self, StackedOn};
 use autoreview::status::{Status, step};
 use autoreview::tui::{self, Wait};
 use autoreview::ui::Woke;
-use autoreview::{ci, cli, orchestrator, pool, prlist, queue, repo, select, session, signals, skills, ui};
+use autoreview::task::{self, Task};
+use autoreview::{ci, cli, mine, orchestrator, pool, prlist, queue, repo, select, session, signals, skills, ui};
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
@@ -295,6 +296,45 @@ fn screen_header(cfg: &Config, ctx: &repo::RepoContext, rundir: &RunDir) -> tui:
         repo_root: ctx.repo_root.clone(),
         log: rundir.root.join("autoreview.log"),
         looping: cfg.watch.is_some() || cfg.babysit.is_some(),
+        task_refusals: task_refusals(cfg, ctx),
+    }
+}
+
+/// The tasks this run will not start, and why, worked out once so the view
+/// can say so at the key.
+fn task_refusals(cfg: &Config, ctx: &repo::RepoContext) -> Vec<(Task, String)> {
+    let roots = task::skill_roots(&cfg.orchestrator, &ctx.repo_root);
+    [Task::Babysit, Task::Comments]
+        .into_iter()
+        .filter_map(|t| {
+            let why = if cfg.no_post {
+                Some("--no-post leaves every PR alone, so this run starts no tasks".to_string())
+            } else {
+                task::not_installed(t, &roots, &cfg.orchestrator)
+            };
+            why.map(|why| (t, why))
+        })
+        .collect()
+}
+
+/// Your open PRs, for the My PRs tab. Only with the view up: nothing else
+/// shows them, and a run in a pipe must not spend a call on them. A failed
+/// look keeps the last list and says so once, until a look works again.
+fn refresh_mine(ctx: &repo::RepoContext, ui: &mut ui::Ui, rx: &Receiver<pool::Event>, failing: &mut bool) {
+    if !ui.ticking() {
+        return;
+    }
+    match ui.while_busy("reading your PRs", rx, || mine::fetch(ctx)) {
+        Ok(list) => {
+            *failing = false;
+            ui.mine(list);
+        }
+        Err(e) => {
+            if !*failing {
+                ui.note(format!("note: could not read your PRs ({e:#}); the My PRs tab keeps its last list"));
+            }
+            *failing = true;
+        }
     }
 }
 
@@ -355,8 +395,10 @@ fn held_for_more(
 ) -> Option<Vec<u64>> {
     loop {
         let asked = ui.hold(ended, rx);
+        // A task asked for while the run held is a pass of its own: it never
+        // enters the review queue.
         if asked.is_empty() {
-            return None;
+            return ui.has_tasks().then(Vec::new);
         }
         for pr in asked {
             tracker.request(pr);
@@ -364,7 +406,7 @@ fn held_for_more(
         let intake = tracker.next(watching, &[], now_secs());
         watching.extend(intake.joined.iter().copied());
         report_intake(&intake, cfg, ui);
-        if !intake.queue.is_empty() {
+        if !intake.queue.is_empty() || ui.has_tasks() {
             return Some(intake.queue);
         }
     }
@@ -525,12 +567,15 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
     let (tx, rx) = std::sync::mpsc::channel();
     signals::install(tx.clone());
     let mut ui = ui::Ui::new();
+    // Whether the last look at your PRs failed, so a failure is said once.
+    let mut mine_failing = false;
     // After everything the run says on its way in -- the selection, the
     // skills, the notes -- so that stays on the normal screen, above where
     // the summary lands.
     if screening {
         ui.open_screen(screen_header(cfg, &ctx, &rundir), &rundir.root);
         ui.show_focus(cfg.focus.as_deref());
+        refresh_mine(&ctx, &mut ui, &rx, &mut mine_failing);
         if cfg.no_post {
             ui.after_summary(format!(
                 "nothing was posted to any PR; the reviews are in {}",
@@ -597,7 +642,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         // A watch run reaches the loop with an empty queue whenever there is
         // nothing to review yet, and an empty pass would print a summary of
         // nothing and burn a pass number.
-        let jobs = if queue.is_empty() {
+        let jobs = if queue.is_empty() && !ui.has_tasks() {
             Vec::new()
         } else {
             // The last non-signal exit a watch sweep had: a full disk or a
@@ -614,7 +659,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             }
             let jobs =
                 pool::run_pass(&queue, &info, &mut cfg, &ctx, &rundir, &dashp, &rx, &tx, &mut ui);
-            ui.print_summary(&jobs, &rundir.pass_dir);
+            // A pass whose only task was refused before it started has
+            // nothing to sum up; the refusal was said when it happened.
+            if !jobs.is_empty() {
+                ui.print_summary(&jobs, &rundir.pass_dir);
+            }
             if cfg.no_post {
                 // Every VERDICT in that table reads "nothing posted", which
                 // is the alarming state on an ordinary run and the whole
@@ -631,6 +680,11 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
         let failures = pool::failures(&jobs);
         let total = jobs.len();
         ui.archive(jobs);
+        // A task changes your PR, and its row should say what it did now,
+        // not at the next look -- which a one-pass run never makes.
+        if total > 0 {
+            refresh_mine(&ctx, &mut ui, &rx, &mut mine_failing);
+        }
         // Asked for while the pass ran, and answered here, where what the
         // run does next is decided.
         if let Some(on) = ui.take_watch_toggle() {
@@ -732,6 +786,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                     }
                     info.extend(seen.info);
                     ranked = seen.ranked;
+                    refresh_mine(&ctx, &mut ui, &rx, &mut mine_failing);
                     held = held_for_this_run(&seen.held, &tracker);
                     report_held(&held, &mut held_announced);
                     // The PRs leaving the watch list. A PR reviewed earlier in
@@ -825,7 +880,8 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
             report_intake(&intake, &cfg, &mut ui);
             ui.know(&info);
             ui.waiting(waiting_list(&Seen { watching: &watching, held: &held, stacked: &stacked, queue: &intake.queue, ranked: &ranked, info: &info }, &tracker, now_secs()));
-            if !intake.queue.is_empty() {
+            // A task waiting is work too, and starts the pass on its own.
+            if !intake.queue.is_empty() || ui.has_tasks() {
                 break Some(intake.queue);
             }
             // The same question, asked again with what the look found: a
@@ -958,7 +1014,7 @@ fn run(cfg: &Config) -> anyhow::Result<i32> {
                 let asked = tracker.next(&watching, &[], now_secs());
                 watching.extend(asked.joined.iter().copied());
                 report_intake(&asked, &cfg, &mut ui);
-                if !asked.queue.is_empty() {
+                if !asked.queue.is_empty() || ui.has_tasks() {
                     queue = asked.queue;
                     break;
                 }

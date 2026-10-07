@@ -29,6 +29,23 @@ pub fn pr_session_id(repo_root: &Path, owner: &str, name: &str, n: u64) -> Strin
     )
 }
 
+/// A new random session id, in the v4 form claude --session-id accepts. For
+/// a task, which belongs to no derived session: a babysit run is not a
+/// review, and resuming the PR's review session for it would hand the
+/// skill a conversation about somebody else's work.
+///
+/// None when the system has no randomness to read, which leaves the task to
+/// run in a session claude names itself.
+pub fn fresh_id() -> Option<String> {
+    use std::io::Read;
+    let mut b = [0u8; 16];
+    std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut b).ok()?;
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    Some(format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32]))
+}
+
 /// Claude Code's configuration directory: $CLAUDE_CONFIG_DIR, else ~/.claude.
 /// Sessions, and the user's own skills, live under it.
 pub fn config_dir() -> PathBuf {
@@ -203,6 +220,16 @@ mod tests {
     fn different_checkouts_derive_different_ids() {
         let a = pr_session_id(Path::new("/clone-a"), "acme", "widgets", 9);
         let b = pr_session_id(Path::new("/clone-b"), "acme", "widgets", 9);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn a_fresh_id_is_a_v4_uuid_and_new_each_time() {
+        let a = fresh_id().unwrap();
+        let b = fresh_id().unwrap();
+        assert!(is_uuid_shaped(&a), "{a}");
+        assert_eq!(&a[14..15], "4", "the version nibble: {a}");
+        assert!(matches!(&a[19..20], "8" | "9" | "a" | "b"), "the variant: {a}");
         assert_ne!(a, b);
     }
 

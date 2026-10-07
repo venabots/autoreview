@@ -165,7 +165,7 @@ fn who_line(row: &Row, selected: bool, width: usize) -> Line<'static> {
 
 /// Both lines of the selected row are drawn reversed, so the selection reads
 /// as one block rather than as two rows.
-fn paint(line: Line<'static>, selected: bool, width: usize) -> Line<'static> {
+pub(super) fn paint(line: Line<'static>, selected: bool, width: usize) -> Line<'static> {
     let line = super::text::fit(line, width);
     if selected {
         line.patch_style(Style::default().add_modifier(Modifier::REVERSED))
