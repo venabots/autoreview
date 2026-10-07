@@ -262,7 +262,7 @@ assert_contains "b babysits it with the installed skill" "$(claude_calls)" "-- /
 # The directory as the job saw it: macOS reports /var as /private/var.
 assert_contains "...in a worktree of its own, on the PR's branch" "$(job_dirs)" "/worktrees/pr-4"
 assert_not_contains "...not in your checkout" "$(job_dirs)" "4 $SANDBOX/repo"
-assert_contains "...and the log says what it is doing" "$(run_log)" "start   #4 @me (babysitting)"
+assert_contains "...and the log says what it is doing" "$(run_log)" "start   #4 @me (fixing)"
 assert_contains "the summary says it pushed, as GitHub reports" "$out" "pushed"
 assert_contains "the run still exits 0" "$out" "autoreview-exit=0"
 if [[ -d "$(echo "$SANDBOX"/out/logs/run-*/worktrees/pr-4)" ]]; then

@@ -579,7 +579,7 @@ impl Screen {
                 self.show(self.side.toggle(Side::Keys));
             }
             Intent::SwitchTab => self.switch_tab(),
-            Intent::Babysit => return self.ask_task(crate::task::Task::Babysit),
+            Intent::Babysit => return self.ask_task(crate::task::Task::Fix),
             Intent::Comments => return self.ask_task(crate::task::Task::Comments),
             Intent::Back => {
                 if self.side != Side::Detail {

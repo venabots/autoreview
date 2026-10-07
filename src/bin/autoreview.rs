@@ -304,7 +304,7 @@ fn screen_header(cfg: &Config, ctx: &repo::RepoContext, rundir: &RunDir) -> tui:
 /// can say so at the key.
 fn task_refusals(cfg: &Config, ctx: &repo::RepoContext) -> Vec<(Task, String)> {
     let roots = task::skill_roots(&cfg.orchestrator, &ctx.repo_root);
-    [Task::Babysit, Task::Comments]
+    [Task::Fix, Task::Comments]
         .into_iter()
         .filter_map(|t| {
             let why = if cfg.no_post {

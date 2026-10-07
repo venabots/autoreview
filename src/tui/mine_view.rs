@@ -292,7 +292,7 @@ mod tests {
 
     fn task(n: u64, state: JobState) -> Job {
         let mut job = Job::new(n);
-        job.task = Task::Babysit;
+        job.task = Task::Fix;
         job.state = state;
         job
     }
@@ -306,7 +306,7 @@ mod tests {
         let out: Vec<String> = drawn.iter().map(text).collect();
         assert_eq!(out[0], "○ #4 · awaiting review");
         assert_eq!(out[1], "  me/my-own-work");
-        assert_eq!(out[2], "⠋ #5 · babysitting 0s");
+        assert_eq!(out[2], "⠋ #5 · fixing 0s");
         assert_eq!(at, Some(2));
         assert!(rows[1].busy() && !rows[0].busy());
     }
@@ -339,7 +339,7 @@ mod tests {
         let mut done = task(4, JobState::Done);
         done.verdict = Some("pushed".into());
         done.elapsed_secs = 190;
-        let archive = vec![Archived { job: done, pass_dir: PathBuf::from("/run/pass-1/babysit") }];
+        let archive = vec![Archived { job: done, pass_dir: PathBuf::from("/run/pass-1/fix") }];
         let rows = rows(&prs, &[], Path::new("/p"), &archive);
         let out: Vec<String> = detail(&rows[0]).iter().map(text).collect();
         let out = out.join("\n");
@@ -349,7 +349,7 @@ mod tests {
         assert!(out.contains("merge     conflicts with its base"), "{out}");
         assert!(out.contains("LAST TASK"), "{out}");
         assert!(out.contains("verdict   pushed"), "{out}");
-        assert!(out.contains("log       /run/pass-1/babysit/pr-4.log"), "{out}");
+        assert!(out.contains("log       /run/pass-1/fix/pr-4.log"), "{out}");
         assert!(out.contains("b babysits it"), "{out}");
     }
 
@@ -359,7 +359,7 @@ mod tests {
         let jobs = vec![task(4, JobState::Done)];
         let rows = rows(&prs, &jobs, Path::new("/run/pass-1"), &[]);
         let out: Vec<String> = detail(&rows[0]).iter().map(text).collect();
-        assert!(out.contains(&"log       /run/pass-1/babysit/pr-4.log".to_string()), "{out:?}");
+        assert!(out.contains(&"log       /run/pass-1/fix/pr-4.log".to_string()), "{out:?}");
     }
 
     #[test]

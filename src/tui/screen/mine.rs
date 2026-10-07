@@ -34,7 +34,7 @@ pub(super) struct TabState {
 /// The selected one of your PRs, as `b` and `c` would ask for it.
 #[derive(Clone)]
 pub(super) struct TaskPick {
-    pub(super) babysit: crate::task::Request,
+    pub(super) fix: crate::task::Request,
     pub(super) comments: crate::task::Request,
     pub(super) busy: bool,
 }
@@ -85,7 +85,7 @@ impl Screen {
         }
         self.picked = row.map(|r| self.pick_mine(r));
         self.task_pick = row.map(|r| TaskPick {
-            babysit: r.request(crate::task::Task::Babysit),
+            fix: r.request(crate::task::Task::Fix),
             comments: r.request(crate::task::Task::Comments),
             busy: r.busy(),
         });
@@ -144,7 +144,7 @@ impl Screen {
         };
         let request = match task {
             crate::task::Task::Comments => pick.comments,
-            _ => pick.babysit,
+            _ => pick.fix,
         };
         let pr = request.pr;
         if pick.busy {

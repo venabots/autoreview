@@ -104,7 +104,7 @@ impl RunDir {
     }
 
     /// The same run, with the files of a task in a directory of their own
-    /// under the pass: `pass-1/babysit/pr-4.log`. A task's files then never
+    /// under the pass: `pass-1/fix/pr-4.log`. A task's files then never
     /// overwrite a review's, and every path function keeps its one shape.
     /// A review gets the run as it is.
     pub fn for_task(&self, task: crate::task::Task) -> Result<RunDir> {
@@ -264,8 +264,8 @@ mod tests {
         rd.start_pass(1).unwrap();
         let review = rd.for_task(crate::task::Task::Review).unwrap();
         assert_eq!(review.log_path(4), rd.log_path(4), "a review keeps its paths");
-        let babysit = rd.for_task(crate::task::Task::Babysit).unwrap();
-        assert_eq!(babysit.log_path(4), rd.pass_dir.join("babysit/pr-4.log"));
+        let babysit = rd.for_task(crate::task::Task::Fix).unwrap();
+        assert_eq!(babysit.log_path(4), rd.pass_dir.join("fix/pr-4.log"));
         assert!(babysit.pass_dir.is_dir(), "made when asked for");
         assert_eq!(babysit.root, rd.root, "the same run");
         let comments = rd.for_task(crate::task::Task::Comments).unwrap();

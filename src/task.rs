@@ -17,8 +17,9 @@ pub enum Task {
     /// Review somebody else's PR. Everything the run did before tasks.
     #[default]
     Review,
-    /// Get your own PR mergeable: conflicts, review comments and CI.
-    Babysit,
+    /// Get your own PR mergeable, once: conflicts, review comments and CI.
+    /// Babysitting is running this again as the PR changes.
+    Fix,
     /// Answer the review comments on your own PR.
     Comments,
 }
@@ -29,16 +30,16 @@ impl Task {
     pub fn skill(self) -> Option<&'static str> {
         match self {
             Task::Review => None,
-            Task::Babysit => Some("babysit-pr"),
+            Task::Fix => Some("babysit-pr"),
             Task::Comments => Some("pr-comment-handler"),
         }
     }
 
-    /// The word for a task while it runs: "babysitting 1m12s".
+    /// The word for a task while it runs: "fixing 1m12s".
     pub fn doing(self) -> &'static str {
         match self {
             Task::Review => "reviewing",
-            Task::Babysit => "babysitting",
+            Task::Fix => "fixing",
             Task::Comments => "fixing comments",
         }
     }
@@ -48,7 +49,7 @@ impl Task {
     pub fn file_tag(self) -> Option<&'static str> {
         match self {
             Task::Review => None,
-            Task::Babysit => Some("babysit"),
+            Task::Fix => Some("fix"),
             Task::Comments => Some("comments"),
         }
     }
@@ -102,12 +103,12 @@ mod tests {
         let claude = Orchestrator::claude();
         let roots = vec![dir.clone()];
         assert_eq!(
-            not_installed(Task::Babysit, &roots, &claude).as_deref(),
+            not_installed(Task::Fix, &roots, &claude).as_deref(),
             Some("babysit-pr is not installed where claude looks (~/.claude/skills)")
         );
         std::fs::create_dir_all(dir.join("babysit-pr")).unwrap();
         std::fs::write(dir.join("babysit-pr/SKILL.md"), "").unwrap();
-        assert_eq!(not_installed(Task::Babysit, &roots, &claude), None);
+        assert_eq!(not_installed(Task::Fix, &roots, &claude), None);
         assert!(not_installed(Task::Comments, &roots, &claude).is_some());
         assert_eq!(not_installed(Task::Review, &roots, &claude), None, "a review's skills are staged");
         let _ = std::fs::remove_dir_all(&dir);
@@ -123,21 +124,21 @@ mod tests {
     #[test]
     fn a_task_names_the_installed_skill_it_runs() {
         assert_eq!(Task::Review.skill(), None, "a review's skill depends on the run");
-        assert_eq!(Task::Babysit.skill(), Some("babysit-pr"));
+        assert_eq!(Task::Fix.skill(), Some("babysit-pr"));
         assert_eq!(Task::Comments.skill(), Some("pr-comment-handler"));
     }
 
     #[test]
     fn a_task_says_what_it_is_doing() {
         assert_eq!(Task::Review.doing(), "reviewing");
-        assert_eq!(Task::Babysit.doing(), "babysitting");
+        assert_eq!(Task::Fix.doing(), "fixing");
         assert_eq!(Task::Comments.doing(), "fixing comments");
     }
 
     #[test]
     fn only_a_task_renames_its_files() {
         assert_eq!(Task::Review.file_tag(), None);
-        assert_eq!(Task::Babysit.file_tag(), Some("babysit"));
+        assert_eq!(Task::Fix.file_tag(), Some("fix"));
         assert_eq!(Task::Comments.file_tag(), Some("comments"));
         assert_eq!(Task::default(), Task::Review);
     }

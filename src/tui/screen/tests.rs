@@ -385,7 +385,7 @@ fn b_and_c_ask_for_a_task_on_your_pr_and_only_there() {
     frame(&mut screen, &[], &[], 120);
     let asked = screen.press(Intent::Babysit, Instant::now());
     let [Action::RunTask(request)] = asked.as_slice() else { panic!("{asked:?}") };
-    assert_eq!((request.pr, request.task), (4, crate::task::Task::Babysit));
+    assert_eq!((request.pr, request.task), (4, crate::task::Task::Fix));
     let asked = screen.press(Intent::Comments, Instant::now());
     assert!(matches!(asked.as_slice(), [Action::RunTask(r)] if r.task == crate::task::Task::Comments));
     // R does not review your own PR, and says what does.
@@ -396,7 +396,7 @@ fn b_and_c_ask_for_a_task_on_your_pr_and_only_there() {
 
 #[test]
 fn a_task_the_run_refuses_is_refused_at_the_key() {
-    let refusals = vec![(crate::task::Task::Babysit, "babysit-pr is not installed where claude looks (~/.claude/skills)".to_string())];
+    let refusals = vec![(crate::task::Task::Fix, "babysit-pr is not installed where claude looks (~/.claude/skills)".to_string())];
     let mut screen = Screen::new(None, Header { task_refusals: refusals, ..header(true) });
     screen.set_mine(vec![my_pr(4)]);
     screen.press(Intent::SwitchTab, Instant::now());
@@ -417,7 +417,7 @@ fn quit_on_your_prs_still_asks_while_a_review_runs() {
     assert!(screen.press(Intent::Quit, Instant::now()).is_empty(), "the running review is not on this tab, and still counts");
     // A running task counts too.
     let mut task = job(4, JobState::Running);
-    task.task = crate::task::Task::Babysit;
+    task.task = crate::task::Task::Fix;
     let mut screen = Screen::new(None, header(true));
     screen.set_mine(vec![my_pr(4)]);
     let out = frame(&mut screen, &[task.clone()], &[], 120);
