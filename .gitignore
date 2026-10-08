@@ -1,0 +1,4 @@
+/autoreview
+/dist
+*.test
+*.out
