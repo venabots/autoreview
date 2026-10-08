@@ -46,7 +46,7 @@ func (m Model) frame() string {
 // body is the list and the right pane: side by side with a rule between
 // them on a wide screen, stacked with a rule between them on a narrow one.
 func (m Model) body() []string {
-	list := listLines(m.rows(m.tab), m.cursors[m.tab], m.lay.list.w, m.lay.list.h)
+	list := m.listPane()
 	pane := exactly(strings.Split(m.pane.View(), "\n"), m.lay.detail.h)
 	if m.lay.wide {
 		rule := dimStyle.Render("│") + " "
@@ -61,6 +61,30 @@ func (m Model) body() []string {
 		out = append(out, dimStyle.Render(strings.Repeat("─", m.lay.width)))
 	}
 	return append(out, pane...)
+}
+
+// listPane is the list on the shown tab. Until that list has been read,
+// its first row is a spinner and what it waits for, where the PRs will be.
+func (m Model) listPane() []string {
+	lines := listLines(m.rows(m.tab), m.cursors[m.tab], m.lay.list.w, m.lay.list.h)
+	what := m.reading()
+	if what == "" || len(lines) == 0 {
+		return lines
+	}
+	first := line{styled(m.spin.View(), spinnerStyle), text(" " + what)}
+	return append([]string{fit(first, m.lay.list.w).render(false)}, lines[1:]...)
+}
+
+// reading names the list the shown tab is still waiting for, or is empty
+// when that list has arrived or has failed.
+func (m Model) reading() string {
+	switch {
+	case m.tab == tabReview && !m.snap.Looked && m.snap.ListErr == "":
+		return "reading the PR list"
+	case m.tab == tabMine && !m.snap.MineLooked && m.snap.MineErr == "":
+		return "reading your PRs"
+	}
+	return ""
 }
 
 // exactly makes a block n lines tall: cut when it is taller, padded with
@@ -78,7 +102,7 @@ func (m Model) status() word {
 	if m.quitting {
 		return word{"stopping…", dimStyle}
 	}
-	return statusText(m.snap, m.now)
+	return statusText(m.snap, m.now, m.spin.View())
 }
 
 // paneContent is what the right pane shows, and a key that names it.
@@ -95,7 +119,7 @@ func (m Model) paneContent() (string, []line) {
 func (m Model) reviewContent() (string, []line) {
 	pr, ok := m.selected()
 	if !ok {
-		return "review/none", []line{note(m.noReviews(), dimStyle)}
+		return "review/none", emptyPane(m.noReviews())
 	}
 	for _, row := range m.snap.Reviews {
 		if row.PR.Number == pr {
@@ -110,7 +134,7 @@ func (m Model) noReviews() string {
 	case m.snap.ListErr != "":
 		return "the PR list could not be read; the next look tries again"
 	case !m.snap.Looked:
-		return "reading the PR list…"
+		return ""
 	}
 	return "no PRs to show"
 }
@@ -118,7 +142,7 @@ func (m Model) noReviews() string {
 func (m Model) mineContent() (string, []line) {
 	pr, ok := m.selected()
 	if !ok {
-		return "mine/none", []line{note(m.noMine(), dimStyle)}
+		return "mine/none", emptyPane(m.noMine())
 	}
 	for _, mine := range m.snap.Mine {
 		if mine.Number == pr {
@@ -133,9 +157,19 @@ func (m Model) noMine() string {
 	case m.snap.MineErr != "":
 		return "your PRs could not be read: " + sanitize.Line(m.snap.MineErr)
 	case !m.snap.MineLooked:
-		return "reading your PRs…"
+		return ""
 	}
 	return "you have no open PRs in this repo"
+}
+
+// emptyPane is the right pane when no PR is selected: one line that says
+// why, or nothing while the list is still being read. The spinner in the
+// list already says that.
+func emptyPane(why string) []line {
+	if why == "" {
+		return nil
+	}
+	return []line{note(why, dimStyle)}
 }
 
 // untilNextLook is how long until the run reads the PR list again, or zero

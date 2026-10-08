@@ -34,12 +34,16 @@ func modeText(s *engine.Snapshot) string {
 // tabGap is the space between the two tab labels.
 const tabGap = "  "
 
-// tabLabels names both tabs, each with how many PRs it holds.
+// tabLabels names both tabs, each with how many PRs it holds. A list that
+// has not been read has no count: "0" would say there are none.
 func tabLabels(s *engine.Snapshot) (review, mine string) {
-	return tabLabel("Review", len(s.Reviews)), tabLabel("My PRs", len(s.Mine))
+	return tabLabel("Review", len(s.Reviews), s.Looked), tabLabel("My PRs", len(s.Mine), s.MineLooked)
 }
 
-func tabLabel(name string, n int) string {
+func tabLabel(name string, n int, counted bool) string {
+	if !counted {
+		return " " + name + " "
+	}
 	return fmt.Sprintf(" %s %d ", name, n)
 }
 
@@ -71,13 +75,13 @@ func tabAt(x int, review, mine string) (tab, bool) {
 }
 
 // statusText is the left side of the footer: what the run holds, and what
-// it is doing now.
-func statusText(s *engine.Snapshot, now time.Time) word {
+// it is doing now. spin is the spinner's frame, shown while the run looks.
+func statusText(s *engine.Snapshot, now time.Time, spin string) word {
 	if s.ListErr != "" {
 		return word{"could not read the PR list: " + sanitize.Line(s.ListErr), redStyle}
 	}
 	if !s.Looked {
-		return word{"reading the PR list…", dimStyle}
+		return word{spin + " reading the PR list", dimStyle}
 	}
 	parts := []string{}
 	if summary := tally(s.Reviews); summary != "" {
@@ -87,7 +91,7 @@ func statusText(s *engine.Snapshot, now time.Time) word {
 	}
 	switch s.Phase {
 	case engine.Looking:
-		parts = append(parts, "checking the PR list…")
+		parts = append(parts, spin+" checking the PR list")
 	case engine.Waiting:
 		parts = append(parts, "next look in "+words.Duration(s.NextLookAt.Sub(now)))
 	}

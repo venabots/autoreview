@@ -105,7 +105,7 @@ func TestTheScreenSaysWhatIsNotKnownYet(t *testing.T) {
 	}{
 		{"before the first look", func(s *engine.Snapshot) {
 			s.Looked, s.Reviews, s.Phase = false, nil, engine.Looking
-		}, false, []string{"reading the PR list…", " Review 0 "}},
+		}, false, []string{"⠋ reading the PR list"}},
 		{"a first look that failed", func(s *engine.Snapshot) {
 			s.Looked, s.Reviews, s.ListErr = false, nil, "gh api graphql timed out"
 		}, false, []string{"could not read the PR list: gh api graphql timed out", "the next look tries again"}},
@@ -113,8 +113,8 @@ func TestTheScreenSaysWhatIsNotKnownYet(t *testing.T) {
 			s.ListErr = "rate limited"
 		}, false, []string{"could not read the PR list: rate limited", "○ #9 · ready", "#9 Add retry logic"}},
 		{"an empty list", func(s *engine.Snapshot) { s.Reviews = nil }, false, []string{"no PRs to show", "nothing to review yet"}},
-		{"looking again", func(s *engine.Snapshot) { s.Phase = engine.Looking }, false, []string{"checking the PR list…", "○ #9 · ready"}},
-		{"your PRs not read yet", func(s *engine.Snapshot) { s.MineLooked, s.Mine = false, nil }, true, []string{"reading your PRs…"}},
+		{"looking again", func(s *engine.Snapshot) { s.Phase = engine.Looking }, false, []string{"⠋ checking the PR list", "○ #9 · ready"}},
+		{"your PRs not read yet", func(s *engine.Snapshot) { s.MineLooked, s.Mine = false, nil }, true, []string{"⠋ reading your PRs"}},
 		{"your PRs could not be read", func(s *engine.Snapshot) {
 			s.MineLooked, s.Mine, s.MineErr = false, nil, "search is down"
 		}, true, []string{"your PRs could not be read: search is down"}},

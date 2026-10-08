@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/venabots/autoreview/internal/engine"
@@ -29,6 +30,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.now = time.Time(msg)
 		return m.synced(), tick()
+	case spinner.TickMsg:
+		return m.spun(msg)
 	case openedMsg:
 		return m.flashed(openedText(msg)), nil
 	case tea.KeyPressMsg:
@@ -50,7 +53,25 @@ func (m Model) took(snap *engine.Snapshot) (tea.Model, tea.Cmd) {
 	if snap.Phase == engine.Done {
 		return m, tea.Quit
 	}
-	return m, waitForChange(m.eng)
+	cmds := []tea.Cmd{waitForChange(m.eng)}
+	if m.looking() && !m.spinning {
+		m.spinning = true
+		cmds = append(cmds, m.spin.Tick)
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// spun moves the spinner on by one frame and asks for the next. It stops
+// asking when the look has ended: an idle view must not redraw twelve
+// times a second.
+func (m Model) spun(msg spinner.TickMsg) (tea.Model, tea.Cmd) {
+	if !m.looking() {
+		m.spinning = false
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.spin, cmd = m.spin.Update(msg)
+	return m, cmd
 }
 
 func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {

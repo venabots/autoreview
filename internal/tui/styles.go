@@ -16,4 +16,5 @@ var (
 	brandStyle   = lipgloss.NewStyle().Foreground(lipgloss.Magenta).Bold(true)
 	headingStyle = lipgloss.NewStyle().Foreground(lipgloss.BrightBlack).Bold(true)
 	activeTab    = lipgloss.NewStyle().Bold(true).Reverse(true)
+	spinnerStyle = lipgloss.NewStyle().Foreground(lipgloss.Magenta)
 )

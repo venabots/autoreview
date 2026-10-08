@@ -10,6 +10,7 @@ import (
 	"context"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -68,6 +69,12 @@ type Model struct {
 	// different PR or side, and the pane starts from its top again.
 	paneKey string
 
+	// spin turns while the run is reading the lists. spinning says its
+	// ticks are on the way, so a look that starts does not start a second
+	// chain of them.
+	spin     spinner.Model
+	spinning bool
+
 	// mouse is true while the view captures the mouse. Turned off, a drag
 	// selects text in the terminal again.
 	mouse    bool
@@ -77,13 +84,16 @@ type Model struct {
 
 // New makes the view for a run.
 func New(eng Engine, open Opener) Model {
+	snap := eng.Snapshot()
 	return Model{
-		eng:   eng,
-		open:  open,
-		snap:  eng.Snapshot(),
-		now:   time.Now(),
-		pane:  viewport.New(),
-		mouse: true,
+		eng:      eng,
+		open:     open,
+		snap:     snap,
+		now:      time.Now(),
+		pane:     viewport.New(),
+		spin:     spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		spinning: snap.Phase == engine.Looking,
+		mouse:    true,
 	}
 }
 
@@ -96,10 +106,20 @@ type openedMsg struct {
 	err error
 }
 
-// Init starts the two things the view waits on: the engine's next change,
-// and the clock that counts down to the next look.
+// Init starts what the view waits on: the engine's next change, the clock
+// that counts down to the next look, and the spinner when the run opens on
+// a look.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(waitForChange(m.eng), tick())
+	cmds := []tea.Cmd{waitForChange(m.eng), tick()}
+	if m.spinning {
+		cmds = append(cmds, m.spin.Tick)
+	}
+	return tea.Batch(cmds...)
+}
+
+// looking says the run is reading the lists now.
+func (m Model) looking() bool {
+	return m.snap.Phase == engine.Looking
 }
 
 // waitForChange blocks until the engine has a newer snapshot and delivers
