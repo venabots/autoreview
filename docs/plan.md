@@ -51,13 +51,15 @@ internal/engine    the loop, Snapshot, Command
 internal/words     the vocabulary for a PR's state
 internal/sanitize  other people's text, made safe to draw
 internal/plain     snapshots as plain lines
+internal/ledger    the v1 ledger: read and append, byte for byte
+internal/stats     the `stats` report
 internal/tui       the view
 ```
 
 Still to come: `review` (session plan, the `dash-p` spec, exit classes,
 readback, trailer, verdict), `proc` (process groups, the stop sequence),
 `marks` (the eyes reaction), `task` (worktrees), `rundir`, `skills`,
-`ledger`, `stats`, `term` (the new-tab spawner) and `panel`.
+`term` (the new-tab spawner) and `panel`.
 
 **The engine**
 
@@ -89,8 +91,8 @@ Each one leaves a binary that runs. One PR for each milestone.
 |---|---|---|
 | 0 | Repo, module, lint, CI, `AGENTS.md`, `docs/rules.md` | done |
 | 1 | Read-only view: both tabs from real `gh` data, detail pane, key help, mouse, resize, `o`, refresh, `q`. Headless prints both lists. | done |
-| 2 | `autoreview stats`, with ledger read and append | next |
-| 3 | Headless one pass: positional PRs, `--once`, `--no-post`, `--continue`, the override, summary, exit status, ctrl-C | |
+| 2 | `autoreview stats`, with ledger read and append | done |
+| 3 | Headless one pass: positional PRs, `--once`, `--no-post`, `--continue`, the override, summary, exit status, ctrl-C | next |
 | 4 | The view runs reviews: `R`, `x`, `f`, `r`, `l`, the rendered review, the summary after close, the pty tests | |
 | 5 | Loop policies: watch, `--babysit`, rest, cap, CI hold, stack hold, `--max-idle`, `w` | |
 | 6 | Eyes reaction, codex, the exit-10 fallback, the in-use check, the activity tail | |

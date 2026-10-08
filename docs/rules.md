@@ -14,7 +14,7 @@ Status is `done` with the test that pins it, or the milestone that brings it.
 | The My PRs search has the same fields as v1                                                    | `src/mine.rs`          | done: `internal/mine` `TestListSendsTheSearchToGh` |
 | Session id: MD5 of `review-prs:<root>:<owner>/<name>#<n>`, shaped as a UUID. The prefix stays. | `src/session.rs:19-30` | milestone 3                                        |
 | The repo root loses one trailing newline and nothing else                                      | `src/repo.rs`          | done: `internal/repo` `TestRootFrom`               |
-| Ledger: v1 JSONL. Write `[]`, never `null`. `reviewed` defaults to true.                       | `src/ledger.rs`        | milestone 2                                        |
+| Ledger: v1 JSONL. Write `[]`, never `null`. `reviewed` defaults to true.                       | `src/ledger.rs`        | done: `internal/ledger` `TestALineV1WroteIsWrittenBackWithTheSameBytes`, and `TestEveryFieldIsWrittenInV1Order` |
 | `dash-p` argv order, exit codes 0, 10, 20, and `--flag=value`                                  | `src/job.rs:264-339`   | milestone 3                                        |
 | The trailer: a fenced `autoreview` JSON block                                                  | `src/report.rs:84`     | milestone 3                                        |
 | The run directory layout                                                                       | `src/rundir.rs`        | milestone 3                                        |

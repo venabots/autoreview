@@ -14,6 +14,9 @@ This build is read-only. It shows both lists and starts no review.
 - **My PRs** lists your own open PRs and says what blocks each one:
   conflicts, failing CI, requested changes, open threads.
 
+`autoreview stats` reports how each panelist model has done. It reads the
+same ledger as version 1.
+
 [docs/plan.md](docs/plan.md) has the milestones that come next.
 
 ## Run it
