@@ -1,62 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// TestMain lets the test binary stand in for gh. A test links the binary
-// into a directory as `gh` and puts that directory first on PATH, so the
-// code under test runs a real process with a real argv and no fake script
-// has to be kept in step with it.
-func TestMain(m *testing.M) {
-	if filepath.Base(os.Args[0]) == "gh" {
-		os.Exit(fakeGh(os.Args[1:]))
-	}
-	os.Exit(m.Run())
-}
-
-// fakeGh answers the calls autoreview makes, from the files in
-// $FAKE_GH_DIR. A call it does not know fails loudly: a new gh call needs
-// an answer here before its test can pass.
-func fakeGh(args []string) int {
-	dir := os.Getenv("FAKE_GH_DIR")
-	joined := strings.Join(args, " ")
-	switch {
-	case joined == "repo view --json owner,name":
-		return serve(dir, "repo.json")
-	case joined == "api user --jq .login":
-		fmt.Println(os.Getenv("FAKE_GH_LOGIN"))
-		return 0
-	case strings.HasPrefix(joined, "api graphql ") && strings.Contains(joined, "search("):
-		return serve(dir, "mine.json")
-	case strings.HasPrefix(joined, "api graphql -F owner=acme -F name=widgets "):
-		return serve(dir, "prs.json")
-	}
-	fmt.Fprintf(os.Stderr, "fake gh: unhandled: %s\n", firstChars(joined, 80))
-	return 1
-}
-
-func serve(dir, name string) int {
-	raw, err := os.ReadFile(filepath.Join(dir, name))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fake gh: %v\n", err)
-		return 1
-	}
-	_, _ = os.Stdout.Write(raw)
-	return 0
-}
-
-func firstChars(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
 
 const mineJSON = `{"data":{"search":{"nodes":[
   {"number":4,"title":"My own work","isDraft":false,"headRefName":"me/my-own-work",
@@ -75,8 +25,10 @@ func sandbox(t *testing.T) (fixtures string) {
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
-	if err := os.Symlink(self, filepath.Join(bin, "gh")); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"gh", "dash-p", "claude", "codex"} {
+		if err := os.Symlink(self, filepath.Join(bin, name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	fixtures = t.TempDir()
 	prs, err := os.ReadFile(filepath.Join("..", "..", "internal", "prs", "testdata", "prs.json"))
@@ -95,7 +47,21 @@ func sandbox(t *testing.T) (fixtures string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_GH_DIR", fixtures)
 	t.Setenv("FAKE_GH_LOGIN", "me")
-	t.Setenv("AUTOREVIEW_WATCH_INTERVAL", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("DASHP_BIN", "")
+	t.Setenv("FAKE_DASHP_LOG", filepath.Join(fixtures, "dash-p.log"))
+	for _, name := range []string{
+		"AUTOREVIEW_WATCH_INTERVAL", "AUTOREVIEW_JOBS", "AUTOREVIEW_TIMEOUT", "AUTOREVIEW_MAX_BUDGET_USD",
+		"AUTOREVIEW_SKILLS", "AUTOREVIEW_ORCHESTRATOR", "AUTOREVIEW_CMD",
+		"FAKE_DASHP_FAIL", "FAKE_DASHP_DECISION", "FAKE_DASHP_NO_TRAILER", "FAKE_DASHP_HANG", "FAKE_GH_REVIEWS",
+	} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("AUTOREVIEW_LOG_DIR", filepath.Join(fixtures, "logs"))
+	t.Setenv("AUTOREVIEW_LEDGER", filepath.Join(fixtures, "ledger.jsonl"))
 	return fixtures
 }
 
@@ -113,33 +79,16 @@ func autoreview(t *testing.T, args ...string) (stdout, stderr string, code int) 
 	return out.String(), errs.String(), code
 }
 
-func TestOffATerminalTheRunPrintsBothListsAndExits(t *testing.T) {
-	sandbox(t)
-	stdout, stderr, code := autoreview(t)
-
-	want := `acme/widgets
-review list: 4 PRs
-  #9  ready     @alice  alice/add-retry-logic  Add retry logic
-  #8  ready     @bob    bob/fix-typo           Fix typo
-  #6  seen      @carol  carol/refactor-client  Refactor client
-  #5  approved  @dave   dave/approved-already  Approved already
-your PRs: 1 PR
-  #4  awaiting review  me/my-own-work  My own work
-`
-	if stdout != want {
-		t.Errorf("stdout:\n%s\nwant:\n%s", stdout, want)
-	}
-	if stderr != "" || code != 0 {
-		t.Errorf("stderr %q and exit %d, want nothing and 0", stderr, code)
-	}
-}
-
 func TestNamedPRsLimitTheRun(t *testing.T) {
-	sandbox(t)
-	stdout, _, code := autoreview(t, "6", "5", "--headless")
+	fixtures := sandbox(t)
+	stdout, _, code := autoreview(t, "6", "5", "--jobs=1")
 
 	if code != 0 || !strings.Contains(stdout, "review list: 2 PRs\n") || !strings.Contains(stdout, "\n  #6  ready  ") || !strings.Contains(stdout, "\n  #5  ready  ") {
 		t.Errorf("exit %d and stdout:\n%s\nwant only #6 and #5, both ready because they were asked for", code, stdout)
+	}
+	calls := dashpCalls(t, fixtures)
+	if len(calls) != 2 || !strings.HasSuffix(calls[0], "-- /auto-review 5") || !strings.HasSuffix(calls[1], "-- /auto-review 6") {
+		t.Errorf("reviews started: %q, want PR #5 and PR #6 and no other", calls)
 	}
 }
 
@@ -156,7 +105,7 @@ func TestFiltersWidenTheList(t *testing.T) {
 func TestAskingForTheViewOffATerminalSaysSoAndPrintsPlainLines(t *testing.T) {
 	sandbox(t)
 	stdout, stderr, code := autoreview(t, "--tui")
-	if stderr != "note: --tui needs a terminal; printing plain lines\n" || code != 0 {
+	if !strings.HasPrefix(stderr, "note: --tui needs a terminal; printing plain lines\n") || code != 0 {
 		t.Errorf("stderr %q and exit %d", stderr, code)
 	}
 	if !strings.Contains(stdout, "review list: 4 PRs") {

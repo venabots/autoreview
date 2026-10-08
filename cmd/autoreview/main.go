@@ -19,7 +19,6 @@ import (
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/gh"
 	"github.com/venabots/autoreview/internal/mine"
-	"github.com/venabots/autoreview/internal/plain"
 	"github.com/venabots/autoreview/internal/prs"
 	"github.com/venabots/autoreview/internal/repo"
 	"github.com/venabots/autoreview/internal/sanitize"
@@ -67,18 +66,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return engine.ExitFailed
 	}
 
-	screen := wantsScreen(cfg.View, stderr)
-	eng := engine.New(engineConfig(cfg, rc, screen), deps(cfg, rc))
+	if !wantsScreen(cfg.View, stderr) {
+		return runHeadless(cfg, rc, stdout, stderr)
+	}
+	// The view reads the lists and starts no review yet.
+	eng := engine.New(engineConfig(cfg, rc, true), deps(cfg, rc))
 	stopOnSignal(eng)
-
-	if screen {
-		return runScreen(eng, rc, stderr)
-	}
-	result := eng.Run()
-	if err := plain.Lists(stdout, stderr, result.Final); err != nil {
-		return engine.ExitFailed
-	}
-	return result.Code
+	return runScreen(eng, rc, stderr)
 }
 
 // say writes a message for a person. A failed write has nowhere better to
