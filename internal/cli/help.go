@@ -5,6 +5,8 @@ const Help = `autoreview: one place to review your team's PRs and handle your ow
 
 Usage: autoreview [PR ...] [--watch[=MINUTES]] [--all] [--dependabot]
                   [--stacked] [--skip-wait-for-ci] [--tui | --headless]
+       autoreview stats [--since WHEN] [--repo NAME] [--json]
+                  (how each model has done; see autoreview stats --help)
        autoreview --help | --version
 
 Run it inside a GitHub checkout. On a terminal it opens the full-screen view

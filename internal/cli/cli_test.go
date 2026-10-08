@@ -102,7 +102,9 @@ func TestParseRefuses(t *testing.T) {
 		wantErr string
 	}{
 		{"both views", []string{"--tui", "--headless"}, "--tui and --headless cannot be used together"},
-		{"a word where a PR goes", []string{"stats"}, `"stats" is not a PR number`},
+		{"a word where a PR goes", []string{"status"}, `"status" is not a PR number`},
+		{"the subcommand after a flag", []string{"--all", "stats"}, "stats is a subcommand and goes first: autoreview stats"},
+		{"the subcommand after a PR", []string{"213", "stats"}, "stats is a subcommand and goes first"},
 		{"PR zero", []string{"0"}, `"0" is not a PR number`},
 		{"a signed number", []string{"+5"}, `"+5" is not a PR number`},
 		{"an unknown flag", []string{"--pick"}, "unknown flag: --pick"},

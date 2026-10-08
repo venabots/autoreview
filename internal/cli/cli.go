@@ -42,6 +42,10 @@ type Config struct {
 	Version bool
 }
 
+// Stats is the subcommand that reports how each model has done. It is
+// read as a subcommand only as the first argument.
+const Stats = "stats"
+
 // DefaultWatch is the wait between looks when nobody chose one.
 const DefaultWatch = "2"
 
@@ -124,6 +128,9 @@ func watchValue(flag string, env func(string) string) string {
 func prNumbers(args []string) ([]int, error) {
 	numbers := make([]int, 0, len(args))
 	for _, arg := range args {
+		if arg == Stats {
+			return nil, fmt.Errorf("%s is a subcommand and goes first: autoreview %s", Stats, Stats)
+		}
 		n, err := strconv.Atoi(arg)
 		if err != nil || n <= 0 || !allDigits(arg) {
 			return nil, fmt.Errorf("%q is not a PR number", arg)
