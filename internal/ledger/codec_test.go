@@ -95,43 +95,37 @@ func TestTextAndNumbersKeepV1Spelling(t *testing.T) {
 }
 
 func TestOnlyADirectCallKeepsEveryByte(t *testing.T) {
-	// encoding/json rewrites what MarshalJSON returns. json.Marshal escapes
-	// `<`, `>` and `&`; an encoder told not to still escapes U+2028. So
-	// Append calls MarshalJSON itself, and this test says why it must.
+	// encoding/json rewrites what MarshalJSON returns: json.Marshal escapes
+	// `<`, `>` and `&`. What it does to U+2028 has changed between Go
+	// releases. So Append calls MarshalJSON itself, and this test says why
+	// it must.
 	const head = `{"v":1,"id":"a","at":1,"source":"panel","repo":"`
 	const tail = `","panel":[],"findings":[],"reviewed":true}`
-	cases := []struct {
-		name        string
-		repo        string
-		wantEncoder string
-	}{
-		{"an encoder that does not escape HTML keeps angle brackets", "a<b>&c", "a<b>&c"},
-		{"but it escapes a line separator", "a\u2028b", `a\u2028b`},
+	for _, repo := range []string{"a<b>&c", "a\u2028b", "a\u2029b"} {
+		line := []byte(head + repo + tail)
+		var record Record
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatal(err)
+		}
+		direct, err := record.MarshalJSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(direct, line) {
+			t.Errorf("a direct call changed the line:\n got  %q\n want %q", direct, line)
+		}
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			line := []byte(head + c.repo + tail)
-			var record Record
-			if err := json.Unmarshal(line, &record); err != nil {
-				t.Fatal(err)
-			}
-			direct, err := record.MarshalJSON()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(direct, line) {
-				t.Errorf("a direct call changed the line:\n got  %q\n want %q", direct, line)
-			}
-			var out bytes.Buffer
-			enc := json.NewEncoder(&out)
-			enc.SetEscapeHTML(false)
-			if err := enc.Encode(record); err != nil {
-				t.Fatal(err)
-			}
-			if want := head + c.wantEncoder + tail + "\n"; out.String() != want {
-				t.Errorf("the encoder wrote %q, want %q", out.String(), want)
-			}
-		})
+
+	var record Record
+	if err := json.Unmarshal([]byte(head+"a<b"+tail), &record); err != nil {
+		t.Fatal(err)
+	}
+	through, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(through, []byte(`a\u003cb`)) {
+		t.Errorf("json.Marshal wrote %q: it no longer escapes <, and this test's reason for being is gone", through)
 	}
 }
 

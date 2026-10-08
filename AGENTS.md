@@ -74,6 +74,9 @@ golangci-lint fmt                         # gofmt and goimports
 
 ## Working here
 
+- CI runs the Go version in `go.mod`, which is older than the one on this
+  machine. Run `GOTOOLCHAIN=go1.26.0 go test ./...` before a push. A test
+  must not pin what the standard library does where releases differ.
 - To see the view without a person, run it in `tmux` and read the pane:
   `tmux new-session -d -x 120 -y 30 ./autoreview`, then
   `tmux capture-pane -p`.
