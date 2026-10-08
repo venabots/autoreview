@@ -3,19 +3,20 @@
 - The engine and the view are separate. `internal/engine` imports no Charm
   package and writes nothing to the terminal. `internal/tui` runs no process
   and calls no `gh`. The linter enforces both.
-- Run `go test -race ./...` and `golangci-lint run` before you call work
-  done.
+- Run `go test -race $(go list ./... | grep -v /cmd/)`, `go test ./cmd/...`
+  and `golangci-lint run` before you call work done.
 - v1 is the specification for behavior. It is the Rust repo
   `venabots/autoreview`. `docs/rules.md` lists the rules that carry over.
   Each rule has a test.
-- This build is read-only. It reads the two PR lists and starts no review.
-  `docs/plan.md` has the milestones.
+- Off a terminal the binary reviews and posts to GitHub. The view still
+  starts no review. `docs/plan.md` has the milestones.
 
 ## Commands
 
 ```sh
 go build -o autoreview ./cmd/autoreview   # the one binary
-go test -race ./...                       # every test
+go test -race $(go list ./... | grep -v /cmd/)   # the unit tests, raced
+go test ./cmd/...                         # end to end; two minutes under -race
 go test ./internal/tui/                   # one package
 golangci-lint run                         # lint; clean today, keep it clean
 golangci-lint fmt                         # gofmt and goimports
@@ -34,16 +35,21 @@ golangci-lint fmt                         # gofmt and goimports
 - `cmd/autoreview` prints the result after the alternate screen closes. On a
   pipe, `internal/plain` prints the same facts as plain lines.
 - Every `gh` call goes through a `gh.Runner`, so a test hands in a function.
+- Every reviewer starts through a `proc.Starter`. Engine tests hand in a fake
+  whose reviews end when the test says so.
+- A review's monitor goroutine reads files and asks GitHub. The engine's own
+  goroutine does neither, except for the ledger append.
 - The ledger is shared with v1, which still appends to it. `internal/ledger`
   writes v1's bytes exactly: call `Record.MarshalJSON()`, never
   `json.Marshal`, which escapes `<`, `>` and `&`.
-- Three tests check v2 against v1 on a real ledger. They are skipped unless
+- Four tests check v2 against v1 on a real ledger. They are skipped unless
   `AUTOREVIEW_LEDGER_ROUNDTRIP`, `AUTOREVIEW_STATS_ORACLE` (a copy of a
   ledger file) and `AUTOREVIEW_V1` (the v1 binary) are set. Run them after a
   change to `internal/ledger` or `internal/stats`, and never put a line of a
   real ledger in the repo.
-- The end-to-end tests in `cmd/autoreview` link the test binary as `gh`. A
-  new `gh` call needs an answer in `fakeGh` before its test can pass.
+- The end-to-end tests in `cmd/autoreview` link the test binary as `gh`,
+  `dash-p`, `claude` and `codex` (`fakes_test.go`). A new `gh` call needs an
+  answer in `fakeGh` before its test can pass.
 
 ## Conventions
 
@@ -88,6 +94,5 @@ golangci-lint fmt                         # gofmt and goimports
 # CRITICAL: read last
 
 - The engine never draws, and the view never runs a process.
-- Run `go test -race ./...` and `golangci-lint run` before you call work
-  done.
+- Run both test commands and `golangci-lint run` before you call work done.
 - v1 is the specification. A rule from `docs/rules.md` needs a test.

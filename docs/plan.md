@@ -53,26 +53,35 @@ internal/sanitize  other people's text, made safe to draw
 internal/plain     snapshots as plain lines
 internal/ledger    the v1 ledger: read and append, byte for byte
 internal/stats     the `stats` report
+internal/session   the session id, the transcript lookup, pin or resume
+internal/review    one review: the dash-p command line, exit classes, trailer, verdict
+internal/findings  the findings in a review's text, for the ledger
+internal/proc      process groups and the stop sequence
+internal/rundir    the run directory
+internal/skills    staging the bundled skills
+internal/report    the summary table and the lines under it
 internal/tui       the view
 ```
 
-Still to come: `review` (session plan, the `dash-p` spec, exit classes,
-readback, trailer, verdict), `proc` (process groups, the stop sequence),
-`marks` (the eyes reaction), `task` (worktrees), `rundir`, `skills`,
-`term` (the new-tab spawner) and `panel`.
+Still to come: `marks` (the eyes reaction), `task` (worktrees), `term`
+(the new-tab spawner) and `panel`.
 
 **The engine**
 
 - One goroutine owns the run. It reads one inbox: commands, results and
   signals. One channel keeps "reaped" ahead of "settled".
-- It publishes an immutable snapshot after each change. Typed events will
-  exist only as a journal for the plain lines and the run log.
+- It publishes an immutable snapshot after each change. Typed events are a
+  journal for the plain lines and the run log. Nothing rebuilds state from
+  them.
 - `Do(Command)` never blocks. `Snapshot()` is an atomic load. `Changed()`
   holds one token. `Run()` returns only after everything it started has
   stopped.
 - One-shot, watch, babysit and once will be one loop with a `Policy` value.
-- A review, an override and a task will be data: a pure `review.Spec`. The
-  test fake sits where a process starts.
+- A review and an override are data: a pure `review.Spec`. A task will be
+  too. The test fake sits where a process starts (`proc.Starter`).
+- A monitor goroutine for each review sends two messages through the inbox:
+  the process ended, then its results are read. Reading files and asking
+  GitHub happen off the engine's goroutine.
 
 **The view**
 
@@ -92,9 +101,9 @@ Each one leaves a binary that runs. One PR for each milestone.
 | 0 | Repo, module, lint, CI, `AGENTS.md`, `docs/rules.md` | done |
 | 1 | Read-only view: both tabs from real `gh` data, detail pane, key help, mouse, resize, `o`, refresh, `q`. Headless prints both lists. | done |
 | 2 | `autoreview stats`, with ledger read and append | done |
-| 3 | Headless one pass: positional PRs, `--once`, `--no-post`, `--continue`, the override, summary, exit status, ctrl-C | next |
-| 4 | The view runs reviews: `R`, `x`, `f`, `r`, `l`, the rendered review, the summary after close, the pty tests | |
-| 5 | Loop policies: watch, `--babysit`, rest, cap, CI hold, stack hold, `--max-idle`, `w` | |
+| 3 | Headless one pass: positional PRs, `--once`, `--no-post`, `--continue`, the override, summary, exit status, ctrl-C | done |
+| 4 | The view runs reviews: `R`, `x`, `f`, `r`, `l`, the rendered review, the summary after close, the pty tests | next |
+| 5 | Loop policies: watch, `--babysit`, rest, cap, CI hold and the wait for pending checks, stack hold, `--max-idle`, `w` | |
 | 6 | Eyes reaction, codex, the exit-10 fallback, the in-use check, the activity tail | |
 | 7 | My PRs tasks, after v1 decision 0030: `f` fix, `u` conflicts, `c` comments, `b` babysit, `B` babysit all | |
 | 8 | Formula, tap, README, cutover rename | |
