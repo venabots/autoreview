@@ -9,8 +9,8 @@
   `venabots/autoreview`. `docs/rules.md` lists the rules that carry over.
   Each rule has a test.
 - The binary reviews and posts to GitHub, in the view and off a terminal.
-  Never run it in a real checkout to try something: use the fakes (see
-  Working here). `docs/plan.md` has the milestones.
+  Never run it in a real checkout to try something: run
+  `scripts/sandbox.sh`. `docs/plan.md` has the milestones.
 
 ## Commands
 
@@ -86,12 +86,11 @@ golangci-lint fmt                         # gofmt and goimports
 - CI runs the Go version in `go.mod`, which is older than the one on this
   machine. Run `GOTOOLCHAIN=go1.26.0 go test ./...` before a push. A test
   must not pin what the standard library does where releases differ.
-- To see the view without a person and without a real review, make a
-  sandbox: `go test -c -o bin/fakebin ./cmd/autoreview`, link `bin/fakebin`
-  as `gh`, `dash-p` and `claude`, put `bin` first on `PATH`, and set
-  `FAKE_GH_DIR` to a directory with `repo.json`, `prs.json` and `mine.json`
-  (`sandbox` in `cmd/autoreview/main_test.go` shows each step). Then run the
-  binary in `tmux` and read the pane with `tmux capture-pane -p`.
+- To try the binary without a real review, run `scripts/sandbox.sh`. It
+  serves a repo of seven PRs from a fake `gh` and reviews them with a fake
+  `dash-p`: the test binary under those names. Nothing reaches GitHub. To
+  see the view without a person, run the script in `tmux` and read the pane
+  with `tmux capture-pane -p`.
 - The pty tests build the binary and run it under a real pty. They look only
   at what is outside the frame. What a frame says is tested on the model.
 - Do not run a build that posts against a real repo to test it. Use the

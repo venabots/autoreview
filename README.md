@@ -43,6 +43,16 @@ and `claude` (or `codex`).
 - `autoreview 213 240` limits the run to those PRs.
 - `autoreview --help` lists the flags.
 
+## Try it without a real review
+
+```sh
+scripts/sandbox.sh              # the view, against a fake GitHub and a fake reviewer
+scripts/sandbox.sh --headless   # one plain pass
+```
+
+Nothing reaches GitHub and no agent runs. The top of the script lists the
+variables that change what the fakes do.
+
 ## Develop
 
 ```sh
