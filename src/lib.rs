@@ -9,6 +9,7 @@
 //! one library -- not two implementations kept in step by hand.
 
 pub mod activity;
+pub mod babysit;
 pub mod ci;
 pub mod clock;
 pub mod findings;
@@ -18,6 +19,7 @@ pub mod interval;
 pub mod job;
 pub mod ledger;
 pub mod mine;
+pub mod mine_loop;
 pub mod orchestrator;
 pub mod panel;
 pub mod picker;

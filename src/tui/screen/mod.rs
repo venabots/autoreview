@@ -138,6 +138,10 @@ pub struct Screen {
     /// Tasks making their worktree, as the pool last said. They count as
     /// running for the quit.
     preparing: usize,
+    /// Your babysat PRs, with the fixes each has had, as the loop said.
+    babysat: Vec<(u64, u32)>,
+    /// Whether every PR of yours is babysat, including ones opened later.
+    babysat_all: bool,
 }
 
 /// Whether a point is inside an area. The pointer arrives in screen
@@ -194,6 +198,8 @@ impl Screen {
             mine: Vec::new(),
             task_pick: None,
             preparing: 0,
+            babysat: Vec::new(),
+            babysat_all: false,
         }
     }
 
@@ -276,7 +282,7 @@ impl Screen {
                 // editor's: j and k are letters, not moves.
                 Event::Key(key) if self.editing.is_some() => out.extend(self.edit(key)),
                 Event::Key(key) => {
-                    if let Some(intent) = keys::intent(key) {
+                    if let Some(intent) = keys::intent(key, self.tab == Tab::Mine) {
                         out.extend(self.press(intent, Instant::now()));
                     }
                 }
@@ -303,7 +309,7 @@ impl Screen {
             match self.tab {
                 Tab::Review => self.render_rows(f, &rows, counts),
                 Tab::Mine => {
-                    let mine_rows = mine_view::rows(&mine, jobs, pass_dir, archive);
+                    let mine_rows = mine_view::rows(&mine, jobs, pass_dir, archive, &self.babysat);
                     self.render_mine(f, &rows, &mine_rows, counts);
                 }
             }
@@ -318,7 +324,8 @@ impl Screen {
         let log = self.header.log.display().to_string();
         let header = layout::header(&self.header.repo, &self.header.mode, self.focus.as_deref(), &log, areas.header.width as usize);
         f.render_widget(header, areas.header);
-        f.render_widget(mine_view::tab_bar(self.tab, counts.0, counts.1, areas.tabs.width as usize), areas.tabs);
+        let bar = mine_view::tab_bar(self.tab, counts.0, counts.1, self.babysat.len(), areas.tabs.width as usize);
+        f.render_widget(bar, areas.tabs);
     }
 
     /// The right pane, scrolled as the keys left it.
@@ -352,7 +359,8 @@ impl Screen {
             Some(input) => layout::prompt(&input.text(), input.cursor(), width),
             None => {
                 let status = self.status(rows, now);
-                layout::footer(&status, self.message.as_ref().map(|(m, _)| m.as_str()), width)
+                let hints = if self.tab == Tab::Mine { layout::MINE_HINTS } else { layout::HINTS };
+                layout::footer(&status, self.message.as_ref().map(|(m, _)| m.as_str()), width, hints)
             }
         };
         f.render_widget(footer, areas.footer);
@@ -579,8 +587,11 @@ impl Screen {
                 self.show(self.side.toggle(Side::Keys));
             }
             Intent::SwitchTab => self.switch_tab(),
-            Intent::Babysit => return self.ask_task(crate::task::Task::Babysit),
+            Intent::Fix => return self.ask_task(crate::task::Task::Fix),
             Intent::Comments => return self.ask_task(crate::task::Task::Comments),
+            Intent::Conflicts => return self.ask_task(crate::task::Task::Conflicts),
+            Intent::Babysit => return self.toggle_babysit(),
+            Intent::BabysitAll => return self.toggle_babysit_all(),
             Intent::Back => {
                 if self.side != Side::Detail {
                     self.side = Side::Detail;

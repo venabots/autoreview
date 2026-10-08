@@ -573,9 +573,10 @@ mod tests {
     fn a_task_runs_its_installed_skill_and_nothing_else() {
         let mut cfg = cfg_with(0, None, false);
         cfg.focus = Some("be strict".into());
-        assert_eq!(task(Task::Babysit).prompt(&cfg), "/babysit-pr 4", "no focus: a task reviews nothing");
+        assert_eq!(task(Task::Fix).prompt(&cfg), "/babysit-pr 4", "no focus: a task reviews nothing");
         assert_eq!(task(Task::Comments).prompt(&cfg), "/pr-comment-handler 4");
-        let mut codex = task(Task::Babysit);
+        assert_eq!(task(Task::Conflicts).prompt(&cfg), "/sync-main 4");
+        let mut codex = task(Task::Fix);
         codex.orchestrator = Orchestrator::parse("codex").unwrap();
         assert_eq!(codex.prompt(&cfg), "$babysit-pr 4");
     }
@@ -584,7 +585,7 @@ mod tests {
     fn a_task_is_asked_for_no_trailer_and_handed_no_staged_reviewers() {
         let mut rd = rundir();
         rd.stage_skills(&crate::skills::Source::Bundled).unwrap();
-        let argv = dashp_args(&task(Task::Babysit), &cfg_with(0, None, false), &rd);
+        let argv = dashp_args(&task(Task::Fix), &cfg_with(0, None, false), &rd);
         assert!(!argv.iter().any(|a| a.starts_with("--append-system-prompt=")), "{argv:?}");
         assert!(!argv.iter().any(|a| a.starts_with("--add-dir")), "{argv:?}");
         assert_eq!(argv.last().unwrap(), "/babysit-pr 4");

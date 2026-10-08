@@ -43,6 +43,9 @@ pub struct MineRow<'a> {
     pub live: Option<&'a Job>,
     /// The last task to end, and the directory its files are in.
     pub last: Option<(&'a Job, PathBuf)>,
+    /// Babysat, and how many fixes babysitting has run on it; None when
+    /// it is not babysat.
+    pub babysat: Option<u32>,
 }
 
 impl MineRow<'_> {
@@ -68,7 +71,13 @@ fn finished(job: &Job) -> bool {
 }
 
 /// Your PRs in the order `crate::mine` ranked them, each with its task.
-pub fn rows<'a>(mine: &'a [MyPr], jobs: &'a [Job], pass_dir: &'a Path, archive: &'a [Archived]) -> Vec<MineRow<'a>> {
+pub fn rows<'a>(
+    mine: &'a [MyPr],
+    jobs: &'a [Job],
+    pass_dir: &'a Path,
+    archive: &'a [Archived],
+    babysat: &[(u64, u32)],
+) -> Vec<MineRow<'a>> {
     mine.iter()
         .map(|pr| {
             let tasks = |j: &&Job| j.pr == pr.number && !j.task.is_review();
@@ -83,7 +92,8 @@ pub fn rows<'a>(mine: &'a [MyPr], jobs: &'a [Job], pass_dir: &'a Path, archive: 
             let archived = archive.iter().filter(|a| tasks(&&a.job)).map(|a| (&a.job, a.pass_dir.clone()));
             // The pass in progress is newer than anything archived.
             let last = archived.chain(current).last();
-            MineRow { pr, live, last }
+            let babysat = babysat.iter().find(|(n, _)| *n == pr.number).map(|(_, fixes)| *fixes);
+            MineRow { pr, live, last, babysat }
         })
         .collect()
 }
@@ -117,14 +127,16 @@ pub fn state(row: &MineRow) -> (String, Style) {
         };
         return (word, Style::default().fg(Color::Magenta));
     }
-    let word = row.pr.state_word();
-    let color = match word.as_str() {
+    let blocker = row.pr.state_word();
+    let color = match blocker.as_str() {
         "conflicts" | "CI failing" => Color::Red,
         "changes req" => Color::Yellow,
         "approved" => Color::Green,
         w if w.ends_with("thread") || w.ends_with("threads") => Color::Yellow,
         _ => Color::DarkGray,
     };
+    // Babysat first: it is what the run will do about the PR on its own.
+    let word = if row.babysat.is_some() { format!("babysat · {blocker}") } else { blocker };
     (word, Style::default().fg(color))
 }
 
@@ -210,6 +222,13 @@ pub fn detail(row: &MineRow) -> Vec<Line<'static>> {
     if pr.draft {
         out.push(field("draft", "yes", plain));
     }
+    let babysat = match row.babysat {
+        Some(0) => "yes · no fix needed yet".to_string(),
+        Some(1) => "yes · 1 fix so far".to_string(),
+        Some(n) => format!("yes · {n} fixes so far"),
+        None => "no".to_string(),
+    };
+    out.push(field("babysat", babysat, plain));
     out.push(Line::default());
     out.extend(task_lines(row));
     out
@@ -226,7 +245,7 @@ fn task_lines(row: &MineRow) -> Vec<Line<'static>> {
         out.push(Line::from("x x stops it").dark_gray());
         return out;
     }
-    let hint = Line::from("b babysits it (conflicts, comments, CI) · c handles its review comments").dark_gray();
+    let hint = Line::from("f fixes it · b babysits it · u fixes conflicts · c answers comments").dark_gray();
     let Some((job, pass_dir)) = &row.last else {
         return vec![hint];
     };
@@ -248,14 +267,18 @@ fn task_lines(row: &MineRow) -> Vec<Line<'static>> {
 }
 
 /// The tab bar: both tabs and how many rows each holds, the shown one bold.
-pub fn tab_bar(shown: Tab, reviews: usize, mine: usize, width: usize) -> Line<'static> {
+pub fn tab_bar(shown: Tab, reviews: usize, mine: usize, babysitting: usize, width: usize) -> Line<'static> {
     let tab = |label: String, on: bool| {
         if on { Span::from(label).bold().reversed() } else { Span::from(label).dark_gray() }
+    };
+    let mine_label = match babysitting {
+        0 => format!(" My PRs {mine} "),
+        n => format!(" My PRs {mine} · babysitting {n} "),
     };
     let line = Line::from(vec![
         tab(format!(" Review {reviews} "), shown == Tab::Review),
         Span::raw("  "),
-        tab(format!(" My PRs {mine} "), shown == Tab::Mine),
+        tab(mine_label, shown == Tab::Mine),
         Span::from("   tab switches").dark_gray(),
     ]);
     super::text::fit(line, width)
@@ -263,7 +286,7 @@ pub fn tab_bar(shown: Tab, reviews: usize, mine: usize, width: usize) -> Line<'s
 
 /// Why a key that only means something on a review cannot act here.
 pub fn not_a_review(pr: u64) -> String {
-    format!("PR #{pr} is yours, and the run reviews only other people's work; b babysits it, c handles its comments")
+    format!("PR #{pr} is yours, and the run reviews only other people's work; f fixes it, b babysits it")
 }
 
 #[cfg(test)]
@@ -277,12 +300,15 @@ mod tests {
             title: "My own work".into(),
             draft: false,
             branch: "me/my-own-work".into(),
+            head: "sha4".into(),
+            updated_at: "2026-10-07T10:00:00Z".into(),
             cross_repo: false,
             review: Review::Required,
             merge: Merge::Clean,
             ci: Ci::Passing,
             open_threads: 0,
             reviewers: Vec::new(),
+            thread_ids: Vec::new(),
         }
     }
 
@@ -292,7 +318,7 @@ mod tests {
 
     fn task(n: u64, state: JobState) -> Job {
         let mut job = Job::new(n);
-        job.task = Task::Babysit;
+        job.task = Task::Fix;
         job.state = state;
         job
     }
@@ -301,12 +327,12 @@ mod tests {
     fn a_row_says_what_blocks_the_merge_or_what_the_task_is_doing() {
         let prs = vec![mine(4), MyPr { open_threads: 2, ..mine(5) }];
         let jobs = vec![task(5, JobState::Running)];
-        let rows = rows(&prs, &jobs, Path::new("/p"), &[]);
+        let rows = rows(&prs, &jobs, Path::new("/p"), &[], &[]);
         let (drawn, at) = lines(&rows, Some(1), 36, "⠋");
         let out: Vec<String> = drawn.iter().map(text).collect();
         assert_eq!(out[0], "○ #4 · awaiting review");
         assert_eq!(out[1], "  me/my-own-work");
-        assert_eq!(out[2], "⠋ #5 · babysitting 0s");
+        assert_eq!(out[2], "⠋ #5 · fixing 0s");
         assert_eq!(at, Some(2));
         assert!(rows[1].busy() && !rows[0].busy());
     }
@@ -317,7 +343,7 @@ mod tests {
         // on it.
         let prs = vec![mine(4)];
         let jobs = vec![Job { state: JobState::Running, ..Job::new(4) }];
-        let rows = rows(&prs, &jobs, Path::new("/p"), &[]);
+        let rows = rows(&prs, &jobs, Path::new("/p"), &[], &[]);
         assert!(rows[0].live.is_none());
         assert_eq!(running(&jobs), 0, "a running review is counted by the review list");
         assert_eq!(running(&[task(4, JobState::Running)]), 1);
@@ -339,8 +365,8 @@ mod tests {
         let mut done = task(4, JobState::Done);
         done.verdict = Some("pushed".into());
         done.elapsed_secs = 190;
-        let archive = vec![Archived { job: done, pass_dir: PathBuf::from("/run/pass-1/babysit") }];
-        let rows = rows(&prs, &[], Path::new("/p"), &archive);
+        let archive = vec![Archived { job: done, pass_dir: PathBuf::from("/run/pass-1/fix") }];
+        let rows = rows(&prs, &[], Path::new("/p"), &archive, &[]);
         let out: Vec<String> = detail(&rows[0]).iter().map(text).collect();
         let out = out.join("\n");
         assert!(out.contains("review    changes requested by @alice"), "{out}");
@@ -349,30 +375,45 @@ mod tests {
         assert!(out.contains("merge     conflicts with its base"), "{out}");
         assert!(out.contains("LAST TASK"), "{out}");
         assert!(out.contains("verdict   pushed"), "{out}");
-        assert!(out.contains("log       /run/pass-1/babysit/pr-4.log"), "{out}");
-        assert!(out.contains("b babysits it"), "{out}");
+        assert!(out.contains("log       /run/pass-1/fix/pr-4.log"), "{out}");
+        assert!(out.contains("f fixes it · b babysits it"), "{out}");
     }
 
     #[test]
     fn a_task_that_ended_in_this_pass_names_its_own_log() {
         let prs = vec![mine(4)];
         let jobs = vec![task(4, JobState::Done)];
-        let rows = rows(&prs, &jobs, Path::new("/run/pass-1"), &[]);
+        let rows = rows(&prs, &jobs, Path::new("/run/pass-1"), &[], &[]);
         let out: Vec<String> = detail(&rows[0]).iter().map(text).collect();
-        assert!(out.contains(&"log       /run/pass-1/babysit/pr-4.log".to_string()), "{out:?}");
+        assert!(out.contains(&"log       /run/pass-1/fix/pr-4.log".to_string()), "{out:?}");
+    }
+
+    #[test]
+    fn a_babysat_pr_says_so_and_how_many_fixes_it_had() {
+        let prs = vec![MyPr { open_threads: 2, ..mine(4) }, mine(5)];
+        let rows = rows(&prs, &[], Path::new("/p"), &[], &[(4, 2)]);
+        let (drawn, _) = lines(&rows, None, 40, "⠋");
+        assert_eq!(text(&drawn[0]), "○ #4 · babysat · 2 threads");
+        assert_eq!(text(&drawn[2]), "○ #5 · awaiting review");
+        let out: Vec<String> = detail(&rows[0]).iter().map(text).collect();
+        assert!(out.contains(&"babysat   yes · 2 fixes so far".to_string()), "{out:?}");
+        let out: Vec<String> = detail(&rows[1]).iter().map(text).collect();
+        assert!(out.contains(&"babysat   no".to_string()), "{out:?}");
     }
 
     #[test]
     fn the_tab_bar_counts_both_lists() {
-        let line = tab_bar(Tab::Mine, 5, 1, 80);
+        let line = tab_bar(Tab::Mine, 5, 1, 0, 80);
         assert_eq!(text(&line), " Review 5    My PRs 1    tab switches");
+        let line = tab_bar(Tab::Mine, 5, 3, 2, 80);
+        assert_eq!(text(&line), " Review 5    My PRs 3 · babysitting 2    tab switches");
         assert_eq!(Tab::Review.other(), Tab::Mine);
     }
 
     #[test]
     fn a_key_asks_for_a_task_with_what_the_list_knew() {
         let prs = vec![mine(4)];
-        let rows = rows(&prs, &[], Path::new("/p"), &[]);
+        let rows = rows(&prs, &[], Path::new("/p"), &[], &[]);
         let r = rows[0].request(Task::Comments);
         assert_eq!((r.pr, r.task, r.branch.as_str()), (4, Task::Comments, "me/my-own-work"));
     }

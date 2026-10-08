@@ -31,11 +31,12 @@ pub(super) struct TabState {
     pub(super) follow: bool,
 }
 
-/// The selected one of your PRs, as `b` and `c` would ask for it.
+/// The selected one of your PRs, as `f`, `c` and `u` would ask for it.
 #[derive(Clone)]
 pub(super) struct TaskPick {
-    pub(super) babysit: crate::task::Request,
+    pub(super) fix: crate::task::Request,
     pub(super) comments: crate::task::Request,
+    pub(super) conflicts: crate::task::Request,
     pub(super) busy: bool,
 }
 
@@ -44,6 +45,12 @@ impl Screen {
     /// must leave the tab.
     pub fn set_mine(&mut self, mine: Vec<crate::mine::MyPr>) {
         self.mine = mine;
+    }
+
+    /// Which of your PRs are babysat, as the loop decided.
+    pub fn set_babysat(&mut self, babysat: Vec<(u64, u32)>, all: bool) {
+        self.babysat = babysat;
+        self.babysat_all = all;
     }
 
     /// Show the other tab, and pick up where it was left.
@@ -85,8 +92,9 @@ impl Screen {
         }
         self.picked = row.map(|r| self.pick_mine(r));
         self.task_pick = row.map(|r| TaskPick {
-            babysit: r.request(crate::task::Task::Babysit),
+            fix: r.request(crate::task::Task::Fix),
             comments: r.request(crate::task::Task::Comments),
+            conflicts: r.request(crate::task::Task::Conflicts),
             busy: r.busy(),
         });
 
@@ -132,19 +140,95 @@ impl Screen {
         Picked { pr, resume, stop, request: Err(mine_view::not_a_review(pr)) }
     }
 
-    /// `b` or `c`: a task on the selected one of your PRs, or why not.
-    pub(super) fn ask_task(&mut self, task: crate::task::Task) -> Vec<Action> {
+    /// The selected one of your PRs, or None after saying why there is none.
+    fn mine_pick(&mut self) -> Option<TaskPick> {
         if self.tab != Tab::Mine {
-            self.flash("b and c work on your own PRs: tab shows them");
+            self.flash("b, B, c and u work on your own PRs: tab shows them");
+            return None;
+        }
+        let pick = self.task_pick.clone();
+        if pick.is_none() {
+            self.flash("you have no open PRs in this repo");
+        }
+        pick
+    }
+
+    /// Why babysitting cannot fix anything in this run, if it cannot: it
+    /// runs the fix task, so the fix's refusal is its refusal.
+    fn babysit_refused(&mut self) -> bool {
+        let why = self.header.task_refusals.iter().find(|(t, _)| *t == crate::task::Task::Fix).map(|(_, w)| w.clone());
+        if let Some(why) = why {
+            self.flash(why);
+            return true;
+        }
+        false
+    }
+
+    /// `b`: babysit the selected PR, or stop.
+    pub(super) fn toggle_babysit(&mut self) -> Vec<Action> {
+        let Some(pick) = self.mine_pick() else { return Vec::new() };
+        let pr = pick.fix.pr;
+        // Before anything else: with all babysat, b on a fork would read as
+        // "stop", and turn babysitting off for PRs opened later.
+        if pick.fix.cross_repo {
+            self.flash(format!("PR #{pr} is from a fork; its branch is not on origin, so nothing can fix it here"));
             return Vec::new();
         }
-        let Some(pick) = self.task_pick.clone() else {
-            self.flash("you have no open PRs in this repo");
+        let on = !(self.babysat_all || self.babysat.iter().any(|(n, _)| *n == pr));
+        if on && self.babysit_refused() {
             return Vec::new();
+        }
+        self.flash(if on {
+            format!("babysitting PR #{pr}: it is fixed when it changes and needs work")
+        } else {
+            format!("no longer babysitting PR #{pr}")
+        });
+        // Shown now, and corrected by the loop when it applies it: a second
+        // press during a pass must read what the first one did.
+        if on {
+            self.babysat.push((pr, 0));
+        } else {
+            if self.babysat_all {
+                // Stopping one of all: the rest stay babysat.
+                self.babysat_all = false;
+                self.babysat = self.mine.iter().filter(|p| !p.cross_repo).map(|p| (p.number, 0)).collect();
+            }
+            self.babysat.retain(|(n, _)| *n != pr);
+        }
+        vec![Action::Babysit(crate::babysit::Change::One(pr, on))]
+    }
+
+    /// `B`: babysit every PR of yours, or none.
+    pub(super) fn toggle_babysit_all(&mut self) -> Vec<Action> {
+        if self.tab != Tab::Mine {
+            self.flash("b, B, c and u work on your own PRs: tab shows them");
+            return Vec::new();
+        }
+        let on = !self.babysat_all;
+        if on && self.babysit_refused() {
+            return Vec::new();
+        }
+        self.flash(if on {
+            "babysitting all your PRs, and any you open: each is fixed when it changes and needs work"
+        } else {
+            "no longer babysitting your PRs"
+        });
+        self.babysat_all = on;
+        self.babysat = if on {
+            self.mine.iter().filter(|p| !p.cross_repo).map(|p| (p.number, 0)).collect()
+        } else {
+            Vec::new()
         };
+        vec![Action::Babysit(crate::babysit::Change::All(on))]
+    }
+
+    /// `f`, `c` or `u`: a task on the selected one of your PRs, or why not.
+    pub(super) fn ask_task(&mut self, task: crate::task::Task) -> Vec<Action> {
+        let Some(pick) = self.mine_pick() else { return Vec::new() };
         let request = match task {
             crate::task::Task::Comments => pick.comments,
-            _ => pick.babysit,
+            crate::task::Task::Conflicts => pick.conflicts,
+            _ => pick.fix,
         };
         let pr = request.pr;
         if pick.busy {

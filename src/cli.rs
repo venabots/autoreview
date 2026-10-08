@@ -155,16 +155,18 @@ it makes one pass, prints one plain line per step, and exits.
                       reviewers are told to look at (--focus, changed
                       mid-run), l shows the run log, ? shows every key,
                       q quits. tab shows My PRs, your own open PRs and
-                      what blocks each one; there b babysits the selected
-                      PR (conflicts, comments, CI) and c answers its review
-                      comments, each in a worktree of its own, with the
-                      babysit-pr and pr-comment-handler skills you have
-                      installed. The mouse works too: the wheel scrolls
-                      whichever pane it points at and a click selects a row;
-                      m hands the mouse back to the terminal for selecting
-                      text. While it is up the plain lines go to
-                      autoreview.log in the run directory. Off a terminal
-                      the run says so and prints its plain lines.
+                      what blocks each one. There f fixes the selected PR
+                      once, u fixes its conflicts, c answers its comments,
+                      b babysits it (fixes it again when it changes) and B
+                      babysits all of them, each fix in a worktree of its
+                      own, with the babysit-pr, sync-main and
+                      pr-comment-handler skills you have installed. The
+                      mouse works too: the wheel scrolls whichever pane it
+                      points at and a click selects a row; m hands the
+                      mouse back to the terminal for selecting text. While
+                      it is up the plain lines go to autoreview.log in the
+                      run directory. Off a terminal the run says so and
+                      prints its plain lines.
   --headless          Print plain lines even on a terminal: one line per
                       step, and the summary at the end. What a pipe or cron
                       gets anyway.

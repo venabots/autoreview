@@ -250,19 +250,20 @@ assert_contains "the next review is told the same" "$(claude_calls)" \
 assert_contains "q ends the run" "$out" "autoreview-exit=130"
 
 # --- My PRs: your own PRs, and a task on one --------------------------------
-# Tab shows the PRs the review list hides because you wrote them. b on one
-# babysits it: the skill runs in a worktree of its own, on the PR's branch,
+# Tab shows the PRs the review list hides because you wrote them. f on one
+# fixes it: the skill runs in a worktree of its own, on the PR's branch,
 # and the summary says what GitHub shows it did.
 make_origin
 install_task_skills
-out="$(FAKE_GH_HEAD=sha4-new run_tui --key 3.0:$'\t' --key 4.0:b --key 9.0:q -- --once)"
+out="$(FAKE_GH_HEAD=sha4-new run_tui --key 3.0:$'\t' --key 4.0:f --key 9.0:q -- --once)"
 assert_contains "the tab bar counts your PRs" "$out" "My PRs 1"
 assert_contains "tab shows your PR and where it stands" "$out" "awaiting review"
-assert_contains "b babysits it with the installed skill" "$(claude_calls)" "-- /babysit-pr 4"
+assert_contains "the tab has its own keys in the footer" "$out" "b babysit"
+assert_contains "f fixes it with the installed skill" "$(claude_calls)" "-- /babysit-pr 4"
 # The directory as the job saw it: macOS reports /var as /private/var.
 assert_contains "...in a worktree of its own, on the PR's branch" "$(job_dirs)" "/worktrees/pr-4"
 assert_not_contains "...not in your checkout" "$(job_dirs)" "4 $SANDBOX/repo"
-assert_contains "...and the log says what it is doing" "$(run_log)" "start   #4 @me (babysitting)"
+assert_contains "...and the log says what it is doing" "$(run_log)" "start   #4 @me (fixing)"
 assert_contains "the summary says it pushed, as GitHub reports" "$out" "pushed"
 assert_contains "the run still exits 0" "$out" "autoreview-exit=0"
 if [[ -d "$(echo "$SANDBOX"/out/logs/run-*/worktrees/pr-4)" ]]; then
@@ -280,10 +281,31 @@ out="$(FAKE_GH_HEAD="$(git -C "$SANDBOX/repo" rev-parse HEAD)" run_tui --key 3.0
 assert_contains "c answers the comments with the installed skill" "$(claude_calls)" "-- /pr-comment-handler 4"
 assert_contains "...and a task that moved nothing says so" "$out" "nothing pushed"
 
+# u merges the base in through sync-main, in the same worktree.
+out="$(run_tui --key 3.0:$'\t' --key 4.0:u --key 9.0:q -- --once)"
+assert_contains "u fixes conflicts with the installed sync-main" "$(claude_calls)" "-- /sync-main 4"
+assert_contains "...in the PR's worktree" "$(job_dirs)" "/worktrees/pr-4"
+
+# b babysits the PR. The run starts watching, because a fix follows a look,
+# and the first look finds the PR needs work: it has an open thread.
+cp "$SANDBOX/fixtures/mine.json" "$SANDBOX/fixtures/mine.saved"
+jq '.data.search.nodes[0].reviewThreads.nodes = [{"isResolved":false}]' \
+  "$SANDBOX/fixtures/mine.saved" >"$SANDBOX/fixtures/mine.json"
+out="$(run_tui --key 3.0:$'\t' --key 4.0:b --key 9.0:w --key 12.0:q -- --once)"
+assert_contains "b starts watching, so the run looks again" "$(run_log)" "babysitting needs the run to keep looking for work"
+assert_contains "...and fixes the PR that needs work" "$(run_log)" "babysitting: fixing PR #4, which changed and needs work"
+assert_contains "...with the fix skill" "$(claude_calls)" "-- /babysit-pr 4"
+assert_contains "...and the tab bar counts it" "$out" "babysitting 1"
+# w turns the looking off, and babysitting with it: with no looks it could
+# only say it babysits.
+assert_contains "w stops babysitting along with the looking" "$(run_log)" \
+  "no longer babysitting your PRs: the run stopped looking for work"
+mv "$SANDBOX/fixtures/mine.saved" "$SANDBOX/fixtures/mine.json"
+
 # Without the skill the key says so, and nothing runs.
 uninstall_task_skills
-out="$(run_tui --key 3.0:$'\t' --key 4.0:b --key 6.0:q -- --once)"
-assert_contains "b without the skill says it is not installed" "$out" "babysit-pr is not installed"
+out="$(run_tui --key 3.0:$'\t' --key 4.0:f --key 6.0:q -- --once)"
+assert_contains "f without the skill says it is not installed" "$out" "babysit-pr is not installed"
 assert_not_contains "...and runs nothing" "$(claude_calls)" "/babysit-pr"
 drop_origin
 

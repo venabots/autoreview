@@ -109,7 +109,7 @@ mod tests {
     fn request() -> Request {
         Request {
             pr: 4,
-            task: Task::Babysit,
+            task: Task::Fix,
             title: "My own work".into(),
             branch: "me/my-own-work".into(),
             cross_repo: false,
@@ -138,16 +138,16 @@ mod tests {
         assert_eq!(refusal(&request(), &cfg(), &roots, false), None);
         assert_eq!(
             refusal(&request(), &cfg(), &roots, true).as_deref(),
-            Some("note: not babysitting PR #4: a job on it is already running")
+            Some("note: not fixing PR #4: a job on it is already running")
         );
         let no_post = Config { no_post: true, ..cfg() };
         assert_eq!(
             refusal(&request(), &no_post, &roots, false).as_deref(),
-            Some("note: not babysitting PR #4: --no-post leaves every PR alone")
+            Some("note: not fixing PR #4: --no-post leaves every PR alone")
         );
         assert_eq!(
             refusal(&request(), &cfg(), &[], false).as_deref(),
-            Some("note: not babysitting PR #4: babysit-pr is not installed where claude looks (~/.claude/skills)")
+            Some("note: not fixing PR #4: babysit-pr is not installed where claude looks (~/.claude/skills)")
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -157,7 +157,7 @@ mod tests {
         let ctx = RepoContext { owner: "acme".into(), name: "widgets".into(), repo_root: PathBuf::from("/src"), me: "me".into() };
         let worktree = task_worktree::tests_prepared(PathBuf::from("/run/worktrees/pr-4"), "me/my-own-work");
         let job = job(&request(), &worktree, &cfg(), &ctx);
-        assert_eq!(job.task, Task::Babysit);
+        assert_eq!(job.task, Task::Fix);
         assert_eq!(job.cwd.as_deref(), Some(Path::new("/run/worktrees/pr-4")));
         assert_eq!(job.author, "me");
         let Some(sid) = &job.sid else { panic!("a claude task pins a session") };

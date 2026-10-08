@@ -171,7 +171,7 @@ drop_origin() {
 # looks for them. The bodies are never read: the fake dash-p runs nothing.
 install_task_skills() {
   local skill
-  for skill in babysit-pr pr-comment-handler; do
+  for skill in babysit-pr pr-comment-handler sync-main; do
     mkdir -p "$CLAUDE_CONFIG_DIR/skills/$skill"
     printf -- '---\nname: %s\n---\n' "$skill" >"$CLAUDE_CONFIG_DIR/skills/$skill/SKILL.md"
   done
@@ -179,7 +179,7 @@ install_task_skills() {
 
 uninstall_task_skills() {
   local skill
-  for skill in babysit-pr pr-comment-handler; do
+  for skill in babysit-pr pr-comment-handler sync-main; do
     rm -r "$CLAUDE_CONFIG_DIR/skills/$skill" 2>/dev/null || true
   done
 }
@@ -774,7 +774,7 @@ default_prs() {
   cat >"$SANDBOX/fixtures/mine.json" <<'EOF'
 {"data":{"search":{"nodes":[
   {"number":4,"title":"My own work","isDraft":false,"headRefName":"me/my-own-work",
-   "headRefOid":"sha4","isCrossRepository":false,"reviewDecision":"REVIEW_REQUIRED",
+   "headRefOid":"sha4","updatedAt":"2026-08-05T10:00:00Z","isCrossRepository":false,"reviewDecision":"REVIEW_REQUIRED",
    "mergeable":"MERGEABLE","latestReviews":{"nodes":[]},"reviewThreads":{"nodes":[]},
    "headCommit":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}}
 ]}}}

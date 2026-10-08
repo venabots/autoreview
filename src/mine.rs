@@ -26,11 +26,13 @@ const QUERY: &str = "
               title
               isDraft
               headRefName
+              headRefOid
+              updatedAt
               isCrossRepository
               reviewDecision
               mergeable
               latestReviews(first:20) { nodes { author { login } state } }
-              reviewThreads(first:100) { nodes { isResolved } }
+              reviewThreads(first:100) { nodes { id isResolved } }
               headCommit: commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
             }
           }
@@ -85,6 +87,10 @@ pub struct MyPr {
     pub title: String,
     pub draft: bool,
     pub branch: String,
+    /// The head commit and when the PR last changed: what babysitting
+    /// compares to tell a PR that changed from one that did not.
+    pub head: String,
+    pub updated_at: String,
     /// From a fork: its branch is not on `origin`, so no worktree can be
     /// made for it here.
     pub cross_repo: bool,
@@ -92,6 +98,10 @@ pub struct MyPr {
     pub merge: Merge,
     pub ci: Ci,
     pub open_threads: usize,
+    /// The ids of the open review threads. Babysitting tells a new thread
+    /// from one that was there before by these: a count goes down when one
+    /// is resolved and another is opened in the same minute.
+    pub thread_ids: Vec<String>,
     /// Each reviewer's latest review that decided something: who, and what.
     pub reviewers: Vec<(String, Review)>,
 }
@@ -172,6 +182,8 @@ impl<T> Default for Nodes<T> {
 
 #[derive(Deserialize)]
 struct Thread {
+    #[serde(default)]
+    id: String,
     #[serde(rename = "isResolved", default)]
     is_resolved: bool,
 }
@@ -203,6 +215,10 @@ struct Node {
     is_draft: bool,
     #[serde(rename = "headRefName", default)]
     head_ref_name: String,
+    #[serde(rename = "headRefOid", default)]
+    head_ref_oid: String,
+    #[serde(rename = "updatedAt", default)]
+    updated_at: String,
     #[serde(rename = "isCrossRepository", default)]
     is_cross_repository: bool,
     #[serde(rename = "reviewDecision")]
@@ -243,11 +259,14 @@ impl Node {
             title: self.title,
             draft: self.is_draft,
             branch: self.head_ref_name,
+            head: self.head_ref_oid,
+            updated_at: self.updated_at,
             cross_repo: self.is_cross_repository,
             review: Review::from_raw(self.review_decision.as_deref()),
             merge: Merge::from_raw(self.mergeable.as_deref()),
             ci,
             open_threads: self.review_threads.nodes.iter().filter(|t| !t.is_resolved).count(),
+            thread_ids: self.review_threads.nodes.iter().filter(|t| !t.is_resolved).map(|t| t.id.clone()).collect(),
             reviewers,
         })
     }
@@ -302,12 +321,15 @@ mod tests {
             title: "My own work".into(),
             draft: false,
             branch: "me/my-own-work".into(),
+            head: "sha4".into(),
+            updated_at: "2026-10-07T10:00:00Z".into(),
             cross_repo: false,
             review: Review::Required,
             merge: Merge::Clean,
             ci: Ci::Passing,
             open_threads: 0,
             reviewers: Vec::new(),
+            thread_ids: Vec::new(),
         }
     }
 
@@ -344,7 +366,7 @@ mod tests {
              "mergeable":"MERGEABLE",
              "latestReviews":{"nodes":[{"author":{"login":"alice"},"state":"CHANGES_REQUESTED"},
                                        {"author":{"login":"bob"},"state":"COMMENTED"}]},
-             "reviewThreads":{"nodes":[{"isResolved":false},{"isResolved":true},{"isResolved":false}]},
+             "reviewThreads":{"nodes":[{"id":"T1","isResolved":false},{"id":"T2","isResolved":true},{"id":"T3","isResolved":false}]},
              "headCommit":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}},
             {}
         ]}}});
@@ -354,6 +376,7 @@ mod tests {
         assert_eq!((p.number, p.branch.as_str()), (4, "me/my-own-work"));
         assert_eq!(p.review, Review::ChangesRequested);
         assert_eq!(p.open_threads, 2);
+        assert_eq!(p.thread_ids, vec!["T1".to_string(), "T3".to_string()], "the open ones, by id");
         assert_eq!(p.ci, Ci::Passing);
         assert_eq!(p.reviewers, vec![("alice".to_string(), Review::ChangesRequested)], "a comment decides nothing");
     }

@@ -210,6 +210,9 @@ pub struct Ui {
     /// start them. Apart from `requests`: a task never enters the review
     /// queue, its caps or its watch list.
     tasks: Vec<crate::task::Request>,
+    /// What `b` and `B` asked for, waiting for the loop: it owns
+    /// babysitting, because a fix follows a look, not a key.
+    babysit_changes: Vec<crate::babysit::Change>,
     /// Whether a person asked the run to start or stop looking for work,
     /// waiting for the loop to reach a point where it can.
     watch_toggle: Option<bool>,
@@ -268,6 +271,21 @@ impl Ui {
     /// Whether a task is waiting for a pass, without taking it.
     pub fn has_tasks(&self) -> bool {
         !self.tasks.is_empty()
+    }
+
+    /// Whether a task on `pr` is waiting for a pass.
+    pub fn task_waiting(&self, pr: u64) -> bool {
+        self.tasks.iter().any(|t| t.pr == pr)
+    }
+
+    /// Every babysit change asked for since the last call.
+    pub fn take_babysit_changes(&mut self) -> Vec<crate::babysit::Change> {
+        std::mem::take(&mut self.babysit_changes)
+    }
+
+    /// Whether a babysit change is waiting, without taking it.
+    pub fn babysit_pending(&self) -> bool {
+        !self.babysit_changes.is_empty()
     }
 
     /// A note the user should see now: spawn failures, session fallbacks.
@@ -366,6 +384,10 @@ impl Ui {
                 // started yet is told what the person just typed.
                 Action::Focus(focus) => {
                     self.focus_change = Some(focus.clone());
+                    false
+                }
+                Action::Babysit(change) => {
+                    self.babysit_changes.push(*change);
                     false
                 }
                 _ => true,

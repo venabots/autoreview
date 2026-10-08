@@ -340,12 +340,15 @@ fn my_pr(n: u64) -> crate::mine::MyPr {
         title: "My own work".into(),
         draft: false,
         branch: "me/my-own-work".into(),
+        head: "sha4".into(),
+        updated_at: "2026-10-07T10:00:00Z".into(),
         cross_repo: false,
         review: crate::mine::Review::Required,
         merge: crate::mine::Merge::Clean,
         ci: crate::ci::Ci::Passing,
         open_threads: 0,
         reviewers: Vec::new(),
+        thread_ids: Vec::new(),
     }
 }
 
@@ -376,34 +379,59 @@ fn tab_shows_your_prs_and_each_tab_keeps_its_selection() {
 }
 
 #[test]
-fn b_and_c_ask_for_a_task_on_your_pr_and_only_there() {
+fn f_c_and_u_ask_for_a_task_on_your_pr_and_only_there() {
     let mut screen = Screen::new(None, header(true));
     screen.set_mine(vec![my_pr(4)]);
     frame(&mut screen, &[], &[done(7)], 120);
-    assert!(screen.press(Intent::Babysit, Instant::now()).is_empty(), "not on the review tab");
+    assert!(screen.press(Intent::Fix, Instant::now()).is_empty(), "not on the review tab");
     screen.press(Intent::SwitchTab, Instant::now());
     frame(&mut screen, &[], &[], 120);
-    let asked = screen.press(Intent::Babysit, Instant::now());
-    let [Action::RunTask(request)] = asked.as_slice() else { panic!("{asked:?}") };
-    assert_eq!((request.pr, request.task), (4, crate::task::Task::Babysit));
-    let asked = screen.press(Intent::Comments, Instant::now());
-    assert!(matches!(asked.as_slice(), [Action::RunTask(r)] if r.task == crate::task::Task::Comments));
+    for (intent, task) in [
+        (Intent::Fix, crate::task::Task::Fix),
+        (Intent::Comments, crate::task::Task::Comments),
+        (Intent::Conflicts, crate::task::Task::Conflicts),
+    ] {
+        let asked = screen.press(intent, Instant::now());
+        let [Action::RunTask(request)] = asked.as_slice() else { panic!("{asked:?}") };
+        assert_eq!((request.pr, request.task), (4, task));
+    }
     // R does not review your own PR, and says what does.
     assert!(screen.press(Intent::ReviewNow, Instant::now()).is_empty());
     let out = frame(&mut screen, &[], &[], 120);
     assert!(out.contains("PR #4 is yours"), "{out}");
+    assert!(out.contains("f fix  b babysit"), "the tab's own footer: {out}");
+    assert!(!out.contains("w watch"), "{out}");
+}
+
+#[test]
+fn b_babysits_the_selected_pr_and_b_again_stops() {
+    let mut screen = Screen::new(None, header(true));
+    screen.set_mine(vec![my_pr(4)]);
+    screen.press(Intent::SwitchTab, Instant::now());
+    frame(&mut screen, &[], &[], 120);
+    assert_eq!(screen.press(Intent::Babysit, Instant::now()), vec![Action::Babysit(crate::babysit::Change::One(4, true))]);
+    screen.set_babysat(vec![(4, 0)], false);
+    let out = frame(&mut screen, &[], &[], 120);
+    assert!(out.contains("babysat"), "{out}");
+    assert!(out.contains("My PRs 1 · babysitting 1"), "{out}");
+    assert_eq!(screen.press(Intent::Babysit, Instant::now()), vec![Action::Babysit(crate::babysit::Change::One(4, false))]);
+    assert_eq!(screen.press(Intent::BabysitAll, Instant::now()), vec![Action::Babysit(crate::babysit::Change::All(true))]);
+    screen.set_babysat(vec![(4, 0)], true);
+    assert_eq!(screen.press(Intent::BabysitAll, Instant::now()), vec![Action::Babysit(crate::babysit::Change::All(false))]);
 }
 
 #[test]
 fn a_task_the_run_refuses_is_refused_at_the_key() {
-    let refusals = vec![(crate::task::Task::Babysit, "babysit-pr is not installed where claude looks (~/.claude/skills)".to_string())];
+    let refusals = vec![(crate::task::Task::Fix, "babysit-pr is not installed where claude looks (~/.claude/skills)".to_string())];
     let mut screen = Screen::new(None, Header { task_refusals: refusals, ..header(true) });
     screen.set_mine(vec![my_pr(4)]);
     screen.press(Intent::SwitchTab, Instant::now());
     frame(&mut screen, &[], &[], 120);
-    assert!(screen.press(Intent::Babysit, Instant::now()).is_empty());
+    assert!(screen.press(Intent::Fix, Instant::now()).is_empty());
     let out = frame(&mut screen, &[], &[], 120);
     assert!(out.contains("babysit-pr is not installed"), "{out}");
+    assert!(screen.press(Intent::Babysit, Instant::now()).is_empty(), "babysitting runs the fix, so it is refused too");
+    assert!(screen.press(Intent::BabysitAll, Instant::now()).is_empty());
     assert_eq!(screen.press(Intent::Comments, Instant::now()).len(), 1, "the other task is not refused");
 }
 
@@ -417,7 +445,7 @@ fn quit_on_your_prs_still_asks_while_a_review_runs() {
     assert!(screen.press(Intent::Quit, Instant::now()).is_empty(), "the running review is not on this tab, and still counts");
     // A running task counts too.
     let mut task = job(4, JobState::Running);
-    task.task = crate::task::Task::Babysit;
+    task.task = crate::task::Task::Fix;
     let mut screen = Screen::new(None, header(true));
     screen.set_mine(vec![my_pr(4)]);
     let out = frame(&mut screen, &[task.clone()], &[], 120);

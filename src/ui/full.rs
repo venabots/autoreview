@@ -112,6 +112,11 @@ impl Ui {
         self.watch_toggle.is_some()
     }
 
+    /// What the pending `w` asks for, without taking it.
+    pub fn watch_toggle_peek(&self) -> Option<bool> {
+        self.watch_toggle
+    }
+
     /// What the run does now, in the header's words.
     pub fn mode(&mut self, mode: &str, looping: bool) {
         if let Some(screen) = &mut self.screen {
@@ -124,6 +129,14 @@ impl Ui {
     pub fn preparing(&mut self, n: usize) {
         if let Some(screen) = &mut self.screen {
             screen.set_preparing(n);
+        }
+    }
+
+    /// Which of your PRs are babysat, with the fixes each has had, and
+    /// whether all of them are.
+    pub fn babysat(&mut self, listed: Vec<(u64, u32)>, all: bool) {
+        if let Some(screen) = &mut self.screen {
+            screen.set_babysat(listed, all);
         }
     }
 
@@ -152,6 +165,7 @@ impl Ui {
             match action {
                 Action::ReviewNow(pr) => self.request(pr),
                 Action::RunTask(request) => self.run_task(request),
+                Action::Babysit(change) => self.babysit_changes.push(change),
                 Action::Watch(on) => self.watch_toggle = Some(on),
                 Action::Focus(focus) => self.focus_change = Some(focus),
                 other => out.push(other),
@@ -197,7 +211,13 @@ impl Ui {
                 }
             }
             self.idle_step(rx);
-            if self.watch_toggle.is_some() {
+            // Babysitting changes what the run does between passes, as `w`
+            // does: the loop decides again before it waits any longer.
+            //
+            // Not the waits after a failure, which pass `wake_on_request`
+            // false: they keep their pause, or a key would turn a backoff
+            // into the same failed call over and over.
+            if wake_on_request && (self.watch_toggle.is_some() || !self.babysit_changes.is_empty()) {
                 break Woke::Changed;
             }
             // A task asked for is a request too: a person is waiting on it.
@@ -255,7 +275,11 @@ impl Ui {
             }
             // Either is the run coming back to life: the footer must stop
             // saying it ended, and the rows must take keys again.
-            if !self.requests.is_empty() || !self.tasks.is_empty() || self.watch_toggle.is_some() {
+            if !self.requests.is_empty()
+                || !self.tasks.is_empty()
+                || self.watch_toggle.is_some()
+                || !self.babysit_changes.is_empty()
+            {
                 if let Some(screen) = &mut self.screen {
                     screen.set_ended(None);
                 }
