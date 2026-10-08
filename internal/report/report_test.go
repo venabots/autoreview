@@ -209,3 +209,51 @@ func TestReopenHints(t *testing.T) {
 		})
 	}
 }
+
+func TestProgress(t *testing.T) {
+	began := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	now := began.Add(63 * time.Second)
+	cases := []struct {
+		job  engine.Job
+		want string
+	}{
+		{engine.Job{State: engine.JobQueued}, "queued"},
+		{engine.Job{State: engine.JobRunning, StartedAt: began}, "reviewing 1m03s"},
+		{engine.Job{State: engine.JobRunning, StartedAt: began, Resumed: true}, "rechecking 1m03s"},
+		{engine.Job{State: engine.JobFinishing, StartedAt: began}, "finishing"},
+	}
+	for _, c := range cases {
+		if got := Progress(c.job, now); got != c.want {
+			t.Errorf("Progress = %q, want %q", got, c.want)
+		}
+	}
+}
+
+func TestOutcome(t *testing.T) {
+	short := &review.Trailer{
+		Findings: &review.Findings{MustFix: ptr(uint(0)), ShouldFix: ptr(uint(0)), Polish: ptr(uint(0))},
+		Panel:    []review.Panelist{{Name: "a", OK: ptr(true)}, {Name: "b", OK: ptr(true)}, {Name: "c", OK: ptr(false)}, {Name: "d", OK: ptr(false)}},
+	}
+	cases := []struct {
+		name string
+		job  engine.Job
+		want string
+	}{
+		{"approved", engine.Job{State: engine.JobDone, Verdict: "approved"}, "approved"},
+		{"changes requested, cut to fit", engine.Job{State: engine.JobDone, Verdict: "changes requested"}, "changes req"},
+		{"commented", engine.Job{State: engine.JobDone, Verdict: "commented"}, "commented"},
+		{"nothing landed", engine.Job{State: engine.JobDone}, "no verdict"},
+		{"clean, but too few answered", engine.Job{State: engine.JobDone, Verdict: "commented", Trailer: short}, "clean 2/4"},
+		{"approved outranks a short panel", engine.Job{State: engine.JobDone, Verdict: "approved", Trailer: short}, "approved"},
+		{"timed out", engine.Job{State: engine.JobTimedOut}, "timed out"},
+		{"stopped by a person", engine.Job{State: engine.JobFailed, Outcome: "stopped"}, "stopped"},
+		{"failed", engine.Job{State: engine.JobFailed, Outcome: "exit 10"}, "failed"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := Outcome(c.job); got != c.want {
+				t.Errorf("Outcome = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

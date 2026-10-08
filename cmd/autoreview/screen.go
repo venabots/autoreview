@@ -8,22 +8,32 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/venabots/autoreview/internal/cli"
 	"github.com/venabots/autoreview/internal/engine"
+	"github.com/venabots/autoreview/internal/plain"
 	"github.com/venabots/autoreview/internal/repo"
+	"github.com/venabots/autoreview/internal/sanitize"
 	"github.com/venabots/autoreview/internal/tui"
 )
 
 // exitCrashed is the status of a run that hit a bug in autoreview itself.
 const exitCrashed = 2
 
-// runScreen runs the engine under the full-screen view and returns the
-// run's exit status.
+// runScreen runs a held run under the full-screen view and returns the
+// run's exit status. The summary is printed when the view has closed, on
+// the normal screen, where it stays.
 //
 // The engine decides when the run is over. The view closes on the engine's
 // last snapshot, and a view that dies first still ends the run: the Quit
 // after it is what guarantees nothing is left running behind a dead screen.
-func runScreen(eng *engine.Engine, rc repo.Context, stderr io.Writer) int {
-	program := tea.NewProgram(tui.New(eng, openInBrowser(rc)), tea.WithoutSignalHandler())
+func runScreen(cfg cli.Config, rc repo.Context, stdout, stderr io.Writer) int {
+	run, err := start(cfg, rc, true, stdout, stderr)
+	if err != nil {
+		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
+		return engine.ExitFailed
+	}
+	defer run.close()
+	program := tea.NewProgram(tui.New(run.engine, actions(rc)), tea.WithoutSignalHandler())
 
 	results := make(chan engine.Result, 1)
 	go func() {
@@ -36,15 +46,24 @@ func runScreen(eng *engine.Engine, rc repo.Context, stderr io.Writer) int {
 				os.Exit(exitCrashed)
 			}
 		}()
-		results <- eng.Run()
+		results <- run.engine.Run()
 	}()
 
-	_, err := program.Run()
-	eng.Do(engine.Quit{})
+	_, viewErr := program.Run()
+	run.engine.Do(engine.Quit{})
 	result := <-results
 	discardInput()
-	if err != nil && !errors.Is(err, tea.ErrProgramKilled) {
-		say(stderr, "error: the view stopped: %v\n", err)
+	run.printer.Close()
+
+	if result.Code == engine.ExitInterrupted && len(result.Final.Reviewed()) > 0 {
+		// The printer wrote this to the log while the view had the screen.
+		say(stderr, "interrupted; the running reviews were stopped\n")
+	}
+	out, errs := plain.Final(result, cfg.NoPost)
+	say(io.MultiWriter(stdout, run.log), "%s", out)
+	say(io.MultiWriter(stderr, run.log), "%s", errs)
+	if viewErr != nil && !errors.Is(viewErr, tea.ErrProgramKilled) {
+		say(stderr, "error: the view stopped: %v\n", viewErr)
 		return engine.ExitFailed
 	}
 	return result.Code

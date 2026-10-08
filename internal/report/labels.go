@@ -6,9 +6,11 @@ package report
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/review"
+	"github.com/venabots/autoreview/internal/words"
 )
 
 // unknown fills a cell the review said nothing for.
@@ -119,4 +121,47 @@ func Panelist(p review.Panelist) string {
 		label += ", top " + p.Top
 	}
 	return label
+}
+
+// Progress is a review that has not ended, in the few words a list row has
+// room for: "queued", "reviewing 1m03s", "rechecking 12s", "finishing".
+func Progress(job engine.Job, now time.Time) string {
+	switch job.State {
+	case engine.JobQueued:
+		return "queued"
+	case engine.JobFinishing:
+		return "finishing"
+	}
+	verb := "reviewing"
+	if job.Resumed {
+		verb = "rechecking"
+	}
+	return verb + " " + words.Duration(now.Sub(job.StartedAt))
+}
+
+// Outcome is a review that has ended, in the few words a list row has room
+// for: what landed on the PR, or how the review failed.
+//
+// A clean review that too few of the panel answered is named as such. It
+// is the one unapproved PR a reader may only need to look over.
+func Outcome(job engine.Job) string {
+	switch job.State {
+	case engine.JobTimedOut:
+		return "timed out"
+	case engine.JobFailed:
+		if job.Outcome == "stopped" {
+			return "stopped"
+		}
+		return "failed"
+	}
+	if short, ok := review.CleanButShort(job.Verdict, job.Trailer); ok {
+		return short.Short()
+	}
+	switch job.Verdict {
+	case "":
+		return "no verdict"
+	case "changes requested":
+		return "changes req"
+	}
+	return job.Verdict
 }

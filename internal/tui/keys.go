@@ -15,6 +15,11 @@ const (
 	intentPageDown
 	intentSwitchTab
 	intentOpen
+	intentResume
+	intentReviewNow
+	intentStop
+	intentFocus
+	intentLog
 	intentMouse
 	intentKeys
 	intentBack
@@ -42,6 +47,11 @@ var keyNames = map[string]intent{
 	"tab":       intentSwitchTab,
 	"shift+tab": intentSwitchTab,
 	"o":         intentOpen,
+	"r":         intentResume,
+	"R":         intentReviewNow,
+	"x":         intentStop,
+	"f":         intentFocus,
+	"l":         intentLog,
 	"m":         intentMouse,
 	"?":         intentKeys,
 	"esc":       intentBack,
@@ -65,11 +75,16 @@ var helpLines = []keyHelp{
 	{"g/G", "first or last PR"},
 	{"^d/^u", "scroll the right pane (or space and the page keys)"},
 	{"tab", "switch between Review and My PRs (or click one)"},
+	{"R", "review the selected PR now, whatever holds it"},
+	{"r", "resume the selected review in a new terminal tab"},
 	{"o", "open the selected PR in the browser"},
+	{"x x", "stop the selected review"},
+	{"f", "type what the reviewers look at (the focus)"},
+	{"l", "show the run log here; esc puts it away"},
 	{"m", "give the mouse back to the terminal, to select text"},
 	{"?", "show these keys; esc puts them away"},
-	{"q", "quit"},
-	{"ctrl-C", "quit now"},
+	{"q", "quit; q again if reviews are running, which stops them"},
+	{"ctrl-C", "quit now, stopping any review that is running"},
 }
 
 // hint is one key in the footer.
@@ -79,19 +94,17 @@ type hint struct {
 }
 
 // footerHints are the keys the footer names, most useful first. The footer
-// shows as many as fit.
+// shows as many as fit. Each tab names only the keys that act on it.
 func footerHints(shown tab) []hint {
-	other := "my PRs"
 	if shown == tabMine {
-		other = "review"
+		return []hint{
+			{"q", "quit"}, {"j/k", "move"}, {"o", "open"}, {"tab", "review"},
+			{"m", "mouse"}, {"l", "log"}, {"^d/^u", "scroll"},
+		}
 	}
 	return []hint{
-		{"q", "quit"},
-		{"j/k", "move"},
-		{"o", "open"},
-		{"tab", other},
-		{"m", "mouse"},
-		{"^d/^u", "scroll"},
+		{"q", "quit"}, {"j/k", "move"}, {"r", "resume"}, {"o", "open"}, {"R", "review now"},
+		{"tab", "my PRs"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
 	}
 }
 

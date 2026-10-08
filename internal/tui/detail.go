@@ -2,14 +2,18 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/prs"
 	"github.com/venabots/autoreview/internal/queue"
+	"github.com/venabots/autoreview/internal/report"
+	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/sanitize"
 	"github.com/venabots/autoreview/internal/words"
 )
@@ -36,20 +40,152 @@ func note(s string, style lipgloss.Style) line {
 	return line{styled(s, style)}
 }
 
-// reviewDetail is the right pane for one PR on the review list.
-func reviewDetail(row queue.Row, nextLook time.Duration) []line {
-	pr := row.PR
-	return []line{
-		titleLine(pr.Number, pr.Title),
-		note("@"+sanitize.Line(pr.Author)+" · "+sanitize.Line(pr.Branch), dimStyle),
+// facts is what the right pane needs beside the row itself.
+type facts struct {
+	now time.Time
+	// nextLook is how long until the run reads the lists again, or zero.
+	nextLook time.Duration
+	// root is the checkout, where a review is resumed.
+	root string
+	// resumeCommand writes the command that reopens a review.
+	resumeCommand func(dir, reopen string) string
+}
+
+// reviewDetail is the right pane for one PR on the Review tab: what the PR
+// is, what the run is doing about it now, and what its last review found.
+// The review's own text goes under these lines.
+func reviewDetail(row reviewRow, f facts) []line {
+	lines := []line{
+		titleLine(row.pr, row.title()),
+		note(byline(row), dimStyle),
 		{},
-		note(waitReason(row, nextLook), waitStyle(row.Wait)),
-		{},
-		field("review", decisionWord(pr.Decision)),
-		field("checks", ciWord(pr.CI)),
-		field("activity", engagementWord(pr.Engagement)),
-		field("base", word{sanitize.Line(pr.Base), plainStyle}),
 	}
+	lines = append(lines, nowLines(row, f)...)
+	if job, ok := row.finished(); ok {
+		lines = append(lines, lastReview(job, f)...)
+	}
+	if row.listed != nil {
+		lines = append(lines, line{}, field("review", decisionWord(row.listed.PR.Decision)),
+			field("checks", ciWord(row.listed.PR.CI)),
+			field("activity", engagementWord(row.listed.PR.Engagement)),
+			field("base", word{sanitize.Line(row.listed.PR.Base), plainStyle}))
+	}
+	return lines
+}
+
+func byline(row reviewRow) string {
+	who := "@" + sanitize.Line(row.author())
+	if branch := row.branch(); branch != "" {
+		return who + " · " + sanitize.Line(branch)
+	}
+	return who
+}
+
+// nowLines says what the run is doing about the PR at this moment.
+func nowLines(row reviewRow, f facts) []line {
+	switch {
+	case row.running():
+		by := row.job.Orchestrator.Label()
+		lines := []line{note(report.Progress(*row.job, f.now)+" · "+by, spinnerStyle)}
+		if row.job.Session != "" {
+			lines = append(lines, note("session "+row.job.Session, dimStyle))
+		}
+		return append(lines, note("x x stops it", dimStyle))
+	case row.job != nil && row.job.State == engine.JobQueued:
+		return []line{note("queued · starts when a review slot frees", dimStyle)}
+	case row.job != nil:
+		return []line{note("R reviews it again now", dimStyle), {}}
+	}
+	return []line{
+		note(waitReason(*row.listed, f.nextLook), waitStyle(row.listed.Wait)),
+		note("R reviews it now", dimStyle),
+	}
+}
+
+// lastReview is what the newest finished review of the PR found.
+func lastReview(job engine.Job, f facts) []line {
+	lines := []line{{styled("LAST REVIEW", headingStyle)}, field("result", resultWord(job))}
+	if job.Error != "" {
+		lines = append(lines, field("error", word{sanitize.Line(job.Error), redStyle}))
+	}
+	lines = append(lines,
+		field("verdict", word{report.Verdict(job.Verdict), outcomeColor(job)}),
+		field("risk", word{orDash(risk(job)), plainStyle}),
+		field("findings", word{report.Findings(job.Trailer), plainStyle}),
+		field("spent", word{spent(job), plainStyle}),
+	)
+	if job.Session != "" {
+		lines = append(lines,
+			field("session", word{job.Session, plainStyle}),
+			field("resume", word{"r opens it in a new tab, or run:", dimStyle}),
+			note(strings.Repeat(" ", fieldWidth)+f.resumeCommand(f.root, job.Orchestrator.ReopenCommand(job.Session)), plainStyle),
+		)
+	}
+	if job.State != engine.JobDone {
+		lines = append(lines, field("log", word{filepath.Join(job.PassDir, fmt.Sprintf("pr-%d.log", job.PR)), dimStyle}))
+	}
+	return append(lines, whyNot(job)...)
+}
+
+func resultWord(job engine.Job) word {
+	text := report.Result(job)
+	switch job.State {
+	case engine.JobFailed:
+		return word{text, redStyle}
+	case engine.JobTimedOut:
+		return word{text, yellowStyle}
+	}
+	return word{text, plainStyle}
+}
+
+func risk(job engine.Job) string {
+	if job.Trailer == nil {
+		return ""
+	}
+	return sanitize.Line(job.Trailer.Risk)
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+// spent is the time, the cost and the model of a review, each where it is
+// known.
+func spent(job engine.Job) string {
+	parts := []string{words.Duration(job.Elapsed)}
+	if job.Cost != nil {
+		parts = append(parts, report.Cost(job.Cost))
+	}
+	if job.Model != "" {
+		parts = append(parts, sanitize.Line(job.Model))
+	}
+	return joinDots(parts)
+}
+
+// whyNot says why a finished review did not approve: too few of the panel
+// answered a clean review, or the blockers it named.
+func whyNot(job engine.Job) []line {
+	lines := []line{}
+	if short, ok := review.CleanButShort(job.Verdict, job.Trailer); ok {
+		lines = append(lines, line{}, note(short.Line(), greenStyle),
+			note("not approved: the gate needs more of the panel; R reviews it again", dimStyle))
+	}
+	reasons := review.Reasons(job.Verdict, job.Trailer)
+	if len(reasons) == 0 {
+		return lines
+	}
+	lines = append(lines, line{}, note(review.ReasonsHeader, yellowStyle))
+	for _, reason := range reasons {
+		lines = append(lines, note(sanitize.Line(reason), plainStyle))
+	}
+	return lines
+}
+
+func joinDots(parts []string) string {
+	return strings.Join(parts, " · ")
 }
 
 // waitReason says why a PR is not being reviewed, in a sentence.
@@ -68,7 +204,7 @@ func waitReason(row queue.Row, nextLook time.Duration) string {
 	case queue.WaitApproved:
 		return "approved already; the sweep leaves those alone"
 	}
-	return "ready for review; this build reads the list and starts no review"
+	return "ready for review"
 }
 
 func stackedReason(parent *prs.Parent) string {

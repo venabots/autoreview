@@ -21,7 +21,7 @@ func (e *Engine) look(w workers, r run) run {
 		list, err := guarded(func() ([]mine.PR, error) { return e.deps.Mine(w.ctx) })
 		e.in.put(mineListed{list: list, err: err})
 	})
-	r.snap.Phase = Looking
+	r.snap.Looking = true
 	r.snap.NextLookAt = time.Time{}
 	r.pending = 2
 	return r
@@ -37,27 +37,42 @@ func guarded[T any](read func() (T, error)) (value T, err error) {
 	return read()
 }
 
-// afterLook moves a look that has fully answered on to what comes next: a
-// pass, the wait for the next look, or the end of a run that looks once.
+// afterLook takes a look that has fully answered: it starts the first
+// pass, ends a run that only looks once, and sets the time of the next
+// look.
 func (e *Engine) afterLook(w workers, r run, timer *time.Timer) run {
-	if r.snap.Phase != Looking || r.pending > 0 {
+	if !r.snap.Looking || r.pending > 0 {
 		return r
 	}
-	if r.snap.Pass == 0 {
+	r.snap.Looking = false
+	r.looks++
+	if r.looks == 1 {
 		snap := r.snap
 		e.journal(Looked{Snapshot: &snap})
+		r = e.afterFirstLook(w, r)
 	}
-	switch {
-	case e.cfg.Review && r.snap.ListErr == "":
-		return e.startPass(w, r)
-	case e.cfg.Watch == 0:
-		r.snap.Phase = Done
-		r.code = lookedOnceCode(r.snap)
+	if r.snap.Phase == Done || e.cfg.Watch == 0 {
 		return r
 	}
-	r.snap.Phase = Waiting
 	r.snap.NextLookAt = time.Now().Add(e.cfg.Watch)
 	timer.Reset(e.cfg.Watch)
+	return r
+}
+
+// afterFirstLook does what the run was started for, now that it knows the
+// PRs.
+func (e *Engine) afterFirstLook(w workers, r run) run {
+	switch {
+	case e.cfg.Review && r.snap.ListErr == "":
+		return e.startPass(w, r, ready(r.snap.Reviews))
+	case e.cfg.Review && e.cfg.HoldOpen:
+		// The list could not be read. A held run stays: the next look may
+		// read it, and the person can see the error.
+		return r
+	case e.cfg.Watch == 0 || e.cfg.Review:
+		r.snap.Phase = Done
+		r.code = lookedOnceCode(r.snap)
+	}
 	return r
 }
 

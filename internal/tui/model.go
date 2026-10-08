@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -24,8 +25,17 @@ type Engine interface {
 	Do(engine.Command)
 }
 
-// Opener opens one PR in the browser.
-type Opener func(ctx context.Context, pr int) error
+// Actions is what the view can do outside itself. The view runs no
+// process: each of these is handed in.
+type Actions struct {
+	// Open opens one PR in the browser.
+	Open func(ctx context.Context, pr int) error
+	// OpenTab opens a new terminal tab that runs command, and says which
+	// terminal it used.
+	OpenTab func(ctx context.Context, label, command string) (where string, err error)
+	// ResumeCommand writes the command line that reopens a review in dir.
+	ResumeCommand func(dir, reopen string) string
+}
 
 type tab int
 
@@ -40,6 +50,7 @@ type side int
 const (
 	sideDetail side = iota
 	sideKeys
+	sideLog
 )
 
 // flashFor is how long a message stays in the footer.
@@ -54,8 +65,8 @@ type flash struct {
 
 // Model is the view's state.
 type Model struct {
-	eng  Engine
-	open Opener
+	eng Engine
+	act Actions
 
 	snap *engine.Snapshot
 	now  time.Time
@@ -69,9 +80,8 @@ type Model struct {
 	// different PR or side, and the pane starts from its top again.
 	paneKey string
 
-	// spin turns while the run is reading the lists. spinning says its
-	// ticks are on the way, so a look that starts does not start a second
-	// chain of them.
+	// spin turns while the run is busy. spinning says its ticks are on the
+	// way, so a look that starts does not start a second chain of them.
 	spin     spinner.Model
 	spinning bool
 
@@ -80,21 +90,39 @@ type Model struct {
 	mouse    bool
 	flash    flash
 	quitting bool
+	// armed is the costly key that was pressed once and waits for its
+	// second press.
+	armed confirm
+
+	// input is the one-line editor for the focus, and editing says it has
+	// the keys.
+	input   textinput.Model
+	editing bool
+
+	text reviewText
+	log  logTail
+	// dark is true on a dark terminal. It picks the colors of a rendered
+	// review.
+	dark bool
 }
 
 // New makes the view for a run.
-func New(eng Engine, open Opener) Model {
+func New(eng Engine, act Actions) Model {
 	snap := eng.Snapshot()
-	return Model{
-		eng:      eng,
-		open:     open,
-		snap:     snap,
-		now:      time.Now(),
-		pane:     viewport.New(),
-		spin:     spinner.New(spinner.WithSpinner(spinner.MiniDot)),
-		spinning: snap.Phase == engine.Looking,
-		mouse:    true,
+	m := Model{
+		eng:   eng,
+		act:   act,
+		snap:  snap,
+		now:   time.Now(),
+		pane:  viewport.New(),
+		spin:  spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		input: textinput.New(),
+		mouse: true,
+		dark:  true,
 	}
+	m.input.Prompt = ""
+	m.spinning = m.busy()
+	return m
 }
 
 type snapshotMsg struct{ snap *engine.Snapshot }
@@ -106,20 +134,46 @@ type openedMsg struct {
 	err error
 }
 
-// Init starts what the view waits on: the engine's next change, the clock
-// that counts down to the next look, and the spinner when the run opens on
-// a look.
+type resumedMsg struct {
+	pr    int
+	where string
+	err   error
+}
+
+// Init starts what the view waits on: the engine's next change, the clock,
+// the spinner when the run opens busy, and the terminal's answer about its
+// background.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{waitForChange(m.eng), tick()}
+	cmds := []tea.Cmd{waitForChange(m.eng), tick(), tea.RequestBackgroundColor}
 	if m.spinning {
 		cmds = append(cmds, m.spin.Tick)
 	}
 	return tea.Batch(cmds...)
 }
 
-// looking says the run is reading the lists now.
-func (m Model) looking() bool {
-	return m.snap.Phase == engine.Looking
+// busy says something is in motion: the run reads the lists, or a review
+// is running. The spinner turns only then.
+func (m Model) busy() bool {
+	if m.snap.Looking {
+		return true
+	}
+	for _, job := range m.snap.Jobs {
+		if job.State == engine.JobRunning || job.State == engine.JobFinishing {
+			return true
+		}
+	}
+	return false
+}
+
+// alive counts the reviews a quit would cut short or never start.
+func (m Model) alive() int {
+	n := 0
+	for _, job := range m.snap.Jobs {
+		if !job.State.Settled() {
+			n++
+		}
+	}
+	return n
 }
 
 // waitForChange blocks until the engine has a newer snapshot and delivers
@@ -136,11 +190,15 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
+func (m Model) reviews() []reviewRow {
+	return reviewRowsOf(m.snap)
+}
+
 func (m Model) rows(t tab) []listRow {
 	if t == tabMine {
 		return mineRows(m.snap.Mine)
 	}
-	return reviewRows(m.snap.Reviews)
+	return reviewListRows(m.reviews(), m.now, m.spin.View())
 }
 
 // selected is the PR under the cursor on the tab that is shown.
@@ -150,6 +208,20 @@ func (m Model) selected() (int, bool) {
 		return 0, false
 	}
 	return rows[indexOf(rows, m.cursors[m.tab].pr)].pr, true
+}
+
+// selectedReview is the row under the cursor on the Review tab.
+func (m Model) selectedReview() (reviewRow, bool) {
+	pr, ok := m.selected()
+	if !ok || m.tab != tabReview {
+		return reviewRow{}, false
+	}
+	for _, row := range m.reviews() {
+		if row.pr == pr {
+			return row, true
+		}
+	}
+	return reviewRow{}, false
 }
 
 func (m Model) flashed(text string) Model {

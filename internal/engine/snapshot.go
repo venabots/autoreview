@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"slices"
 	"time"
 
 	"github.com/venabots/autoreview/internal/mine"
@@ -8,14 +9,14 @@ import (
 	"github.com/venabots/autoreview/internal/repo"
 )
 
-// Phase is what the run is doing.
+// Phase is what the run is doing with reviews. Reading the PR lists is a
+// separate matter: a run reads them while it reviews, and between reviews.
 type Phase int
 
 const (
-	// Looking means the run is reading the PR lists from GitHub.
-	Looking Phase = iota
-	// Waiting means the run is idle until the next look.
-	Waiting
+	// Idle means no review is running. The run has not started one yet,
+	// or the last pass has ended and the run stays for the person.
+	Idle Phase = iota
 	// Reviewing means reviews are running, or waiting for a slot.
 	Reviewing
 	// Stopping means the run was told to end, and waits for the reviews it
@@ -35,7 +36,10 @@ type Snapshot struct {
 	Repo  repo.Context
 	// Watch is the wait between looks. Zero means the run looks once.
 	Watch time.Duration
-	// NextLookAt is when the next look starts. It is zero unless Waiting.
+	// Looking is true while the run reads the PR lists from GitHub.
+	Looking bool
+	// NextLookAt is when the next look starts. It is zero while the run is
+	// looking, and in a run that looks once.
 	NextLookAt time.Time
 
 	// Looked is false until a review list has arrived. Until then an empty
@@ -56,11 +60,27 @@ type Snapshot struct {
 	// Pass counts the passes the run has started. It is zero until the
 	// first one.
 	Pass int
-	// Jobs is every review of the pass, in the order they start.
+	// Jobs is every review of the newest pass, in the order they start.
 	Jobs []Job
+	// Earlier is the newest review of each PR from the passes before it.
+	Earlier []Job
+	// Focus is what the reviewers are told to look at, or empty.
+	Focus string
 	// RunDir is where the run writes its files, or empty for a run that
 	// only looks.
 	RunDir string
+}
+
+// Reviewed is the newest review of each PR in the whole run: the reviews
+// kept from earlier passes, then the newest pass.
+func (s *Snapshot) Reviewed() []Job {
+	out := []Job{}
+	for _, old := range s.Earlier {
+		if !slices.ContainsFunc(s.Jobs, func(j Job) bool { return j.PR == old.PR }) {
+			out = append(out, old)
+		}
+	}
+	return append(out, s.Jobs...)
 }
 
 // Result is how a run ended.

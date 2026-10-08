@@ -25,8 +25,25 @@ type Command interface {
 // Quit ends the run.
 type Quit struct{}
 
-func (Quit) input()   {}
-func (Quit) command() {}
+// ReviewNow reviews one PR on the list now, whatever holds it: in a pass of
+// its own when the run is idle, or first among the reviews that wait.
+type ReviewNow struct{ PR int }
+
+// StopJob stops the review of one PR.
+type StopJob struct{ PR int }
+
+// SetFocus changes what the reviewers are told to look at, for every
+// review that has not started. An empty text tells them nothing.
+type SetFocus struct{ Text string }
+
+func (Quit) input()        {}
+func (Quit) command()      {}
+func (ReviewNow) input()   {}
+func (ReviewNow) command() {}
+func (StopJob) input()     {}
+func (StopJob) command()   {}
+func (SetFocus) input()    {}
+func (SetFocus) command()  {}
 
 type listed struct {
 	listing prs.Listing

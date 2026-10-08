@@ -130,8 +130,8 @@ func TestAWatchingRunLooksAgainAfterTheInterval(t *testing.T) {
 
 		synctest.Wait()
 		first := eng.Snapshot()
-		if first.Phase != Waiting || len(first.Reviews) != 1 {
-			t.Fatalf("after the first look: %+v, want Waiting with one PR", first)
+		if first.Phase != Idle || first.Looking || len(first.Reviews) != 1 {
+			t.Fatalf("after the first look: %+v, want an idle run with one PR", first)
 		}
 		if got := time.Until(first.NextLookAt); got != 2*time.Minute {
 			t.Errorf("the next look is in %v, want 2m", got)
@@ -173,8 +173,8 @@ func TestAFailedLookKeepsWhatTheLastGoodOneFound(t *testing.T) {
 		if failed.ListErr != "timed out" || len(failed.Reviews) != 2 || !failed.Looked {
 			t.Errorf("after a failed look: %+v, want the error and the two PRs from before", failed)
 		}
-		if failed.Phase != Waiting {
-			t.Errorf("after a failed look the phase is %d, want Waiting: the next look tries again", failed.Phase)
+		if failed.Looking || failed.NextLookAt.IsZero() {
+			t.Errorf("after a failed look: looking %v, next look at %v; want the next look set", failed.Looking, failed.NextLookAt)
 		}
 
 		time.Sleep(time.Minute)
@@ -205,8 +205,8 @@ func TestQuitStopsALookThatHasNotAnswered(t *testing.T) {
 		go func() { results <- eng.Run() }()
 
 		synctest.Wait()
-		if eng.Snapshot().Phase != Looking {
-			t.Fatalf("phase = %d, want Looking while the list has not answered", eng.Snapshot().Phase)
+		if !eng.Snapshot().Looking {
+			t.Fatal("the run is not looking while the list has not answered")
 		}
 		eng.Do(Quit{})
 		result := <-results

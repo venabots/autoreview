@@ -13,7 +13,7 @@ import (
 // loading is the first snapshot of a run: nothing has been read yet.
 func loading() *engine.Snapshot {
 	s := snapshot()
-	s.Phase = engine.Looking
+	s.Looking = true
 	s.Looked, s.Reviews = false, nil
 	s.MineLooked, s.Mine = false, nil
 	return s
@@ -22,7 +22,7 @@ func loading() *engine.Snapshot {
 func loadingModel(t *testing.T) Model {
 	t.Helper()
 	eng := &fakeEngine{snap: loading(), changed: make(chan struct{}, 1)}
-	m := New(eng, nil)
+	m := New(eng, Actions{})
 	m.now = start
 	return send(m, tea.WindowSizeMsg{Width: 120, Height: 30})
 }
@@ -49,7 +49,7 @@ func TestTheFirstLookShowsASpinnerWhereThePRsWillBe(t *testing.T) {
 func TestOneListCanArriveBeforeTheOther(t *testing.T) {
 	m := loadingModel(t)
 	half := snapshot()
-	half.Phase = engine.Looking
+	half.Looking = true
 	half.MineLooked, half.Mine = false, nil
 	m = send(m, snapshotMsg{snap: half})
 
@@ -88,7 +88,7 @@ func TestTheSpinnerStopsWhenTheLookEndsAndStartsWithTheNext(t *testing.T) {
 	wantNotOnScreen(t, m, "⠋", "⠙")
 
 	again := snapshot()
-	again.Phase = engine.Looking
+	again.Looking = true
 	next, cmd = m.Update(snapshotMsg{snap: again})
 	m = next.(Model)
 	if cmd == nil || !m.spinning {

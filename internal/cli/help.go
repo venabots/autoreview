@@ -21,8 +21,10 @@ it reviews every PR that is ready, prints one line for each step, and exits
 is new to you, its checks have passed, and it does not sit on another open
 PR.
 
-On a terminal it opens the full-screen view. The view shows both lists and
-starts no review yet.
+On a terminal it opens the full-screen view. The view makes the same one
+pass and then stays open: R reviews the selected PR now, x x stops a
+review, r reopens a finished review in a new terminal tab, and q quits.
+Press ? in the view for every key.
 
   PR ...              Limit the run to these PR numbers, and review each
                       one whatever its state.
@@ -56,7 +58,7 @@ starts no review yet.
                       or $AUTOREVIEW_WATCH_INTERVAL). A bare number is
                       minutes; 30m, 1h and 2d also work. Give the value
                       with "=".
-  --once              Accepted. A run off a terminal makes one pass anyway.
+  --once              Accepted. Every run makes one pass.
   --tui               Open the full-screen view. This is the default on a
                       terminal.
   --headless          Make one pass and print plain lines, also on a

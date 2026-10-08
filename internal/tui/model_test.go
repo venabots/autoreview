@@ -34,7 +34,7 @@ var start = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 func snapshot() *engine.Snapshot {
 	return &engine.Snapshot{
 		Seq:        3,
-		Phase:      engine.Waiting,
+		Phase:      engine.Idle,
 		Repo:       repo.Context{Owner: "acme", Name: "widgets"},
 		Watch:      2 * time.Minute,
 		NextLookAt: start.Add(90 * time.Second),
@@ -58,16 +58,25 @@ type harness struct {
 	eng    *fakeEngine
 	opened []int
 	openEr error
+	tabs   []string
+	tabErr error
 }
 
 func newModel(t *testing.T, w, h int) (Model, *harness) {
 	t.Helper()
 	hs := &harness{eng: &fakeEngine{snap: snapshot(), changed: make(chan struct{}, 1)}}
-	open := func(_ context.Context, pr int) error {
-		hs.opened = append(hs.opened, pr)
-		return hs.openEr
+	act := Actions{
+		Open: func(_ context.Context, pr int) error {
+			hs.opened = append(hs.opened, pr)
+			return hs.openEr
+		},
+		OpenTab: func(_ context.Context, label, command string) (string, error) {
+			hs.tabs = append(hs.tabs, label+": "+command)
+			return "cmux", hs.tabErr
+		},
+		ResumeCommand: func(dir, reopen string) string { return "cd " + dir + " && " + reopen },
 	}
-	m := New(hs.eng, open)
+	m := New(hs.eng, act)
 	m.now = start
 	return send(m, tea.WindowSizeMsg{Width: w, Height: h}), hs
 }
@@ -87,6 +96,12 @@ var keys = map[string]tea.KeyPressMsg{
 	"q":      {Code: 'q', Text: "q"},
 	"?":      {Code: '?', Text: "?"},
 	"x":      {Code: 'x', Text: "x"},
+	"z":      {Code: 'z', Text: "z"},
+	"r":      {Code: 'r', Text: "r"},
+	"R":      {Code: 'r', Text: "R", Mod: tea.ModShift},
+	"f":      {Code: 'f', Text: "f"},
+	"l":      {Code: 'l', Text: "l"},
+	"enter":  {Code: tea.KeyEnter},
 	"tab":    {Code: tea.KeyTab},
 	"esc":    {Code: tea.KeyEscape},
 	"down":   {Code: tea.KeyDown},
@@ -135,7 +150,8 @@ func wantNotOnScreen(t *testing.T, m Model, unwanted ...string) {
 func TestTheKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
 	want := map[string]intent{
 		"j": intentDown, "k": intentUp, "g": intentTop, "G": intentBottom, "down": intentDown,
-		"o": intentOpen, "m": intentMouse, "q": intentQuit, "?": intentKeys, "x": intentNone,
+		"o": intentOpen, "m": intentMouse, "q": intentQuit, "?": intentKeys, "x": intentStop, "z": intentNone,
+		"r": intentResume, "R": intentReviewNow, "f": intentFocus, "l": intentLog, "enter": intentNone,
 		"tab": intentSwitchTab, "esc": intentBack, "space": intentPageDown,
 		"ctrl+c": intentInterrupt, "ctrl+d": intentPageDown, "ctrl+u": intentPageUp,
 	}
@@ -149,13 +165,13 @@ func TestTheKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
 func TestTheFirstFrameShowsTheRunAndTheFirstPR(t *testing.T) {
 	m, _ := newModel(t, 120, 30)
 	wantOnScreen(t, m,
-		"autoreview · acme/widgets · read-only · looking every 2m",
+		"autoreview · acme/widgets · read-only · lists every 2m",
 		" Review 4 ", " My PRs 2 ",
 		"○ #9 · ready", "@alice alice/retry",
 		"✗ #8 · CI pending", "○ #6 · seen", "✓ #5 · approved",
 		"#9 Add retry logic", "@alice · alice/retry",
 		"checks    passing", "activity  new to you", "base      main",
-		"1 ready · 1 held · 2 left alone · next look in 1m30s",
+		"2 waiting · next look in 1m30s",
 		"q quit", "? keys",
 	)
 }
@@ -185,7 +201,7 @@ func TestEveryFrameFillsTheScreenExactly(t *testing.T) {
 
 func TestTheViewDrawsNothingBeforeItKnowsTheSize(t *testing.T) {
 	hs := &fakeEngine{snap: snapshot(), changed: make(chan struct{}, 1)}
-	if got := New(hs, nil).View().Content; got != "" {
+	if got := New(hs, Actions{}).View().Content; got != "" {
 		t.Errorf("before a size arrives the frame is %q, want nothing", got)
 	}
 }
