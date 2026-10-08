@@ -6,15 +6,17 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/venabots/autoreview/internal/mine"
+	"github.com/venabots/autoreview/internal/proc"
 	"github.com/venabots/autoreview/internal/prs"
-	"github.com/venabots/autoreview/internal/queue"
 	"github.com/venabots/autoreview/internal/repo"
+	"github.com/venabots/autoreview/internal/review"
+	"github.com/venabots/autoreview/internal/rundir"
+	"github.com/venabots/autoreview/internal/session"
 )
 
 // Config is what one run was asked to do.
@@ -25,12 +27,67 @@ type Config struct {
 	Only []int
 	// Watch is the wait between looks. Zero means look once and end.
 	Watch time.Duration
+
+	// Review makes the run review the PRs that are ready. Without it the
+	// run only looks, and the fields below are not read.
+	Review bool
+	// Jobs is how many reviews run at once. It is one or more.
+	Jobs int
+	// Continue resumes a PR's earlier review session when it has one.
+	Continue bool
+	// NoPost reviews and leaves the PR alone.
+	NoPost bool
+	// Focus is what the reviewers are told to look at, or empty.
+	Focus string
+	// Timeout is the limit for one review. Zero means none.
+	Timeout time.Duration
+	// Budget is the cost cap for one review as the person gave it, or
+	// empty.
+	Budget       string
+	Orchestrator review.Orchestrator
+	// Override is a shell command that replaces the built-in reviewer, or
+	// empty.
+	Override string
+	// Dashp is the path of the dash-p binary.
+	Dashp string
 }
 
 // Deps is the outside world, as functions, so a test hands in its own.
 type Deps struct {
 	List func(ctx context.Context) (prs.Listing, error)
 	Mine func(ctx context.Context) ([]mine.PR, error)
+
+	// The rest is read only by a run that reviews.
+
+	// Procs starts the reviewers.
+	Procs proc.Starter
+	// Verdict asks GitHub what review landed on a PR since a time.
+	Verdict func(ctx context.Context, pr int, since time.Time) review.Readback
+	// Sessions says which review sessions exist and which are open.
+	Sessions session.Probe
+	// Transcript finds the transcript of a session.
+	Transcript func(id string) (string, bool)
+	// Run is the run's directory.
+	Run rundir.Run
+	// SkillsDir is the staged skills, or empty when none were staged.
+	SkillsDir string
+	// Record keeps a finished review in the ledger. It is nil when the
+	// ledger is off. It runs off the engine's goroutine.
+	Record func(Finished) error
+	// Journal takes each event as it happens. It must not block: the
+	// engine calls it from its own goroutine. It may be nil.
+	Journal func(Event)
+}
+
+// Finished is a review that ran to its end and reported on itself, with
+// what the ledger keeps of it.
+type Finished struct {
+	Job        Job
+	FinishedAt time.Time
+	// Text is the review as the reviewer wrote it. HasText is false when
+	// there was nothing to read, which is not the same as an empty review.
+	Text    string
+	HasText bool
 }
 
 // Engine runs one review run.
@@ -40,12 +97,15 @@ type Engine struct {
 	in      *inbox
 	current atomic.Pointer[Snapshot]
 	changed chan struct{}
+	// quitting is set when the run is told to end. A reviewer's monitor
+	// reads it, to skip the questions nobody will wait for.
+	quitting atomic.Bool
 }
 
 // New makes an engine. Nothing happens until Run.
 func New(cfg Config, deps Deps) *Engine {
 	e := &Engine{cfg: cfg, deps: deps, in: newInbox(), changed: make(chan struct{}, 1)}
-	e.current.Store(&Snapshot{Phase: Looking, Repo: cfg.Repo, Watch: cfg.Watch})
+	e.current.Store(&Snapshot{Phase: Looking, Repo: cfg.Repo, Watch: cfg.Watch, RunDir: deps.Run.Root})
 	return e
 }
 
@@ -71,149 +131,102 @@ type run struct {
 	snap Snapshot
 	// pending counts the looks that have not answered.
 	pending int
-	code    int
+	// jobs is the reviews of the pass, with what the engine alone knows
+	// about each.
+	jobs []job
+	pass rundir.Pass
+	code int
+}
+
+// workers is what the loop hands to anything that starts a goroutine: the
+// context that stops it and the group that waits for it.
+type workers struct {
+	ctx   context.Context
+	group *sync.WaitGroup
 }
 
 // Run runs until the run ends, and returns how it ended. It returns only
 // after everything it started has stopped.
 func (e *Engine) Run() Result {
 	ctx, cancel := context.WithCancel(context.Background())
-	var looks sync.WaitGroup
-	// Deferred calls run last-in first-out: cancel stops the looks, and
+	var group sync.WaitGroup
+	// Deferred calls run last-in first-out: cancel stops the workers, and
 	// only then does Wait have something that ends.
-	defer looks.Wait()
+	defer group.Wait()
 	defer cancel()
+	w := workers{ctx: ctx, group: &group}
 
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
 	defer timer.Stop()
 
-	r := e.look(ctx, &looks, run{snap: *e.Snapshot()})
-	e.publish(r.snap)
+	r := e.look(w, run{snap: *e.Snapshot()})
+	e.publish(r)
 	for r.snap.Phase != Done {
 		select {
 		case <-e.in.ready:
 			for _, in := range e.in.take() {
-				r = e.handle(r, in)
+				r = e.handle(w, r, in)
 			}
 		case <-timer.C:
-			r = e.look(ctx, &looks, r)
+			r = e.look(w, r)
 		}
-		r = e.settle(r, timer)
-		e.publish(r.snap)
+		r = e.afterLook(w, r, timer)
+		e.publish(r)
 	}
 	return Result{Code: r.code, Final: e.Snapshot()}
 }
 
-// look starts reading both lists. Each answers through the inbox, exactly
-// once: a look that panicked answers with an error, because a look that
-// never answers would leave the run looking forever.
-func (e *Engine) look(ctx context.Context, looks *sync.WaitGroup, r run) run {
-	looks.Go(func() {
-		listing, err := guarded(func() (prs.Listing, error) { return e.deps.List(ctx) })
-		e.in.put(listed{listing: listing, err: err})
-	})
-	looks.Go(func() {
-		list, err := guarded(func() ([]mine.PR, error) { return e.deps.Mine(ctx) })
-		e.in.put(mineListed{list: list, err: err})
-	})
-	r.snap.Phase = Looking
-	r.snap.NextLookAt = time.Time{}
-	r.pending = 2
-	return r
-}
-
-// guarded turns a panic in a look into that look's error.
-func guarded[T any](read func() (T, error)) (value T, err error) {
-	defer func() {
-		if p := recover(); p != nil {
-			err = fmt.Errorf("the look failed unexpectedly: %v", p)
-		}
-	}()
-	return read()
-}
-
-func (e *Engine) handle(r run, in input) run {
+func (e *Engine) handle(w workers, r run, in input) run {
 	switch in := in.(type) {
 	case Quit:
-		return quit(r)
+		return e.quit(r)
 	case listed:
 		r.pending--
 		r.snap = withListing(r.snap, in, e.cfg)
 	case mineListed:
 		r.pending--
 		r.snap = withMine(r.snap, in)
+	case jobReaped:
+		return e.reaped(w, r, in)
+	case guardFired:
+		return e.guardFired(r, in)
+	case jobSettled:
+		return e.settled(r, in)
 	}
 	return r
 }
 
 // quit ends a run that had not ended by itself. That is an interrupt,
-// whoever asked: a key in the view, or a signal.
-func quit(r run) run {
-	if r.snap.Phase == Done {
+// whoever asked: a key in the view, or a signal. A run with reviews alive
+// stops them first and ends when the last one has been collected.
+func (e *Engine) quit(r run) run {
+	switch r.snap.Phase {
+	case Done, Stopping:
 		return r
+	case Reviewing:
+		return e.stopReviews(r)
 	}
 	r.snap.Phase = Done
 	r.code = ExitInterrupted
 	return r
 }
 
-// settle moves a look that has fully answered on to what comes next: the
-// wait for the next look, or the end of a run that looks once.
-func (e *Engine) settle(r run, timer *time.Timer) run {
-	if r.snap.Phase != Looking || r.pending > 0 {
-		return r
-	}
-	if e.cfg.Watch == 0 {
-		r.snap.Phase = Done
-		r.code = lookedOnceCode(r.snap)
-		return r
-	}
-	r.snap.Phase = Waiting
-	r.snap.NextLookAt = time.Now().Add(e.cfg.Watch)
-	timer.Reset(e.cfg.Watch)
-	return r
-}
-
-// lookedOnceCode fails a run whose only look at the review list failed. A
-// failed look at your own PRs does not: the run was asked to review.
-func lookedOnceCode(s Snapshot) int {
-	if s.ListErr != "" {
-		return ExitFailed
-	}
-	return ExitOK
-}
-
-// withListing takes a look's answer. A failed look keeps the rows the last
-// good one found: the list on screen must not empty because GitHub was slow.
-func withListing(s Snapshot, in listed, cfg Config) Snapshot {
-	if in.err != nil {
-		s.ListErr = in.err.Error()
-		return s
-	}
-	s.Looked = true
-	s.ListErr = ""
-	s.Reviews = queue.Rows(in.listing, cfg.Gates, cfg.Only)
-	s.Truncated = in.listing.Truncated
-	return s
-}
-
-func withMine(s Snapshot, in mineListed) Snapshot {
-	if in.err != nil {
-		s.MineErr = in.err.Error()
-		return s
-	}
-	s.MineLooked = true
-	s.MineErr = ""
-	s.Mine = in.list
-	return s
-}
-
-func (e *Engine) publish(s Snapshot) {
+// publish makes a snapshot of the run and tells the reader there is one.
+func (e *Engine) publish(r run) {
+	s := r.snap
 	s.Seq = e.Snapshot().Seq + 1
+	s.Jobs = views(r.jobs)
 	e.current.Store(&s)
 	select {
 	case e.changed <- struct{}{}:
 	default:
+	}
+}
+
+// journal records an event, when anything is listening.
+func (e *Engine) journal(ev Event) {
+	if e.deps.Journal != nil {
+		e.deps.Journal(ev)
 	}
 }

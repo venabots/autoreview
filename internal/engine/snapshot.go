@@ -16,6 +16,11 @@ const (
 	Looking Phase = iota
 	// Waiting means the run is idle until the next look.
 	Waiting
+	// Reviewing means reviews are running, or waiting for a slot.
+	Reviewing
+	// Stopping means the run was told to end, and waits for the reviews it
+	// stopped to be collected.
+	Stopping
 	// Done means the run has ended and Run has returned, or is about to.
 	Done
 )
@@ -47,6 +52,15 @@ type Snapshot struct {
 	MineLooked bool
 	Mine       []mine.PR
 	MineErr    string
+
+	// Pass counts the passes the run has started. It is zero until the
+	// first one.
+	Pass int
+	// Jobs is every review of the pass, in the order they start.
+	Jobs []Job
+	// RunDir is where the run writes its files, or empty for a run that
+	// only looks.
+	RunDir string
 }
 
 // Result is how a run ended.
