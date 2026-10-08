@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -157,8 +158,11 @@ func (term *terminal) finish() string {
 func wantCooked(t *testing.T, drawn string) {
 	t.Helper()
 	settings := drawn[strings.LastIndex(drawn, "leftover="):]
+	// stty lists each flag as a word, with a minus sign when it is off.
+	// Where a flag sits on its line differs between systems.
+	flags := strings.FieldsFunc(settings, func(r rune) bool { return r == ' ' || r == ';' || r == '\n' || r == '\r' || r == '\t' })
 	for _, flag := range []string{"icanon", "echo", "isig"} {
-		if !strings.Contains(settings, " "+flag) || strings.Contains(settings, "-"+flag+" ") {
+		if !slices.Contains(flags, flag) || slices.Contains(flags, "-"+flag) {
 			t.Errorf("the terminal was left without %s:\n%s", flag, settings)
 		}
 	}
