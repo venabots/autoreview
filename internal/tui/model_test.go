@@ -150,7 +150,7 @@ func TestTheFirstFrameShowsTheRunAndTheFirstPR(t *testing.T) {
 	m, _ := newModel(t, 120, 30)
 	wantOnScreen(t, m,
 		"autoreview · acme/widgets · read-only · looking every 2m",
-		" Review 4 ", " My PRs 2 ", "tab switches",
+		" Review 4 ", " My PRs 2 ",
 		"○ #9 · ready", "@alice alice/retry",
 		"✗ #8 · CI pending", "○ #6 · seen", "✓ #5 · approved",
 		"#9 Add retry logic", "@alice · alice/retry",
@@ -158,6 +158,12 @@ func TestTheFirstFrameShowsTheRunAndTheFirstPR(t *testing.T) {
 		"1 ready · 1 held · 2 left alone · next look in 1m30s",
 		"q quit", "? keys",
 	)
+}
+
+func TestTheTabBarDoesNotExplainTheTabKey(t *testing.T) {
+	m, _ := newModel(t, 120, 30)
+	wantNotOnScreen(t, m, "tab switches")
+	wantOnScreen(t, m, "tab my PRs")
 }
 
 func TestEveryFrameFillsTheScreenExactly(t *testing.T) {

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/queue"
 	"github.com/venabots/autoreview/internal/sanitize"
@@ -29,23 +31,43 @@ func modeText(s *engine.Snapshot) string {
 	return "read-only · looking every " + words.Interval(s.Watch)
 }
 
-// tabLine shows both tabs with how many PRs each holds. The one on screen
-// is reversed.
-func tabLine(shown tab, reviews, mine int) line {
-	return line{
-		tabLabel("Review", reviews, shown == tabReview),
-		text("  "),
-		tabLabel("My PRs", mine, shown == tabMine),
-		styled("   tab switches", dimStyle),
-	}
+// tabGap is the space between the two tab labels.
+const tabGap = "  "
+
+// tabLabels names both tabs, each with how many PRs it holds.
+func tabLabels(s *engine.Snapshot) (review, mine string) {
+	return tabLabel("Review", len(s.Reviews)), tabLabel("My PRs", len(s.Mine))
 }
 
-func tabLabel(name string, n int, shown bool) span {
-	label := fmt.Sprintf(" %s %d ", name, n)
+func tabLabel(name string, n int) string {
+	return fmt.Sprintf(" %s %d ", name, n)
+}
+
+// tabLine draws both tabs. The one on screen is reversed.
+func tabLine(shown tab, review, mine string) line {
+	return line{tabSpan(review, shown == tabReview), text(tabGap), tabSpan(mine, shown == tabMine)}
+}
+
+func tabSpan(label string, shown bool) span {
 	if shown {
 		return styled(label, activeTab)
 	}
 	return styled(label, dimStyle)
+}
+
+// tabAt is the tab under column x of the tab bar. It measures the same
+// labels tabLine draws, so a click lands on the tab a person sees whatever
+// the counts are.
+func tabAt(x int, review, mine string) (tab, bool) {
+	reviewEnd := ansi.StringWidth(review)
+	mineStart := reviewEnd + len(tabGap)
+	switch {
+	case x >= 0 && x < reviewEnd:
+		return tabReview, true
+	case x >= mineStart && x < mineStart+ansi.StringWidth(mine):
+		return tabMine, true
+	}
+	return tabReview, false
 }
 
 // statusText is the left side of the footer: what the run holds, and what

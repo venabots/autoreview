@@ -33,7 +33,8 @@ func (m Model) frame() string {
 		rows = append(rows, fit(headerLine(m.snap), w).render(false))
 	}
 	if m.lay.tabs.h > 0 {
-		rows = append(rows, fit(tabLine(m.tab, len(m.snap.Reviews), len(m.snap.Mine)), w).render(false))
+		review, mine := tabLabels(m.snap)
+		rows = append(rows, fit(tabLine(m.tab, review, mine), w).render(false))
 	}
 	rows = append(rows, m.body()...)
 	if m.lay.footer.h > 0 {

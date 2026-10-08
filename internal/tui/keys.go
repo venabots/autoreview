@@ -64,7 +64,7 @@ var helpLines = []keyHelp{
 	{"j/k", "move between PRs (or the arrow keys)"},
 	{"g/G", "first or last PR"},
 	{"^d/^u", "scroll the right pane (or space and the page keys)"},
-	{"tab", "switch between Review and My PRs"},
+	{"tab", "switch between Review and My PRs (or click one)"},
 	{"o", "open the selected PR in the browser"},
 	{"m", "give the mouse back to the terminal, to select text"},
 	{"?", "show these keys; esc puts them away"},

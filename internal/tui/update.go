@@ -164,9 +164,15 @@ func (m Model) wheeled(msg tea.MouseWheelMsg) Model {
 	return m
 }
 
-// clicked selects the PR under a left click in the list.
+// clicked acts on a left click: a tab in the tab bar is shown, and a PR in
+// the list is selected.
 func (m Model) clicked(msg tea.MouseClickMsg) Model {
-	if msg.Button != tea.MouseLeft || !m.lay.list.contains(msg.X, msg.Y) {
+	switch {
+	case msg.Button != tea.MouseLeft:
+		return m
+	case m.lay.tabs.contains(msg.X, msg.Y):
+		return m.tabClicked(msg.X)
+	case !m.lay.list.contains(msg.X, msg.Y):
 		return m
 	}
 	rows := m.rows(m.tab)
@@ -175,6 +181,16 @@ func (m Model) clicked(msg tea.MouseClickMsg) Model {
 		return m
 	}
 	return m.movedTo(index)
+}
+
+func (m Model) tabClicked(x int) Model {
+	review, mine := tabLabels(m.snap)
+	clicked, ok := tabAt(x, review, mine)
+	if !ok {
+		return m
+	}
+	m.tab = clicked
+	return m.synced()
 }
 
 // synced brings the view in line with the snapshot and the screen size:
