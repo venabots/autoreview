@@ -56,6 +56,9 @@ golangci-lint fmt                         # gofmt and goimports
   test name is a sentence that states the rule.
 - View tests call `Update` and `View` directly and assert on the frame with
   the escape sequences stripped.
+- A test for color or highlight reads the escape sequences instead
+  (`internal/tui/style_test.go`). Text that reads right can still be drawn in
+  colors nobody can read.
 - Engine tests run in `testing/synctest`, which gives virtual time. Do not
   add a clock interface.
 - Commit messages are conventional (`feat:`, `fix:`, `docs:`, `test:`,

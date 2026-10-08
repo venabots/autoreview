@@ -66,15 +66,31 @@ func fit(l line, width int) line {
 	return out
 }
 
-// render draws the line. reverse draws every span reversed, which is how
-// the selected row is marked across its whole width.
-func (l line) render(reverse bool) string {
+// render draws the line. An unselected line draws each span in its own
+// style. The selected line is one solid bar across its whole width.
+func (l line) render(selected bool) string {
 	var b strings.Builder
 	for _, s := range l {
 		if s.text == "" {
 			continue
 		}
-		b.WriteString(s.style.Reverse(reverse).Render(s.text))
+		style := s.style
+		if selected {
+			style = barStyle(s.style)
+		}
+		b.WriteString(style.Render(s.text))
 	}
 	return b.String()
+}
+
+// barStyle is a span's style on the selected line: reversed, with no color
+// of its own, and bold where the span was bold.
+//
+// Reversing a span that has a color makes that color its background. A row
+// of dim, cyan and plain spans then has three backgrounds, and the dim text
+// sits on a block of its own grey. With no colors, the bar is the
+// terminal's text color and the text is its background color: the one pair
+// that is legible in every theme.
+func barStyle(s lipgloss.Style) lipgloss.Style {
+	return lipgloss.NewStyle().Reverse(true).Bold(s.GetBold())
 }
