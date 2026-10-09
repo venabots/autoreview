@@ -6,6 +6,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,6 +64,9 @@ type Config struct {
 	// empty.
 	Budget       string
 	Orchestrator review.Orchestrator
+	// Fallback retries a review whose orchestrator failed with exit 10, or
+	// is nil for no retry.
+	Fallback *review.Orchestrator
 	// Override is a shell command that replaces the built-in reviewer, or
 	// empty.
 	Override string
@@ -106,9 +110,21 @@ type Deps struct {
 	// Record keeps a finished review in the ledger. It is nil when the
 	// ledger is off. It runs off the engine's goroutine.
 	Record func(Finished) error
+	// Marks puts a reaction on a PR while its review runs. It is nil under
+	// --no-post, which promises to leave the PR alone.
+	Marks Marks
 	// Journal takes each event as it happens. It must not block: the
 	// engine calls it from its own goroutine. It may be nil.
 	Journal func(Event)
+}
+
+// Marks is the reaction a review leaves on its PR while it runs. Show and
+// Clear return at once; Settle waits for every reaction on its way off and
+// names the PRs whose reaction could not be set or removed.
+type Marks interface {
+	Show(pr int)
+	Clear(pr int)
+	Settle() []int
 }
 
 // Finished is a review that ran to its end and reported on itself, with
@@ -229,6 +245,7 @@ func (e *Engine) Run() Result {
 		r = e.afterLook(w, r)
 		e.publish(r)
 	}
+	e.settleMarks()
 	return Result{Code: r.code, Final: e.Snapshot()}
 }
 
@@ -296,5 +313,17 @@ func (e *Engine) publish(r run) {
 func (e *Engine) journal(ev Event) {
 	if e.deps.Journal != nil {
 		e.deps.Journal(ev)
+	}
+}
+
+// settleMarks waits for every reaction on its way off before the run ends.
+// The process may end right after Run, and a call it did not wait for is a
+// reaction left on a PR that says a review is running.
+func (e *Engine) settleMarks() {
+	if e.deps.Marks == nil {
+		return
+	}
+	for _, pr := range e.deps.Marks.Settle() {
+		e.journal(Noted{Text: fmt.Sprintf("could not set or remove the eyes reaction on PR #%d; the review is unaffected", pr)})
 	}
 }
