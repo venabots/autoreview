@@ -186,14 +186,20 @@ func TestOnATerminalTheViewOpensAndQGivesTheTerminalBack(t *testing.T) {
 		t.Fatalf("the view never left the alternate screen:\n%q", drawn)
 	}
 	after := drawn[strings.LastIndex(drawn, leaveAltScreen):]
-	for _, want := range []string{"PR  RESULT  VERDICT", "#9  done", "#8  done", "reopen any review with: claude --resume <SESSION>", "exit=0", "leftover=0"} {
+	for _, want := range []string{"2 reviews: 2 commented · summary in ", "/autoreview.log", "exit=0", "leftover=0"} {
 		if !strings.Contains(after, want) {
 			t.Errorf("after the view closed the terminal lacks %q:\n%s", want, after)
 		}
 	}
-	before := drawn[:strings.Index(drawn, enterAltScreen)]
-	if !strings.Contains(before, "skills: bundled (dev)") {
-		t.Errorf("the first lines were not printed before the view opened:\n%q", before)
+	if strings.Contains(drawn, "PR  RESULT") || strings.Contains(drawn, "skills: ") {
+		t.Errorf("the view's run printed its summary table or its skills line on the screen:\n%q", drawn)
+	}
+	logs, _ := filepath.Glob(filepath.Join(fixtures, "logs", "run-*", "autoreview.log"))
+	if len(logs) != 1 {
+		t.Fatalf("run logs: %v", logs)
+	}
+	if log, _ := os.ReadFile(logs[0]); !strings.Contains(string(log), "skills: bundled (dev)") || !strings.Contains(string(log), "PR  RESULT  VERDICT") {
+		t.Errorf("the run log lacks the skills line or the summary:\n%s", log)
 	}
 	wantCooked(t, drawn)
 }
@@ -232,7 +238,7 @@ func TestQTwiceStopsARunningReviewAndExits130(t *testing.T) {
 	drawn := term.finish()
 
 	after := drawn[strings.LastIndex(drawn, leaveAltScreen):]
-	for _, want := range []string{"interrupted; the running reviews were stopped", "#9  failed (stopped)", "error: 1 of 1 review failed", "exit=130", "leftover=0"} {
+	for _, want := range []string{"1 review: 1 stopped · summary in ", "error: 1 of 1 review failed", "exit=130", "leftover=0"} {
 		if !strings.Contains(after, want) {
 			t.Errorf("after the view closed the terminal lacks %q:\n%s", want, after)
 		}
@@ -271,7 +277,7 @@ func TestTheViewOpensOnARepoWithNothingToReview(t *testing.T) {
 	term.press("q")
 	drawn := term.finish()
 	after := drawn[strings.LastIndex(drawn, leaveAltScreen):]
-	if !strings.Contains(after, "exit=0") || strings.Contains(after, "PR  RESULT") {
+	if !strings.Contains(after, "exit=0") || strings.Contains(after, "review") {
 		t.Errorf("after the view closed:\n%s\nwant exit 0 and no summary of a run that reviewed nothing", after)
 	}
 	wantCooked(t, drawn)

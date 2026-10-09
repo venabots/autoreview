@@ -184,3 +184,22 @@ func TestAPrinterWithNoLogStillPrints(t *testing.T) {
 		t.Errorf("stdout = %q", out.String())
 	}
 }
+
+func TestAfterViewIsOneLine(t *testing.T) {
+	result := engine.Result{Final: &engine.Snapshot{RunDir: "/logs/run-1", Jobs: []engine.Job{
+		{PR: 9, State: engine.JobDone, Verdict: "approved"},
+		{PR: 8, State: engine.JobDone, Verdict: "commented"},
+		{PR: 7, State: engine.JobFailed, Outcome: "stopped"},
+	}, Earlier: []engine.Job{{PR: 6, State: engine.JobDone, Verdict: "commented"}}}}
+
+	out, errs := AfterView(result)
+	if want := "4 reviews: 2 commented, 1 approved, 1 stopped · summary in /logs/run-1/autoreview.log\n"; out != want {
+		t.Errorf("out = %q, want %q", out, want)
+	}
+	if errs != "error: 1 of 4 reviews failed\n" {
+		t.Errorf("errs = %q", errs)
+	}
+	if out, errs := AfterView(engine.Result{Final: &engine.Snapshot{}}); out != "" || errs != "" {
+		t.Errorf("a run that reviewed nothing left %q and %q", out, errs)
+	}
+}

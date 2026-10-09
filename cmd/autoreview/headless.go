@@ -74,13 +74,15 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 	if err != nil {
 		return started{}, err
 	}
-	say(io.MultiWriter(stdout, logFile), "skills: %s\n", prepared.skills)
-	for _, note := range prepared.notes {
-		say(io.MultiWriter(stderr, logFile), "note: %s\n", sanitize.Line(note))
-	}
 	out, errs := stdout, stderr
 	if held {
 		out, errs = io.Discard, io.Discard
+	}
+	// Which skills run is for the log and a plain run. A note is for a
+	// person, so it is printed before the view covers the screen.
+	say(io.MultiWriter(out, logFile), "skills: %s\n", prepared.skills)
+	for _, note := range prepared.notes {
+		say(io.MultiWriter(stderr, logFile), "note: %s\n", sanitize.Line(note))
 	}
 	printer := plain.NewPrinter(out, errs, logFile)
 
