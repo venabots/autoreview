@@ -31,6 +31,9 @@ type Config struct {
 	// Review makes the run review the PRs that are ready. Without it the
 	// run only looks, and the fields below are not read.
 	Review bool
+	// HoldOpen keeps the run alive when its work is done, for a person to
+	// read the results and ask for more. Only Quit ends it then.
+	HoldOpen bool
 	// Jobs is how many reviews run at once. It is one or more.
 	Jobs int
 	// Continue resumes a PR's earlier review session when it has one.
@@ -105,7 +108,7 @@ type Engine struct {
 // New makes an engine. Nothing happens until Run.
 func New(cfg Config, deps Deps) *Engine {
 	e := &Engine{cfg: cfg, deps: deps, in: newInbox(), changed: make(chan struct{}, 1)}
-	e.current.Store(&Snapshot{Phase: Looking, Repo: cfg.Repo, Watch: cfg.Watch, RunDir: deps.Run.Root})
+	e.current.Store(&Snapshot{Phase: Idle, Looking: true, Repo: cfg.Repo, Watch: cfg.Watch, RunDir: deps.Run.Root, Focus: cfg.Focus})
 	return e
 }
 
@@ -131,10 +134,18 @@ type run struct {
 	snap Snapshot
 	// pending counts the looks that have not answered.
 	pending int
-	// jobs is the reviews of the pass, with what the engine alone knows
-	// about each.
+	// looks counts the looks that have fully answered.
+	looks int
+	// jobs is the reviews of the newest pass, with what the engine alone
+	// knows about each.
 	jobs []job
 	pass rundir.Pass
+	// requested is the PRs a person asked for while a pass was running,
+	// for the pass after it.
+	requested []int
+	// held is true once the run has done what it was started for and
+	// stays only because a person may want more.
+	held bool
 	code int
 }
 
@@ -192,7 +203,13 @@ func (e *Engine) handle(w workers, r run, in input) run {
 	case guardFired:
 		return e.guardFired(r, in)
 	case jobSettled:
-		return e.settled(r, in)
+		return e.settled(w, r, in)
+	case ReviewNow:
+		return e.reviewNow(w, r, in.PR)
+	case StopJob:
+		return e.stopJob(r, in.PR)
+	case SetFocus:
+		r.snap.Focus = in.Text
 	}
 	return r
 }
@@ -208,7 +225,11 @@ func (e *Engine) quit(r run) run {
 		return e.stopReviews(r)
 	}
 	r.snap.Phase = Done
-	r.code = ExitInterrupted
+	// A run that is held has already done its work, and ends with the
+	// status of that work. Any other run would have gone on.
+	if !r.held {
+		r.code = ExitInterrupted
+	}
 	return r
 }
 

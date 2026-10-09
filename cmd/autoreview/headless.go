@@ -34,24 +34,55 @@ const envDashp = "DASHP_BIN"
 // ready, prints one line for each step, and exits with a status a script
 // can trust.
 func runHeadless(cfg cli.Config, rc repo.Context, stdout, stderr io.Writer) int {
-	prepared, err := prepare(cfg, rc)
+	run, err := start(cfg, rc, false, stdout, stderr)
 	if err != nil {
 		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
 		return engine.ExitFailed
 	}
+	defer run.close()
+	result := run.engine.Run()
+	run.printer.Close()
+	run.printer.Finish(result, cfg.NoPost)
+	return result.Code
+}
+
+// started is a run that is ready to go: its engine, and the printer that
+// writes what it does.
+type started struct {
+	engine  *engine.Engine
+	printer *plain.Printer
+	log     *os.File
+}
+
+func (s started) close() {
+	_ = s.log.Close()
+}
+
+// start checks what a review needs, makes the run directory, and builds
+// the engine. Its first lines are printed here, on the normal screen: the
+// skills that run, and any note a person should read before the view
+// covers it.
+//
+// A held run is the view's: it stays open after its pass, and its lines go
+// to the run log only, because the view owns the terminal.
+func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer) (started, error) {
+	prepared, err := prepare(cfg, rc)
+	if err != nil {
+		return started{}, err
+	}
 	logFile, err := os.OpenFile(prepared.run.Log(), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
-		say(stderr, "error: %v\n", err)
-		return engine.ExitFailed
+		return started{}, err
 	}
-	defer func() { _ = logFile.Close() }()
-
-	// Written before the printer starts, so it is always the first line.
 	say(io.MultiWriter(stdout, logFile), "skills: %s\n", prepared.skills)
-	printer := plain.NewPrinter(stdout, stderr, logFile)
-	for _, line := range prepared.notes {
-		printer.Emit(engine.Noted{Text: line})
+	for _, note := range prepared.notes {
+		say(io.MultiWriter(stderr, logFile), "note: %s\n", sanitize.Line(note))
 	}
+	out, errs := stdout, stderr
+	if held {
+		out, errs = io.Discard, io.Discard
+	}
+	printer := plain.NewPrinter(out, errs, logFile)
 
 	deps := deps(cfg, rc)
 	deps.Procs = proc.OS{}
@@ -64,8 +95,9 @@ func runHeadless(cfg cli.Config, rc repo.Context, stdout, stderr io.Writer) int 
 	}
 	deps.Record = recorder(rc)
 
-	config := engineConfig(cfg, rc, false)
+	config := engineConfig(cfg, rc, held)
 	config.Review = true
+	config.HoldOpen = held
 	config.Jobs = cfg.Jobs
 	config.Continue = cfg.Continue
 	config.NoPost = cfg.NoPost
@@ -78,10 +110,7 @@ func runHeadless(cfg cli.Config, rc repo.Context, stdout, stderr io.Writer) int 
 
 	eng := engine.New(config, deps)
 	stopOnSignal(eng)
-	result := eng.Run()
-	printer.Close()
-	printer.Finish(result, cfg.NoPost)
-	return result.Code
+	return started{engine: eng, printer: printer, log: logFile}, nil
 }
 
 // prepared is what a run needs in place before its first review.

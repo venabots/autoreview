@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charmbracelet/x/term"
+	xterm "github.com/charmbracelet/x/term"
 
 	"github.com/venabots/autoreview/internal/cli"
 	"github.com/venabots/autoreview/internal/engine"
@@ -23,6 +23,8 @@ import (
 	"github.com/venabots/autoreview/internal/repo"
 	"github.com/venabots/autoreview/internal/sanitize"
 	"github.com/venabots/autoreview/internal/stats"
+	"github.com/venabots/autoreview/internal/term"
+	"github.com/venabots/autoreview/internal/tui"
 )
 
 // version is set at build time with -ldflags "-X main.version=...". A
@@ -37,7 +39,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// A subcommand is the first argument and nothing else. A PR number can
 	// never be read as one, and a flag before it is an error cli.Parse names.
 	if len(args) > 0 && args[0] == cli.Stats {
-		return stats.Run(args[1:], os.Getenv, time.Now(), term.IsTerminal(os.Stdout.Fd()), stdout, stderr)
+		return stats.Run(args[1:], os.Getenv, time.Now(), xterm.IsTerminal(os.Stdout.Fd()), stdout, stderr)
 	}
 
 	cfg, err := cli.Parse(args, os.Getenv)
@@ -69,10 +71,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if !wantsScreen(cfg.View, stderr) {
 		return runHeadless(cfg, rc, stdout, stderr)
 	}
-	// The view reads the lists and starts no review yet.
-	eng := engine.New(engineConfig(cfg, rc, true), deps(cfg, rc))
-	stopOnSignal(eng)
-	return runScreen(eng, rc, stderr)
+	return runScreen(cfg, rc, stdout, stderr)
 }
 
 // say writes a message for a person. A failed write has nowhere better to
@@ -85,7 +84,7 @@ func say(w io.Writer, format string, args ...any) {
 // terminal to draw on and one to read keys from. Asked for without one, the
 // run says so and prints plain lines, as a run without the flag would.
 func wantsScreen(view cli.View, stderr io.Writer) bool {
-	onTerminal := term.IsTerminal(os.Stdout.Fd()) && term.IsTerminal(os.Stdin.Fd())
+	onTerminal := xterm.IsTerminal(os.Stdout.Fd()) && xterm.IsTerminal(os.Stdin.Fd())
 	switch view {
 	case cli.ViewPlain:
 		return false
@@ -139,11 +138,20 @@ func git(ctx context.Context, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, "git", args...).Output()
 }
 
-// openInBrowser opens one PR's page. The repo is named, so the call does
-// not depend on the directory gh happens to run in.
-func openInBrowser(rc repo.Context) func(ctx context.Context, pr int) error {
-	return func(ctx context.Context, pr int) error {
-		_, err := gh.Exec(ctx, "pr", "view", strconv.Itoa(pr), "--web", "--repo", rc.Slug())
-		return err
+// actions is what the view can do outside itself: open a PR in the
+// browser, and reopen a review in a new terminal tab.
+func actions(rc repo.Context) tui.Actions {
+	return tui.Actions{
+		Open: func(ctx context.Context, pr int) error {
+			// The repo is named, so the call does not depend on the
+			// directory gh happens to run in.
+			_, err := gh.Exec(ctx, "pr", "view", strconv.Itoa(pr), "--web", "--repo", rc.Slug())
+			return err
+		},
+		OpenTab: func(ctx context.Context, label, command string) (string, error) {
+			kind, err := term.Open(ctx, term.Exec, term.OSEnv(), label, command)
+			return kind.Name(), err
+		},
+		ResumeCommand: term.ResumeCommand,
 	}
 }

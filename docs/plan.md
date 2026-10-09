@@ -60,11 +60,12 @@ internal/proc      process groups and the stop sequence
 internal/rundir    the run directory
 internal/skills    staging the bundled skills
 internal/report    the summary table and the lines under it
+internal/term      opening a new terminal tab (Herdr, cmux, Ghostty)
 internal/tui       the view
 ```
 
-Still to come: `marks` (the eyes reaction), `task` (worktrees), `term`
-(the new-tab spawner) and `panel`.
+Still to come: `marks` (the eyes reaction), `task` (worktrees) and
+`panel`.
 
 **The engine**
 
@@ -76,6 +77,11 @@ Still to come: `marks` (the eyes reaction), `task` (worktrees), `term`
 - `Do(Command)` never blocks. `Snapshot()` is an atomic load. `Changed()`
   holds one token. `Run()` returns only after everything it started has
   stopped.
+- Reading the lists is separate from reviewing: `Snapshot.Looking` and
+  `Snapshot.Phase`. A run reads the lists while it reviews, and between
+  reviews.
+- A run under the view is held open (`Config.HoldOpen`): it makes its pass
+  and stays for `ReviewNow`, `StopJob` and `SetFocus` until `Quit`.
 - One-shot, watch, babysit and once will be one loop with a `Policy` value.
 - A review and an override are data: a pure `review.Spec`. A task will be
   too. The test fake sits where a process starts (`proc.Starter`).
@@ -88,6 +94,8 @@ Still to come: `marks` (the eyes reaction), `task` (worktrees), `term`
 - `Init` returns a command that waits on `Changed()` and returns the
   snapshot. There is no `Program.Send` and no fd redirection.
 - `Update` calls `eng.Do(...)` directly, so two keys cannot arrive reversed.
+- The view runs no process. Opening a browser or a terminal tab is an
+  `Actions` function that `cmd/autoreview` hands in.
 - The view will tail the transcript itself. Activity never enters the
   engine.
 - `cmd/autoreview` prints the summary after the alternate screen closes.
@@ -102,8 +110,8 @@ Each one leaves a binary that runs. One PR for each milestone.
 | 1 | Read-only view: both tabs from real `gh` data, detail pane, key help, mouse, resize, `o`, refresh, `q`. Headless prints both lists. | done |
 | 2 | `autoreview stats`, with ledger read and append | done |
 | 3 | Headless one pass: positional PRs, `--once`, `--no-post`, `--continue`, the override, summary, exit status, ctrl-C | done |
-| 4 | The view runs reviews: `R`, `x`, `f`, `r`, `l`, the rendered review, the summary after close, the pty tests | next |
-| 5 | Loop policies: watch, `--babysit`, rest, cap, CI hold and the wait for pending checks, stack hold, `--max-idle`, `w` | |
+| 4 | The view runs reviews: `R`, `x`, `f`, `r`, `l`, the rendered review, the summary after close, the pty tests | done |
+| 5 | Loop policies: watch, `--babysit`, rest, cap, CI hold and the wait for pending checks, stack hold, `--max-idle`, `w` | next |
 | 6 | Eyes reaction, codex, the exit-10 fallback, the in-use check, the activity tail | |
 | 7 | My PRs tasks, after v1 decision 0030: `f` fix, `u` conflicts, `c` comments, `b` babysit, `B` babysit all | |
 | 8 | Formula, tap, README, cutover rename | |
@@ -117,6 +125,6 @@ Each one leaves a binary that runs. One PR for each milestone.
 - **View:** `Update` and `View` called directly, asserting on the frame.
 - **End to end:** `run()` against a fake `gh`, which is the test binary
   itself under another name.
-- **Pty, from milestone 4:** only what is outside the frame: the alternate
-  screen, the exit status, the summary after close, a cooked terminal, no
-  leftover input.
+- **Pty:** the real binary under a pty (`cmd/autoreview/pty_test.go`). Only
+  what is outside the frame: the alternate screen, the exit status, the
+  summary after close, a cooked terminal, no leftover input.

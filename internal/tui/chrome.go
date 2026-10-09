@@ -8,27 +8,37 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/venabots/autoreview/internal/engine"
-	"github.com/venabots/autoreview/internal/queue"
 	"github.com/venabots/autoreview/internal/sanitize"
 	"github.com/venabots/autoreview/internal/words"
 )
 
-// headerLine names the run: the program, the repo, and what the run does.
+// headerLine names the run: the program, the repo, what the run does, and
+// what the reviewers are told to look at.
 func headerLine(s *engine.Snapshot) line {
-	return line{
+	l := line{
 		styled("autoreview", brandStyle),
 		styled(" · ", dimStyle),
 		styled(sanitize.Line(s.Repo.Slug()), boldStyle),
 		styled(" · ", dimStyle),
 		text(modeText(s)),
 	}
+	if s.Focus != "" {
+		l = append(l, styled(" · ", dimStyle), styled("focus: "+sanitize.Line(s.Focus), yellowStyle))
+	}
+	return l
 }
 
+// modeText says what the run does by itself. A run with no directory of
+// its own only reads the lists.
 func modeText(s *engine.Snapshot) string {
-	if s.Watch == 0 {
-		return "read-only · one look"
+	what := "one pass"
+	if s.RunDir == "" {
+		what = "read-only"
 	}
-	return "read-only · looking every " + words.Interval(s.Watch)
+	if s.Watch == 0 {
+		return what
+	}
+	return what + " · lists every " + words.Interval(s.Watch)
 }
 
 // tabGap is the space between the two tab labels.
@@ -76,7 +86,7 @@ func tabAt(x int, review, mine string) (tab, bool) {
 
 // statusText is the left side of the footer: what the run holds, and what
 // it is doing now. spin is the spinner's frame, shown while the run looks.
-func statusText(s *engine.Snapshot, now time.Time, spin string) word {
+func statusText(s *engine.Snapshot, rows []reviewRow, now time.Time, spin string) word {
 	if s.ListErr != "" {
 		return word{"could not read the PR list: " + sanitize.Line(s.ListErr), redStyle}
 	}
@@ -84,44 +94,18 @@ func statusText(s *engine.Snapshot, now time.Time, spin string) word {
 		return word{spin + " reading the PR list", dimStyle}
 	}
 	parts := []string{}
-	if summary := tally(s.Reviews); summary != "" {
+	if summary := tallyJobs(rows); summary != "" {
 		parts = append(parts, summary)
 	} else {
-		parts = append(parts, "nothing to review yet")
+		parts = append(parts, "nothing to review")
 	}
-	switch s.Phase {
-	case engine.Looking:
+	switch {
+	case s.Looking:
 		parts = append(parts, spin+" checking the PR list")
-	case engine.Waiting:
+	case !s.NextLookAt.IsZero():
 		parts = append(parts, "next look in "+words.Duration(s.NextLookAt.Sub(now)))
 	}
-	return word{strings.Join(parts, " · "), dimStyle}
-}
-
-// tally counts the rows by what the run does with them, and names only the
-// counts that are not zero.
-func tally(rows []queue.Row) string {
-	ready, held, left := 0, 0, 0
-	for _, row := range rows {
-		switch row.Wait {
-		case queue.WaitNext:
-			ready++
-		case queue.WaitChecks, queue.WaitStacked:
-			held++
-		default:
-			left++
-		}
-	}
-	parts := []string{}
-	for _, part := range []struct {
-		n    int
-		what string
-	}{{ready, "ready"}, {held, "held"}, {left, "left alone"}} {
-		if part.n > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", part.n, part.what))
-		}
-	}
-	return strings.Join(parts, " · ")
+	return word{joinDots(parts), dimStyle}
 }
 
 // hintGap is the least space between the status and the hints.

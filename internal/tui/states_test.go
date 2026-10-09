@@ -67,7 +67,7 @@ func TestTheWheelMovesTheListOrScrollsTheDetail(t *testing.T) {
 
 	m = send(m, tea.MouseWheelMsg{X: 60, Y: 3, Button: tea.MouseWheelDown})
 	wantNotOnScreen(t, m, "#9 Add retry logic")
-	wantOnScreen(t, m, "○ #9 · ready", "activity  new to you")
+	wantOnScreen(t, m, "○ #9 · ready", "checks    passing")
 
 	m = send(m, tea.MouseWheelMsg{X: 60, Y: 3, Button: tea.MouseWheelUp})
 	wantOnScreen(t, m, "#9 Add retry logic")
@@ -88,11 +88,11 @@ func TestTheScrollKeysMoveTheDetail(t *testing.T) {
 func TestAnUnknownKeyDoesNothing(t *testing.T) {
 	m, hs := newModel(t, 120, 30)
 	before := screen(m)
-	if after := screen(press(t, m, "x")); after != before {
-		t.Errorf("x changed the screen:\n%s", after)
+	if after := screen(press(t, m, "z")); after != before {
+		t.Errorf("z changed the screen:\n%s", after)
 	}
 	if len(hs.eng.got) != 0 {
-		t.Errorf("x sent the engine %v", hs.eng.got)
+		t.Errorf("z sent the engine %v", hs.eng.got)
 	}
 }
 
@@ -104,7 +104,7 @@ func TestTheScreenSaysWhatIsNotKnownYet(t *testing.T) {
 		wants []string
 	}{
 		{"before the first look", func(s *engine.Snapshot) {
-			s.Looked, s.Reviews, s.Phase = false, nil, engine.Looking
+			s.Looked, s.Reviews, s.Looking = false, nil, true
 		}, false, []string{"⠋ reading the PR list"}},
 		{"a first look that failed", func(s *engine.Snapshot) {
 			s.Looked, s.Reviews, s.ListErr = false, nil, "gh api graphql timed out"
@@ -112,8 +112,8 @@ func TestTheScreenSaysWhatIsNotKnownYet(t *testing.T) {
 		{"a later look that failed keeps the rows", func(s *engine.Snapshot) {
 			s.ListErr = "rate limited"
 		}, false, []string{"could not read the PR list: rate limited", "○ #9 · ready", "#9 Add retry logic"}},
-		{"an empty list", func(s *engine.Snapshot) { s.Reviews = nil }, false, []string{"no PRs to show", "nothing to review yet"}},
-		{"looking again", func(s *engine.Snapshot) { s.Phase = engine.Looking }, false, []string{"⠋ checking the PR list", "○ #9 · ready"}},
+		{"an empty list", func(s *engine.Snapshot) { s.Reviews = nil }, false, []string{"no PRs to show", "nothing to review"}},
+		{"looking again", func(s *engine.Snapshot) { s.Looking = true }, false, []string{"⠋ checking the PR list", "○ #9 · ready"}},
 		{"your PRs not read yet", func(s *engine.Snapshot) { s.MineLooked, s.Mine = false, nil }, true, []string{"⠋ reading your PRs"}},
 		{"your PRs could not be read", func(s *engine.Snapshot) {
 			s.MineLooked, s.Mine, s.MineErr = false, nil, "search is down"
@@ -174,14 +174,14 @@ func TestTheFooterDropsHintsThatDoNotFitButNeverTheKeysHint(t *testing.T) {
 			t.Errorf("at %d columns the footer is %q, want it to end with the keys hint", width, footer)
 		}
 	}
-	wide, _ := newModel(t, 130, 30)
+	wide, _ := newModel(t, 150, 30)
 	narrow, _ := newModel(t, 80, 30)
-	wantOnScreen(t, wide, "q quit  j/k move  o open  tab my PRs  m mouse  ^d/^u scroll  ? keys")
+	wantOnScreen(t, wide, "q quit  j/k move  r resume  o open  R review now  tab my PRs  m mouse  f focus  x stop  l log  ^d/^u scroll  ? keys")
 	wantNotOnScreen(t, narrow, "^d/^u scroll")
-	wantOnScreen(t, narrow, "1 ready · 1 held · 2 left alone · next look in 1m30s", "q quit", "? keys")
+	wantOnScreen(t, narrow, "2 waiting · next look in 1m30s", "q quit", "? keys")
 
 	tiny, _ := newModel(t, 20, 30)
-	wantOnScreen(t, tiny, "1 ready · 1…  ? keys")
+	wantOnScreen(t, tiny, "2 waiting ·…  ? keys")
 }
 
 func TestTheWaitReasonNamesTheParentOfAStackedPR(t *testing.T) {

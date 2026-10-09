@@ -18,18 +18,6 @@ type word struct {
 	style lipgloss.Style
 }
 
-func reviewRows(rows []queue.Row) []listRow {
-	out := make([]listRow, len(rows))
-	for i, row := range rows {
-		out[i] = listRow{
-			pr:   row.PR.Number,
-			head: headLine(decisionIcon(row.PR.Decision), row.PR.Number, waitWord(row)),
-			sub:  subLine(authorAndBranch(row.PR), row.PR.Title),
-		}
-	}
-	return out
-}
-
 func mineRows(list []mine.PR) []listRow {
 	out := make([]listRow, len(list))
 	for i, pr := range list {
@@ -59,16 +47,6 @@ func subLine(what, title string) line {
 		what = title
 	}
 	return line{text("  "), styled(sanitize.Line(what), dimStyle)}
-}
-
-func authorAndBranch(pr prs.PR) string {
-	switch {
-	case pr.Branch == "":
-		return ""
-	case pr.Author == "":
-		return pr.Branch
-	}
-	return "@" + pr.Author + " " + pr.Branch
 }
 
 // decisionIcon is GitHub's own decision on the PR, from the last look. The

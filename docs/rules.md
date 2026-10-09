@@ -33,6 +33,10 @@ Status is `done` with the test that pins it, or the milestone that brings it.
 | A `gh` call has a deadline, and the deadline kills its process group                                                         | done: `internal/gh` `TestADeadlineStopsGhAndWhatItStarted`                                              |
 | The selection follows the PR number, not the row                                                                             | done: `internal/tui` `TestTheSelectionStaysOnItsPRWhenTheRowsMove`                                      |
 | The view closes only after the engine says the run has ended                                                                 | done: `internal/tui` `TestQuitAsksTheEngineAndClosesWhenTheRunHasEnded`                                 |
+| Stopping a review and quitting with reviews alive need a second press, and the first press names its PR | done: `internal/tui` `TestXStopsARunningReviewOnTheSecondPress`, `TestASecondXOnAnotherRowOrTooLateStopsNothing`, `TestQStopsRunningReviewsOnlyOnTheSecondPress` |
+| The terminal is given back cooked, and the summary is printed after the view closes | done: `cmd/autoreview` `TestOnATerminalTheViewOpensAndQGivesTheTerminalBack` |
+| Quit while the run is held ends with the pass's status. Quit during a pass is 130. | done: `internal/engine` `TestAHeldRunStaysOpenAfterItsPassAndEndsWithItsStatus`, `cmd/autoreview` `TestQTwiceStopsARunningReviewAndExits130` |
+| A focus the flag would refuse cannot reach a prompt from the view | done: `internal/tui` `TestAFocusAPromptCannotCarryKeepsTheEditorOpen` |
 | The verdict comes from GitHub `latestReviews`. The trailer is a fallback. A claim of approval is vetoed when nothing landed. | done: `internal/review` `TestTheVerdictPrefersGitHubToTheAgent`, `internal/engine` `TestTheVerdictIsGitHubsAndNotTheReviewersOwn` |
 | "The call failed" and "nothing landed" stay distinct                                                                         | done: `internal/review` `TestACallThatFailedAndNothingLandedStayDistinct` |
 | One process group for each job. Stop is TERM, TERM, KILL.                                                                    | done: `internal/proc` `TestEachProcessLeadsItsOwnGroup`, `TestStopEndsAGrandchildThatIgnoresTERM` |
@@ -59,6 +63,6 @@ Status is `done` with the test that pins it, or the milestone that brings it.
 | A panic in a look becomes that look's error                   | done: `internal/engine` `TestALookThatPanicsAnswersWithAnError`                         |
 | A panic on the engine goroutine gives the terminal back first | done: `cmd/autoreview/screen.go`                                                        |
 | The engine never blocks on a reader                           | done: `internal/engine` `TestChangedHoldsOneTokenHoweverManySnapshots`                  |
-| Unread input is discarded when the view closes                | done: `cmd/autoreview/flush.go` (no automated test yet; milestone 4 adds the pty cases) |
+| Unread input is discarded when the view closes                | done: `cmd/autoreview` `TestCtrlCQuitsAtOnceAndLeavesNoInputForTheShell` |
 | The plain printer never makes the engine wait | done: `internal/plain` `TestThePrinterNeverMakesTheEngineWait` |
 | Nothing prints outside `cmd/`                                 | done: `forbidigo` in `.golangci.yml`                                                    |

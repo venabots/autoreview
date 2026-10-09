@@ -55,33 +55,35 @@ func indexOf(jobs []job, pr int) int {
 	return slices.IndexFunc(jobs, func(j job) bool { return j.view.PR == pr })
 }
 
-// startPass begins a pass over every PR that is ready. A look that found
-// none ends the run: there is nothing to wait for.
-func (e *Engine) startPass(w workers, r run) run {
-	ready := []queue.Row{}
-	for _, row := range r.snap.Reviews {
+// ready is the rows that nothing holds.
+func ready(rows []queue.Row) []queue.Row {
+	out := []queue.Row{}
+	for _, row := range rows {
 		if row.Wait == queue.WaitNext {
-			ready = append(ready, row)
+			out = append(out, row)
 		}
 	}
-	if len(ready) == 0 {
+	return out
+}
+
+// startPass begins a pass over the given PRs. With none, a run that is not
+// held ends: there is nothing to wait for.
+func (e *Engine) startPass(w workers, r run, rows []queue.Row) run {
+	if len(rows) == 0 {
 		e.journal(NothingToReview{})
-		r.snap.Phase = Done
-		r.code = ExitOK
-		return r
+		return e.rest(r, ExitOK)
 	}
 	pass, err := e.deps.Run.Pass(r.snap.Pass + 1)
 	if err != nil {
 		e.journal(Noted{Text: "could not make a directory for the pass: " + err.Error()})
-		r.snap.Phase = Done
-		r.code = ExitFailed
-		return r
+		return e.rest(r, ExitFailed)
 	}
+	r.snap.Earlier = withEarlier(r.snap.Earlier, views(r.jobs))
 	r.pass = pass
 	r.snap.Pass++
 	r.snap.Phase = Reviewing
-	r.jobs = make([]job, len(ready))
-	for i, row := range ready {
+	r.jobs = make([]job, len(rows))
+	for i, row := range rows {
 		r.jobs[i] = job{view: Job{
 			PR:           row.PR.Number,
 			Title:        row.PR.Title,
@@ -91,8 +93,39 @@ func (e *Engine) startPass(w workers, r run) run {
 			PassDir:      pass.Dir,
 		}}
 	}
-	e.journal(PassStarted{Pass: r.snap.Pass, Reviews: len(ready), Limit: e.cfg.Jobs, Dir: pass.Dir})
+	e.journal(PassStarted{Pass: r.snap.Pass, Reviews: len(rows), Limit: e.cfg.Jobs, Dir: pass.Dir})
 	return e.fill(w, r)
+}
+
+// rest is the run with its work done, ending with code: over, or held for
+// a person when the run was asked to stay.
+func (e *Engine) rest(r run, code int) run {
+	r.code = code
+	if e.cfg.HoldOpen {
+		r.snap.Phase = Idle
+		r.held = true
+		return r
+	}
+	r.snap.Phase = Done
+	return r
+}
+
+// withEarlier adds the reviews of a pass that has ended to the ones kept
+// from before, the newest for each PR. A review that never settled is not
+// kept: it has nothing to show.
+func withEarlier(earlier, ended []Job) []Job {
+	kept := []Job{}
+	for _, old := range earlier {
+		if !slices.ContainsFunc(ended, func(j Job) bool { return j.PR == old.PR && j.State.Settled() }) {
+			kept = append(kept, old)
+		}
+	}
+	for _, j := range ended {
+		if j.State.Settled() {
+			kept = append(kept, j)
+		}
+	}
+	return kept
 }
 
 // fill starts queued reviews until every slot is taken.
@@ -105,7 +138,7 @@ func (e *Engine) fill(w workers, r run) run {
 			r = e.start(w, r, i)
 		}
 	}
-	return e.endPassIfSettled(r)
+	return e.endPassIfSettled(w, r)
 }
 
 // running counts the reviews that hold a slot. A review whose process has
@@ -176,7 +209,7 @@ func (e *Engine) request(pr int, plan session.Plan, r run) review.Request {
 		Orchestrator: e.cfg.Orchestrator,
 		Session:      plan,
 		NoPost:       e.cfg.NoPost,
-		Focus:        e.cfg.Focus,
+		Focus:        r.snap.Focus,
 		Timeout:      e.cfg.Timeout,
 		Budget:       e.cfg.Budget,
 		SkillsDir:    e.deps.SkillsDir,
@@ -242,7 +275,7 @@ func (e *Engine) guardFired(r run, in guardFired) run {
 // A stop outranks the exit status. A reviewer that is killed can exit with
 // the status that means "the agent failed", and a review a person stopped
 // must not be read as an outage.
-func (e *Engine) settled(r run, in jobSettled) run {
+func (e *Engine) settled(w workers, r run, in jobSettled) run {
 	i := indexOf(r.jobs, in.pr)
 	if i < 0 || r.jobs[i].view.State != JobFinishing {
 		return r
@@ -263,7 +296,7 @@ func (e *Engine) settled(r run, in jobSettled) run {
 		j.view.Error = in.outcome.agentError
 	}
 	e.journal(JobFinished{Job: j.view})
-	return e.endPassIfSettled(withJob(r, i, j))
+	return e.endPassIfSettled(w, withJob(r, i, j))
 }
 
 // finished is a review that ran to its end: what it decided, and its place
@@ -287,24 +320,32 @@ func (e *Engine) finished(view Job, out outcome) Job {
 	return view
 }
 
-// endPassIfSettled ends the run when every review has its end state. The
+// endPassIfSettled ends the pass when every review has its end state. The
 // exit status is zero only when every review ran to its end.
-func (e *Engine) endPassIfSettled(r run) run {
+//
+// A run that is held then starts the pass a person asked for meanwhile.
+func (e *Engine) endPassIfSettled(w workers, r run) run {
 	for _, j := range r.jobs {
 		if !j.view.State.Settled() {
 			return r
 		}
 	}
-	switch {
-	case r.snap.Phase == Stopping:
+	if r.snap.Phase == Stopping {
+		r.snap.Phase = Done
 		r.code = ExitInterrupted
-	case slices.ContainsFunc(r.jobs, func(j job) bool { return j.view.State != JobDone }):
-		r.code = ExitFailed
-	default:
-		r.code = ExitOK
+		return r
 	}
-	r.snap.Phase = Done
-	return r
+	code := ExitOK
+	if slices.ContainsFunc(r.jobs, func(j job) bool { return j.view.State != JobDone }) {
+		code = ExitFailed
+	}
+	r = e.rest(r, code)
+	if r.snap.Phase != Idle || len(r.requested) == 0 {
+		return r
+	}
+	asked := r.requested
+	r.requested = nil
+	return e.startPass(w, r, rowsFor(r.snap.Reviews, asked))
 }
 
 // stopReviews ends a pass that was told to stop. Every live review is
@@ -329,5 +370,73 @@ func (e *Engine) stopReviews(r run) run {
 	r.jobs = kept
 	r.snap.Phase = Stopping
 	e.journal(Interrupted{})
-	return e.endPassIfSettled(r)
+	for _, j := range r.jobs {
+		if !j.view.State.Settled() {
+			return r
+		}
+	}
+	r.snap.Phase = Done
+	r.code = ExitInterrupted
+	return r
+}
+
+// rowsFor is the rows on the list for the given PRs, in the order asked.
+func rowsFor(rows []queue.Row, prs []int) []queue.Row {
+	out := []queue.Row{}
+	for _, pr := range prs {
+		if i := slices.IndexFunc(rows, func(row queue.Row) bool { return row.PR.Number == pr }); i >= 0 {
+			out = append(out, rows[i])
+		}
+	}
+	return out
+}
+
+// reviewNow reviews one PR a person pointed at, whatever holds it. Idle,
+// the run starts a pass for it. In a pass, a review that waits goes first,
+// and a PR with no review in the pass is kept for the next one. A PR that
+// is being reviewed now is left alone.
+func (e *Engine) reviewNow(w workers, r run, pr int) run {
+	asked := rowsFor(r.snap.Reviews, []int{pr})
+	if len(asked) == 0 {
+		return r
+	}
+	switch r.snap.Phase {
+	case Idle:
+		return e.startPass(w, r, asked)
+	case Reviewing:
+		i := indexOf(r.jobs, pr)
+		switch {
+		case i < 0 || r.jobs[i].view.State.Settled():
+			if !slices.Contains(r.requested, pr) {
+				r.requested = append(slices.Clone(r.requested), pr)
+			}
+		case r.jobs[i].view.State == JobQueued:
+			r.jobs = movedFirst(r.jobs, i)
+		}
+	}
+	return r
+}
+
+// movedFirst puts the job at i ahead of every other review that waits.
+func movedFirst(jobs []job, i int) []job {
+	first := slices.IndexFunc(jobs, func(j job) bool { return j.view.State == JobQueued })
+	out := slices.Clone(jobs)
+	asked := out[i]
+	copy(out[first+1:i+1], out[first:i])
+	out[first] = asked
+	return out
+}
+
+// stopJob stops one review a person pointed at. It fails as stopped, and
+// the rest of the pass goes on.
+func (e *Engine) stopJob(r run, pr int) run {
+	i := indexOf(r.jobs, pr)
+	if i < 0 || r.jobs[i].view.State != JobRunning {
+		return r
+	}
+	j := r.jobs[i]
+	j.stopped = true
+	j.proc.Stop()
+	e.journal(Noted{Text: fmt.Sprintf("stopped the review of PR #%d", pr)})
+	return withJob(r, i, j)
 }

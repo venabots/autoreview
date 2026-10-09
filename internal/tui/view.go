@@ -2,10 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/sanitize"
@@ -38,9 +41,27 @@ func (m Model) frame() string {
 	}
 	rows = append(rows, m.body()...)
 	if m.lay.footer.h > 0 {
-		rows = append(rows, fit(footerLine(m.status(), footerHints(m.tab), w), w).render(false))
+		rows = append(rows, m.footer())
 	}
 	return strings.Join(rows, "\n")
+}
+
+// footer is the last row: the status and the keys, or the focus editor
+// while it is open.
+func (m Model) footer() string {
+	w := m.lay.width
+	if !m.editing {
+		return fit(footerLine(m.status(), footerHints(m.tab), w), w).render(false)
+	}
+	const label, help = "focus ", "   enter to apply · esc to leave it"
+	// The help is never cut: it is the only place that says how to get
+	// out. A long focus scrolls inside the room that is left.
+	room := max(w-len(label)-lipgloss.Width(help)-1, 1)
+	input := m.input
+	input.SetWidth(room)
+	left := ansi.Truncate(yellowStyle.Render(label)+input.View(), max(w-lipgloss.Width(help), 0), "")
+	gap := max(w-lipgloss.Width(left)-lipgloss.Width(help), 0)
+	return ansi.Truncate(left+strings.Repeat(" ", gap)+dimStyle.Render(help), w, "")
 }
 
 // body is the list and the right pane: side by side with a rule between
@@ -102,31 +123,54 @@ func (m Model) status() word {
 	if m.quitting {
 		return word{"stopping…", dimStyle}
 	}
-	return statusText(m.snap, m.now, m.spin.View())
+	return statusText(m.snap, m.reviews(), m.now, m.spin.View())
 }
 
 // paneContent is what the right pane shows, and a key that names it.
-func (m Model) paneContent() (string, []line) {
-	if m.side == sideKeys {
-		return "keys", keysPane()
-	}
-	if m.tab == tabMine {
-		return m.mineContent()
+func (m Model) paneContent() (string, string) {
+	w := m.lay.detail.w
+	switch {
+	case m.side == sideKeys:
+		return "keys", wrapped(keysPane(), w)
+	case m.side == sideLog:
+		heading := wrapped([]line{{styled("run log · "+logPath(m.snap), headingStyle)}, {}}, w)
+		return "log", heading + "\n" + lipgloss.Wrap(m.log.text, max(w, 1), "")
+	case m.tab == tabMine:
+		key, lines := m.mineContent()
+		return key, wrapped(lines, w)
 	}
 	return m.reviewContent()
 }
 
-func (m Model) reviewContent() (string, []line) {
-	pr, ok := m.selected()
+// logPath is the run's own log, or empty for a run that keeps none.
+func logPath(s *engine.Snapshot) string {
+	if s.RunDir == "" {
+		return ""
+	}
+	return filepath.Join(s.RunDir, "autoreview.log")
+}
+
+func (m Model) reviewContent() (string, string) {
+	w := m.lay.detail.w
+	row, ok := m.selectedReview()
 	if !ok {
-		return "review/none", emptyPane(m.noReviews())
+		return "review/none", wrapped(emptyPane(m.noReviews()), w)
 	}
-	for _, row := range m.snap.Reviews {
-		if row.PR.Number == pr {
-			return fmt.Sprintf("review/%d", pr), reviewDetail(row, m.untilNextLook())
-		}
+	f := facts{now: m.now, nextLook: m.untilNextLook(), root: m.snap.Repo.Root, resumeCommand: m.act.ResumeCommand}
+	content := wrapped(reviewDetail(row, f), w)
+	if job, done := row.finished(); done && job.State == engine.JobDone {
+		content += "\n\n" + headingStyle.Render("REVIEW") + "\n" + m.reviewBody(job)
 	}
-	return "review/none", nil
+	return fmt.Sprintf("review/%d", row.pr), content
+}
+
+// reviewBody is the review's own text, or where it would be.
+func (m Model) reviewBody(job engine.Job) string {
+	path := reviewPath(job)
+	if m.text.path != path || !m.text.found {
+		return dimStyle.Render("no review text at " + path)
+	}
+	return m.text.rendered
 }
 
 func (m Model) noReviews() string {
@@ -175,7 +219,7 @@ func emptyPane(why string) []line {
 // untilNextLook is how long until the run reads the PR list again, or zero
 // when it is reading it now.
 func (m Model) untilNextLook() time.Duration {
-	if m.snap.Phase != engine.Waiting {
+	if m.snap.NextLookAt.IsZero() {
 		return 0
 	}
 	return max(m.snap.NextLookAt.Sub(m.now), 0)

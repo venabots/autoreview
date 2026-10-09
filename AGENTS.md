@@ -8,8 +8,9 @@
 - v1 is the specification for behavior. It is the Rust repo
   `venabots/autoreview`. `docs/rules.md` lists the rules that carry over.
   Each rule has a test.
-- Off a terminal the binary reviews and posts to GitHub. The view still
-  starts no review. `docs/plan.md` has the milestones.
+- The binary reviews and posts to GitHub, in the view and off a terminal.
+  Never run it in a real checkout to try something: run
+  `scripts/sandbox.sh`. `docs/plan.md` has the milestones.
 
 ## Commands
 
@@ -70,6 +71,8 @@ golangci-lint fmt                         # gofmt and goimports
   test name is a sentence that states the rule.
 - View tests call `Update` and `View` directly and assert on the frame with
   the escape sequences stripped.
+- The view runs no process and reads no clock of its own. A browser or a
+  terminal tab is an `Actions` function, and time arrives in a tick.
 - A test for color or highlight reads the escape sequences instead
   (`internal/tui/style_test.go`). Text that reads right can still be drawn in
   colors nobody can read.
@@ -83,9 +86,13 @@ golangci-lint fmt                         # gofmt and goimports
 - CI runs the Go version in `go.mod`, which is older than the one on this
   machine. Run `GOTOOLCHAIN=go1.26.0 go test ./...` before a push. A test
   must not pin what the standard library does where releases differ.
-- To see the view without a person, run it in `tmux` and read the pane:
-  `tmux new-session -d -x 120 -y 30 ./autoreview`, then
-  `tmux capture-pane -p`.
+- To try the binary without a real review, run `scripts/sandbox.sh`. It
+  serves a repo of seven PRs from a fake `gh` and reviews them with a fake
+  `dash-p`: the test binary under those names. Nothing reaches GitHub. To
+  see the view without a person, run the script in `tmux` and read the pane
+  with `tmux capture-pane -p`.
+- The pty tests build the binary and run it under a real pty. They look only
+  at what is outside the frame. What a frame says is tested on the model.
 - Do not run a build that posts against a real repo to test it. Use the
   fakes. The owner starts the first posting run.
 - The argument parser is `pflag`. A flag with an optional value takes it

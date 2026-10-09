@@ -91,6 +91,8 @@ var firstNumber = regexp.MustCompile(`[0-9]+`)
 //   - $FAKE_DASHP_FAIL lists the PRs whose review fails with exit 10.
 //   - $FAKE_DASHP_DECISION is the decision in the trailer (commented).
 //   - $FAKE_DASHP_NO_TRAILER lists the PRs whose review has no trailer.
+//   - $FAKE_DASHP_SLEEP is how many seconds the review takes. The sandbox
+//     sets it, so a person can watch a review run.
 //   - $FAKE_DASHP_HANG names a file. The review writes its pid there and
 //     then hangs for a minute.
 func fakeDashp(args []string) int {
@@ -114,6 +116,9 @@ func fakeDashp(args []string) int {
 		// can see that a stop reached it.
 		_ = os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0o600)
 		time.Sleep(time.Minute)
+	}
+	if seconds, err := strconv.Atoi(os.Getenv("FAKE_DASHP_SLEEP")); err == nil {
+		time.Sleep(time.Duration(seconds) * time.Second)
 	}
 	failed := slices.Contains(strings.Fields(os.Getenv("FAKE_DASHP_FAIL")), pr)
 	for i, arg := range args {

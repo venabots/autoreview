@@ -103,14 +103,15 @@ func whyLines(job engine.Job) []string {
 // the files are, and how to open a review again. A run that reviewed
 // nothing says nothing more.
 func Final(result engine.Result, noPost bool) (out, errs string) {
-	jobs := result.Final.Jobs
+	jobs := result.Final.Reviewed()
 	if len(jobs) == 0 {
 		return "", ""
 	}
-	lines := []string{"", strings.TrimSuffix(report.Summary(jobs), "\n"), "", "logs: " + jobs[0].PassDir}
+	where := filesOf(result.Final)
+	lines := []string{"", strings.TrimSuffix(report.Summary(jobs), "\n"), "", "logs: " + where}
 	lines = append(lines, report.ReopenHints(jobs)...)
 	if noPost {
-		lines = append(lines, "nothing was posted to any PR; the reviews are in "+jobs[0].PassDir)
+		lines = append(lines, "nothing was posted to any PR; the reviews are in "+where)
 	}
 	failed := 0
 	for _, job := range jobs {
@@ -122,4 +123,17 @@ func Final(result engine.Result, noPost bool) (out, errs string) {
 		errs = fmt.Sprintf("error: %d of %s failed\n", failed, words.Count(len(jobs), "review"))
 	}
 	return strings.Join(lines, "\n") + "\n", errs
+}
+
+// filesOf is where the run's reviews wrote their files: the directory of
+// the pass when there was one pass, and the run's own directory when there
+// were several.
+func filesOf(s *engine.Snapshot) string {
+	jobs := s.Reviewed()
+	for _, job := range jobs {
+		if job.PassDir != jobs[0].PassDir {
+			return s.RunDir
+		}
+	}
+	return jobs[0].PassDir
 }

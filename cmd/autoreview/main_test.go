@@ -8,14 +8,6 @@ import (
 	"testing"
 )
 
-const mineJSON = `{"data":{"search":{"nodes":[
-  {"number":4,"title":"My own work","isDraft":false,"headRefName":"me/my-own-work",
-   "headRefOid":"sha4","updatedAt":"2026-08-08T10:00:00Z","isCrossRepository":false,
-   "reviewDecision":"REVIEW_REQUIRED","mergeable":"MERGEABLE",
-   "latestReviews":{"nodes":[]},"reviewThreads":{"nodes":[]},
-   "headCommit":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}}
-]}}}`
-
 // sandbox makes a git checkout to run in and a GitHub to ask: the seven
 // PRs the prs package is tested against, one of each kind.
 func sandbox(t *testing.T) (fixtures string) {
@@ -31,13 +23,19 @@ func sandbox(t *testing.T) (fixtures string) {
 		}
 	}
 	fixtures = t.TempDir()
-	prs, err := os.ReadFile(filepath.Join("..", "..", "internal", "prs", "testdata", "prs.json"))
-	if err != nil {
-		t.Fatal(err)
+	// The same three files scripts/sandbox.sh serves, so a person who runs
+	// the sandbox sees the repo these tests see.
+	for name, from := range map[string]string{
+		"prs.json":  filepath.Join("..", "..", "internal", "prs", "testdata", "prs.json"),
+		"mine.json": filepath.Join("testdata", "mine.json"),
+		"repo.json": filepath.Join("testdata", "repo.json"),
+	} {
+		raw, err := os.ReadFile(from)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, fixtures, name, string(raw))
 	}
-	write(t, fixtures, "prs.json", string(prs))
-	write(t, fixtures, "mine.json", mineJSON)
-	write(t, fixtures, "repo.json", `{"owner":{"login":"acme"},"name":"widgets"}`)
 
 	repo := t.TempDir()
 	if out, err := exec.Command("git", "-C", repo, "init", "--quiet").CombinedOutput(); err != nil {
@@ -56,7 +54,8 @@ func sandbox(t *testing.T) (fixtures string) {
 	for _, name := range []string{
 		"AUTOREVIEW_WATCH_INTERVAL", "AUTOREVIEW_JOBS", "AUTOREVIEW_TIMEOUT", "AUTOREVIEW_MAX_BUDGET_USD",
 		"AUTOREVIEW_SKILLS", "AUTOREVIEW_ORCHESTRATOR", "AUTOREVIEW_CMD",
-		"FAKE_DASHP_FAIL", "FAKE_DASHP_DECISION", "FAKE_DASHP_NO_TRAILER", "FAKE_DASHP_HANG", "FAKE_GH_REVIEWS",
+		"FAKE_DASHP_FAIL", "FAKE_DASHP_DECISION", "FAKE_DASHP_NO_TRAILER", "FAKE_DASHP_HANG", "FAKE_DASHP_SLEEP",
+		"FAKE_GH_REVIEWS",
 	} {
 		t.Setenv(name, "")
 	}
