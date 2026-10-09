@@ -29,3 +29,16 @@ func TestAPreparingTaskIsMakingItsWorktree(t *testing.T) {
 		t.Errorf("Result = %q", got)
 	}
 }
+
+func TestProgressNamesWhatATaskDoes(t *testing.T) {
+	now := time.Now()
+	cases := map[string]engine.Job{
+		"fixing comments 1m03s": {Task: task.Comments, State: engine.JobRunning, StartedAt: now.Add(-63 * time.Second)},
+		"making its worktree":   {Task: task.Fix, State: engine.JobPreparing},
+	}
+	for want, job := range cases {
+		if got := Progress(job, now); got != want {
+			t.Errorf("Progress = %q, want %q", got, want)
+		}
+	}
+}

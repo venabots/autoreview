@@ -133,8 +133,10 @@ func Progress(job engine.Job, now time.Time) string {
 		return "queued"
 	case engine.JobFinishing:
 		return "finishing"
+	case engine.JobPreparing:
+		return "making its worktree"
 	}
-	verb := "reviewing"
+	verb := job.Task.Doing()
 	if job.Resumed {
 		verb = "rechecking"
 	}
