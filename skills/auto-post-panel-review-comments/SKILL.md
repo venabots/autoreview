@@ -111,8 +111,9 @@ identical.
 3. **Event and body line** — optional, from a caller that owns a gate
    (`auto-review`, `recheck-pr`). The caller hands you the review event
    (`APPROVE`, `REQUEST_CHANGES` or `COMMENT`) and the first line of the
-   body. Use both as given. With no caller, you choose the event (see
-   "The event").
+   body. Use both as given. A caller can leave out the first line of a
+   request for changes; then you choose it (see "The body"). With no
+   caller, you choose the event (see "The event").
 
 If a finding lacks a file/line, it can't be an inline comment — route it
 per "Routing" below (usually Linear or dropped), never guess a location.
@@ -282,8 +283,25 @@ The body is short. Its first line is a fixed string:
 | Event             | First line                                                |
 | ----------------- | --------------------------------------------------------- |
 | `APPROVE`         | the caller's approval body, verbatim (for example `LGTM`) |
-| `REQUEST_CHANGES` | `This PR needs changes. See the comments.`                |
+| `REQUEST_CHANGES` | one of the three lines below                              |
 | `COMMENT`         | the caller's line, or `Comments only. No decision.`       |
+
+A request for changes reads as a note from a teammate, not as a ruling.
+The line says how much the review asks for, so the author knows that
+before the first comment. Count the blocking items that the review shows:
+each inline comment and each finding in the body that is CRITICAL, HIGH or
+MEDIUM, and each `Also blocking:` line. A LOW comment does not count. Then
+take the first row that matches:
+
+| What blocks                                              | First line                                                                 |
+| -------------------------------------------------------- | -------------------------------------------------------------------------- |
+| A substantiated `Approach (questionable)` flag is posted | `I think we should take another look at the approach before this gets in.` |
+| Exactly one blocking item                                | `Just one thing I think we should update before this gets in.`             |
+| Any other count                                          | `Just a few things I think we should update before this gets in.`          |
+
+Use the line as written. The softer wording changes the tone only: the
+event is still `REQUEST_CHANGES`, and every blocking finding is still in
+the review.
 
 A caller can hand you a different first line for any event (`recheck-pr`
 does for a second round). Use the caller's line verbatim.
@@ -390,7 +408,7 @@ checkout, then post it:
 {
   "commit_id": "<effective_sha>",
   "event": "REQUEST_CHANGES",
-  "body": "This PR needs changes. See the comments.",
+  "body": "Just a few things I think we should update before this gets in.",
   "comments": [
     { "path": "src/pay.ts", "line": 88, "side": "RIGHT", "body": "<comment body>" },
     {

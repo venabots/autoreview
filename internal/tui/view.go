@@ -123,6 +123,11 @@ func (m Model) status() word {
 	if m.quitting {
 		return word{"stopping…", dimStyle}
 	}
+	if m.tab == tabMine && m.snap.MineLooked && m.snap.MineErr != "" {
+		// The rows are the last good list. Without this, a PR that was
+		// merged an hour ago would look as if it still waited on you.
+		return word{"could not read your PRs: " + sanitize.Line(m.snap.MineErr) + "; this list is from the last look", redStyle}
+	}
 	return statusText(m.snap, m.reviews(), m.now, m.spin.View())
 }
 

@@ -239,3 +239,8 @@ func TestTheMyPRsKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
 		}
 	}
 }
+
+func TestAFailedRefreshOfYourPRsSaysTheListIsOld(t *testing.T) {
+	m, _ := onMine(t, func(s *engine.Snapshot) { s.MineErr = "gh timed out" })
+	wantOnScreen(t, m, "#4 · conflicts", "could not read your PRs: gh timed out; this list is from the last look")
+}
