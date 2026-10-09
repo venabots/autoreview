@@ -35,6 +35,11 @@ const GuardGrace = 5 * time.Second
 
 // Request is everything that decides how one review starts.
 type Request struct {
+	// Task is the installed skill a task on one of your own PRs runs, or
+	// empty for a review. A task writes no review: it gets no trailer
+	// request, no focus and no staged reviewers, and no override replaces
+	// it.
+	Task         string
 	PR           int
 	Orchestrator Orchestrator
 	// Session is the plan this review starts with. Only claude can be given
@@ -86,7 +91,7 @@ type Spec struct {
 
 // SpecFor is the process that runs one review.
 func SpecFor(r Request) Spec {
-	if r.Override != "" {
+	if r.Override != "" && r.Task == "" {
 		return overrideSpec(r)
 	}
 	return Spec{
@@ -112,6 +117,8 @@ func SpecFor(r Request) Spec {
 // session with no earlier review has nothing to check.
 func Skill(r Request) string {
 	switch {
+	case r.Task != "":
+		return r.Task
 	case r.NoPost:
 		return "panel-review"
 	case sentFlag(r) == session.FlagResume:
@@ -128,7 +135,7 @@ func Skill(r Request) string {
 // one line, because it is one argv element and one line in a call log.
 func Prompt(r Request) string {
 	base := r.Orchestrator.SkillPrompt(Skill(r), r.PR)
-	if r.Focus == "" {
+	if r.Focus == "" || r.Task != "" {
 		return base
 	}
 	return fmt.Sprintf("%s --focus \"%s\"", base, r.Focus)
@@ -157,10 +164,10 @@ func dashpArgs(r Request) []string {
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
 	}
-	if o.SupportsSystemPrompt() {
+	if o.SupportsSystemPrompt() && r.Task == "" {
 		args = append(args, "--append-system-prompt="+TrailerInstruction)
 	}
-	if r.SkillsDir != "" && o.DiscoversStagedSkills() {
+	if r.SkillsDir != "" && o.DiscoversStagedSkills() && r.Task == "" {
 		args = append(args, "--add-dir="+r.SkillsDir)
 	}
 	args = append(args, sessionArgs(r)...)
@@ -178,7 +185,7 @@ func dashpArgs(r Request) []string {
 // the skill line as a paragraph of its own. The skill line stays first and
 // alone, so it is read as the instruction.
 func dashpPrompt(r Request) string {
-	if r.Orchestrator.SupportsSystemPrompt() {
+	if r.Orchestrator.SupportsSystemPrompt() || r.Task != "" {
 		return Prompt(r)
 	}
 	return Prompt(r) + "\n\n" + TrailerInstruction
