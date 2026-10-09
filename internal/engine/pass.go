@@ -140,13 +140,20 @@ func withEarlier(earlier, ended []Job) []Job {
 
 // fill starts queued reviews until every slot is taken.
 func (e *Engine) fill(w workers, r run) run {
+	if r.snap.Phase == Stopping || r.snap.Phase == Done {
+		return r
+	}
+	r = e.fillTasks(w, r)
 	for i := range r.jobs {
-		if running(r.jobs) >= max(e.cfg.Jobs, 1) {
+		if busySlots(r) >= max(e.cfg.Jobs, 1) {
 			break
 		}
 		if r.jobs[i].view.State == JobQueued {
 			r = e.start(w, r, i)
 		}
+	}
+	if r.snap.Phase != Reviewing {
+		return r
 	}
 	return e.endPassIfSettled(w, r)
 }
@@ -292,11 +299,7 @@ func (e *Engine) reaped(w workers, r run, in jobReaped) run {
 	j.view.State = JobFinishing
 	j.view.Elapsed = in.elapsed
 	j.view = withMeta(j.view, j.plan, in.meta, j.spec.Override)
-	r = withJob(r, i, j)
-	if r.snap.Phase != Reviewing {
-		return r
-	}
-	return e.fill(w, r)
+	return e.fill(w, withJob(r, i, j))
 }
 
 // withMeta adds what the harness said about the job. It is read when the
@@ -433,8 +436,6 @@ func (e *Engine) endPassIfSettled(w workers, r run) run {
 		}
 	}
 	if r.snap.Phase == Stopping {
-		r.snap.Phase = Done
-		r.code = ExitInterrupted
 		return r
 	}
 	code := ExitOK
@@ -456,13 +457,14 @@ func (e *Engine) endPassIfSettled(w workers, r run) run {
 	return e.startPass(w, r, rowsFor(r.snap.Reviews, asked))
 }
 
-// stopReviews ends a pass that was told to stop. Every live review is
+// stopAll ends a run that was told to stop. Every live review and task is
 // signalled before anything is recorded or said: a write to a terminal
 // that has hung up can fail, and the reviewers must be stopping by then.
 //
 // A review that had not started never starts. A review whose process has
-// already ended keeps its result.
-func (e *Engine) stopReviews(r run) run {
+// already ended keeps its result. The run ends when the last of them has
+// been collected (stoppedIfQuiet).
+func (e *Engine) stopAll(w workers, r run) run {
 	e.quitting.Store(true)
 	kept := []job{}
 	for _, j := range r.jobs {
@@ -476,15 +478,9 @@ func (e *Engine) stopReviews(r run) run {
 		kept = append(kept, j)
 	}
 	r.jobs = kept
+	r = e.stopTasks(w, r)
 	r.snap.Phase = Stopping
 	e.journal(Interrupted{})
-	for _, j := range r.jobs {
-		if !j.view.State.Settled() {
-			return r
-		}
-	}
-	r.snap.Phase = Done
-	r.code = ExitInterrupted
 	return r
 }
 
@@ -538,6 +534,9 @@ func movedFirst(jobs []job, i int) []job {
 // stopJob stops one review a person pointed at. It fails as stopped, and
 // the rest of the pass goes on.
 func (e *Engine) stopJob(r run, pr int) run {
+	if next, ok := e.stopTask(r, pr); ok {
+		return next
+	}
 	i := indexOf(r.jobs, pr)
 	if i < 0 || r.jobs[i].view.State != JobRunning {
 		return r

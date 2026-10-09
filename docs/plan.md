@@ -116,8 +116,8 @@ Each one leaves a binary that runs. One PR for each milestone.
 | 4 | The view runs reviews: `R`, `x`, `f`, `r`, `l`, the rendered review, the summary after close, the pty tests | done |
 | 5 | Loop policies: watch, `--babysit`, rest, cap, CI hold and the wait for pending checks, stack hold, `--max-idle`, `w` | done |
 | 6 | Eyes reaction, codex, the exit-10 fallback, the in-use check, the activity tail | done |
-| 7 | My PRs tasks, after v1 decision 0030: `f` fix, `u` conflicts, `c` comments, `b` babysit, `B` babysit all | next |
-| 8 | Formula, tap, README, cutover rename | |
+| 7 | My PRs tasks, after v1 decision 0030: `f` fix, `u` conflicts, `c` comments, `b` babysit, `B` babysit all | done |
+| 8 | Formula, tap, README, cutover rename | next |
 | 9 | `panel` (optional) | |
 
 ## Tests

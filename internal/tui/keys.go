@@ -24,6 +24,12 @@ const (
 	intentReviewNow
 	intentStop
 	intentFocus
+	// intentComments, intentConflicts, intentBabysit and intentBabysitAll
+	// act on your own PRs. f is the fix there, and the focus on Review.
+	intentComments
+	intentConflicts
+	intentBabysit
+	intentBabysitAll
 	intentWatch
 	intentLog
 	intentMouse
@@ -59,6 +65,10 @@ var keyNames = map[string]intent{
 	"R":         intentReviewNow,
 	"x":         intentStop,
 	"f":         intentFocus,
+	"c":         intentComments,
+	"u":         intentConflicts,
+	"b":         intentBabysit,
+	"B":         intentBabysitAll,
 	"w":         intentWatch,
 	"l":         intentLog,
 	"m":         intentMouse,
@@ -85,11 +95,16 @@ var helpLines = []keyHelp{
 	{"^d/^u", "scroll the right pane (or space and the page keys)"},
 	{"tab", "switch between Review and My PRs (or ←/→, or click one)"},
 	{"R", "review the selected PR now, whatever holds it"},
-	{"r", "resume the selected review in a new terminal tab"},
+	{"f", "My PRs: fix the selected PR once (conflicts, comments, CI)"},
+	{"b", "My PRs: babysit the selected PR: fix it again when it changes"},
+	{"B", "My PRs: babysit all your PRs, and any you open later"},
+	{"u", "My PRs: merge the base in and fix the conflicts"},
+	{"c", "My PRs: answer the selected PR's review comments"},
+	{"r", "resume the selected review, or your PR's last task, in a new terminal tab"},
 	{"o", "open the selected PR in the browser"},
-	{"x x", "stop the selected review"},
+	{"x x", "stop the selected review or task"},
 	{"w", "start or stop watching for new work"},
-	{"f", "type what the reviewers look at (the focus)"},
+	{"f", "Review: type what the reviewers look at (the focus)"},
 	{"l", "show the run log here; esc puts it away"},
 	{"m", "give the mouse back to the terminal, to select text"},
 	{"?", "show these keys; esc puts them away"},
@@ -108,7 +123,8 @@ type hint struct {
 func footerHints(shown tab) []hint {
 	if shown == tabMine {
 		return []hint{
-			{"q", "quit"}, {"j/k", "move"}, {"o", "open"}, {"tab", "review"},
+			{"q", "quit"}, {"f", "fix"}, {"b", "babysit"}, {"u", "conflicts"}, {"c", "comments"}, {"tab", "review"},
+			{"B", "babysit all"}, {"o", "open"}, {"j/k", "move"}, {"r", "resume"}, {"x", "stop"},
 			{"m", "mouse"}, {"l", "log"}, {"^d/^u", "scroll"},
 		}
 	}

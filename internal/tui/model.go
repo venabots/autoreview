@@ -8,6 +8,7 @@ package tui
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -16,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/venabots/autoreview/internal/engine"
+	"github.com/venabots/autoreview/internal/words"
 )
 
 // Engine is the run, as the view sees it.
@@ -140,7 +142,9 @@ type openedMsg struct {
 }
 
 type resumedMsg struct {
-	pr    int
+	pr int
+	// what is "review" or "task".
+	what  string
 	where string
 	err   error
 }
@@ -157,28 +161,52 @@ func (m Model) Init() tea.Cmd {
 }
 
 // busy says something is in motion: the run reads the lists, or a review
-// is running. The spinner turns only then.
+// or a task is running. The spinner turns only then.
 func (m Model) busy() bool {
 	if m.snap.Looking {
 		return true
 	}
-	for _, job := range m.snap.Jobs {
-		if job.State == engine.JobRunning || job.State == engine.JobFinishing {
+	for _, job := range append(slices.Clone(m.snap.Jobs), m.snap.Tasks...) {
+		switch job.State {
+		case engine.JobRunning, engine.JobFinishing, engine.JobPreparing:
 			return true
 		}
 	}
 	return false
 }
 
-// alive counts the reviews a quit would cut short or never start.
+// alive counts the reviews and tasks a quit would cut short or never
+// start.
 func (m Model) alive() int {
-	n := 0
+	reviews, tasks := m.aliveEach()
+	return reviews + tasks
+}
+
+func (m Model) aliveEach() (reviews, tasks int) {
 	for _, job := range m.snap.Jobs {
 		if !job.State.Settled() {
-			n++
+			reviews++
 		}
 	}
-	return n
+	for _, job := range m.snap.Tasks {
+		if !job.State.Settled() {
+			tasks++
+		}
+	}
+	return reviews, tasks
+}
+
+// aliveWords is what a quit would stop: "2 reviews", "1 task", or "3 jobs"
+// when it is both.
+func (m Model) aliveWords() string {
+	reviews, tasks := m.aliveEach()
+	switch {
+	case tasks == 0:
+		return words.Count(reviews, "review")
+	case reviews == 0:
+		return words.Count(tasks, "task")
+	}
+	return words.Count(reviews+tasks, "job")
 }
 
 // waitForChange blocks until the engine has a newer snapshot and delivers
@@ -201,7 +229,7 @@ func (m Model) reviews() []reviewRow {
 
 func (m Model) rows(t tab) []listRow {
 	if t == tabMine {
-		return mineRows(m.snap.Mine)
+		return mineListRows(mineRowsOf(m.snap), m.snap.Babysit, m.now, m.spin.View())
 	}
 	return reviewListRows(m.reviews(), m.now, m.spin.View())
 }

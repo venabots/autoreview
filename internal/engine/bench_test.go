@@ -156,6 +156,8 @@ type setup struct {
 	reviewer *reviewer
 	// marks is the reaction, or nil.
 	marks Marks
+	// deps changes the outside world further, for a test that needs it.
+	deps func(*Deps)
 	// list replaces the fixed list of prs, for a test whose PRs change
 	// between looks.
 	list func() (prs.Listing, error)
@@ -224,6 +226,9 @@ func newBench(t *testing.T, s setup) *bench {
 			b.events = append(b.events, ev)
 			b.mu.Unlock()
 		},
+	}
+	if s.deps != nil {
+		s.deps(&deps)
 	}
 	b.eng = New(cfg, deps)
 	go func() { b.results <- b.eng.Run() }()

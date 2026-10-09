@@ -48,7 +48,11 @@ const tabGap = "  "
 // tabLabels names both tabs, each with how many PRs it holds. A list that
 // has not been read has no count: "0" would say there are none.
 func tabLabels(s *engine.Snapshot) (review, mine string) {
-	return tabLabel("Review", len(s.Reviews), s.Looked), tabLabel("My PRs", len(s.Mine), s.MineLooked)
+	mine = tabLabel("My PRs", len(s.Mine), s.MineLooked)
+	if n := len(s.Babysit.Listed(s.Mine)); n > 0 {
+		mine = fmt.Sprintf("%s· babysitting %d ", mine, n)
+	}
+	return tabLabel("Review", len(s.Reviews), s.Looked), mine
 }
 
 func tabLabel(name string, n int, counted bool) string {

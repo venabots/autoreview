@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/venabots/autoreview/internal/review"
+	"github.com/venabots/autoreview/internal/task"
 )
 
 // JobState is where one review stands.
@@ -24,6 +25,8 @@ const (
 	JobFailed
 	// JobTimedOut means the review ran past its time limit and was stopped.
 	JobTimedOut
+	// JobPreparing means a task's worktree is being made.
+	JobPreparing
 )
 
 // Settled says the review has an end state and nothing more will change.
@@ -34,7 +37,9 @@ func (s JobState) Settled() bool {
 // Job is one review as a reader sees it. The engine publishes these in
 // each snapshot. Like the snapshot, a published Job is never changed.
 type Job struct {
-	PR     int
+	PR int
+	// Task is the work: a review, or a task on one of your own PRs.
+	Task   task.Kind
 	Title  string
 	Author string
 	State  JobState
@@ -74,6 +79,11 @@ type Job struct {
 	// reviews.
 	Follow        string
 	FollowFromEnd bool
+	// Worktree is where a task runs. Kept says why it was kept after the
+	// task, "uncommitted changes" or "commits that are not pushed", or is
+	// empty when it was removed.
+	Worktree string
+	Kept     string
 	// Stderr is the file the reviewer writes its stderr to. FollowStderr
 	// says it is the only live record: an override keeps no transcript.
 	Stderr       string

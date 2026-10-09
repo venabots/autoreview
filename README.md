@@ -16,7 +16,12 @@ good.
 - **Review** lists the open PRs in the repo and says where each one stands:
   ready, held for CI, held under another PR, seen, or approved.
 - **My PRs** lists your own open PRs and says what blocks each one:
-  conflicts, failing CI, requested changes, open threads.
+  conflicts, failing CI, requested changes, open threads. `f` fixes the
+  selected PR once, `c` answers its review comments and `u` fixes its
+  conflicts, each in a worktree of its own. `b` babysits it: it is fixed
+  again each time it changes and needs work. `B` babysits all of them.
+  These run the `babysit-pr`, `pr-comment-handler` and `sync-main` skills
+  you have installed.
 
 `autoreview stats` reports how each panelist model has done. It reads the
 same ledger as version 1.
@@ -55,7 +60,8 @@ scripts/sandbox.sh --headless   # one plain pass
 ```
 
 Nothing reaches GitHub and no agent runs. The top of the script lists the
-variables that change what the fakes do.
+variables that change what the fakes do. The sandbox has an origin with your
+PR's branch, so the My PRs keys work there too.
 
 ## Develop
 

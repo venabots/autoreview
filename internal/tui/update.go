@@ -10,6 +10,7 @@ import (
 
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/sanitize"
+	"github.com/venabots/autoreview/internal/task"
 	"github.com/venabots/autoreview/internal/words"
 )
 
@@ -122,13 +123,30 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 	case intentOpen:
 		return m.opening()
 	case intentResume:
+		if m.tab == tabMine {
+			return m.resumingTask()
+		}
 		return m.resuming()
 	case intentReviewNow:
 		return m.reviewNow(), nil
 	case intentStop:
+		if m.tab == tabMine {
+			return m.stopTaskPressed(), nil
+		}
 		return m.stopPressed(), nil
 	case intentFocus:
+		if m.tab == tabMine {
+			return m.taskPressed(task.Fix), nil
+		}
 		return m.focusOpened()
+	case intentComments:
+		return m.taskPressed(task.Comments), nil
+	case intentConflicts:
+		return m.taskPressed(task.Conflicts), nil
+	case intentBabysit:
+		return m.babysitPressed(), nil
+	case intentBabysitAll:
+		return m.babysitAllPressed(), nil
 	case intentWatch:
 		return m.watchToggled(), nil
 	case intentQuit:
@@ -208,28 +226,20 @@ func (m Model) resuming() (tea.Model, tea.Cmd) {
 		return m.flashed(fmt.Sprintf("PR #%d's review has no session to resume", row.pr)), nil
 	}
 	command := m.act.ResumeCommand(m.snap.Repo.Root, job.Orchestrator.ReopenCommand(job.Session))
-	label := fmt.Sprintf("PR %d Resume", row.pr)
-	openTab := m.act.OpenTab
-	launch := func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
-		defer cancel()
-		where, err := openTab(ctx, label, command)
-		return resumedMsg{pr: row.pr, where: where, err: err}
-	}
-	return m.flashed(fmt.Sprintf("opening PR #%d's review in a new tab", row.pr)), launch
+	return m.flashed(fmt.Sprintf("opening PR #%d's review in a new tab", row.pr)), m.openTab(row.pr, "review", command)
 }
 
 func resumedText(msg resumedMsg) string {
 	if msg.err != nil {
-		return fmt.Sprintf("could not reopen PR #%d's review: %s", msg.pr, sanitize.Line(msg.err.Error()))
+		return fmt.Sprintf("could not reopen PR #%d's %s: %s", msg.pr, msg.what, sanitize.Line(msg.err.Error()))
 	}
-	return fmt.Sprintf("opened PR #%d's review in a new %s tab", msg.pr, msg.where)
+	return fmt.Sprintf("opened PR #%d's %s in a new %s tab", msg.pr, msg.what, msg.where)
 }
 
 // reviewNow asks for a review of the selected PR, whatever holds it.
 func (m Model) reviewNow() Model {
 	if m.tab == tabMine {
-		return m.flashed("the run reviews other people's work; your own PRs are handled from keys that come later")
+		return m.flashed("R reviews other people's work; f fixes your own PR")
 	}
 	row, ok := m.selectedReview()
 	switch {
@@ -271,11 +281,7 @@ func (m Model) quitPressed() (tea.Model, tea.Cmd) {
 		return m.quit()
 	}
 	m.armed = confirm{kind: confirmQuit, at: m.now}
-	reviews := "reviews"
-	if alive == 1 {
-		reviews = "review"
-	}
-	return m.flashed(fmt.Sprintf("press q again to stop %d %s and quit", alive, reviews)), nil
+	return m.flashed(fmt.Sprintf("press q again to stop %s and quit", m.aliveWords())), nil
 }
 
 // quit asks the engine to end the run and waits for it to say it has. The
