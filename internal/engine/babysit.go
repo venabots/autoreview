@@ -18,22 +18,31 @@ type Babysit struct{ Change babysit.Change }
 func (Babysit) input()   {}
 func (Babysit) command() {}
 
+// refusals says why each kind of task cannot run in this run. It is
+// worked out once: the skills are looked for on disk.
+func (e *Engine) refusals() map[task.Kind]string {
+	out := map[task.Kind]string{}
+	for _, k := range []task.Kind{task.Fix, task.Comments, task.Conflicts} {
+		switch {
+		case e.cfg.NoPost:
+			out[k] = "--no-post leaves every PR alone"
+		case e.deps.TaskRefusal != nil:
+			out[k] = e.deps.TaskRefusal(k)
+		}
+	}
+	return out
+}
+
 // refusal says why a task of kind k cannot run in this run, or is empty.
 func (e *Engine) refusal(k task.Kind) string {
-	switch {
-	case e.cfg.NoPost:
-		return "--no-post leaves every PR alone"
-	case e.deps.TaskRefusal != nil:
-		return e.deps.TaskRefusal(k)
-	}
-	return ""
+	return e.Snapshot().Refusals[k]
 }
 
 // setBabysit applies a change. Turning babysitting on is refused for any
 // reason a fix would be: every look would otherwise start a fix that is
 // refused, and say so.
 //
-// A PR turned on is looked at once at once, from the last list, so a PR
+// A PR turned on is looked at straight away, from the last list, so a PR
 // that needs work now does not wait a whole interval for its first fix.
 func (e *Engine) setBabysit(w workers, r run, c babysit.Change) run {
 	if why := e.refusal(task.Fix); c.On && why != "" {

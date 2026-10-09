@@ -8,6 +8,7 @@ import (
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/queue"
 	"github.com/venabots/autoreview/internal/repo"
+	"github.com/venabots/autoreview/internal/task"
 )
 
 // Phase is what the run is doing with reviews. Reading the PR lists is a
@@ -69,6 +70,10 @@ type Snapshot struct {
 	Tasks []Job
 	// Babysit is which of your PRs are babysat, and what each has had.
 	Babysit babysit.State
+	// Refusals says, for each kind of task, why it cannot run in this run.
+	// It is worked out once when the run starts and is never changed, so
+	// the view can refuse a key before it sends anything.
+	Refusals map[task.Kind]string
 	// Focus is what the reviewers are told to look at, or empty.
 	Focus string
 	// Watching says the run reviews what becomes ready at each look.

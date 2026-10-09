@@ -164,7 +164,7 @@ func New(cfg Config, deps Deps) *Engine {
 	e := &Engine{cfg: cfg, deps: deps, in: newInbox(), changed: make(chan struct{}, 1)}
 	e.current.Store(&Snapshot{
 		Phase: Idle, Looking: true, Repo: cfg.Repo, Watch: cfg.Watch, RunDir: deps.Run.Root, Focus: cfg.Focus,
-		Watching: cfg.Watching, Rest: cfg.Rest,
+		Watching: cfg.Watching, Rest: cfg.Rest, Refusals: e.refusals(),
 	})
 	return e
 }
