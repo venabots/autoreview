@@ -1,0 +1,629 @@
+---
+name: recheck-pr
+description: >
+  Re-check a PR you already reviewed: for each finding from the prior
+  review, decide whether it was actually remediated (read the new code —
+  don't trust "fixed in abc123") or adequately explained, reply to and
+  resolve the threads you're satisfied with, run a fresh `panel-review`
+  over the new commits when the delta warrants it, and submit ONE review
+  for the round: an approval when satisfied, a request for changes when a
+  blocking finding is still open, a comment review when no decision is
+  possible. Use for "double check this PR", "recheck PR
+  27", "did they fix the issues?", "look at it again and stamp it if it's
+  good", "verify they addressed the review comments". Also use
+  proactively after a `panel-review` /
+  `auto-review` when the author pushes fixes. Requires the prior review in
+  this session's context — without it, stop and say so rather than
+  guessing. Do NOT use to *generate* a first review (`panel-review`), to
+  post findings (`auto-post-panel-review-comments`), to act on comments as
+  the PR *author* (`pr-comment-handler`), to iterate to convergence
+  (`panel-review-loop`), or to approve without re-checking (`approve-pr`).
+---
+
+# recheck-pr
+
+The second look. A panel reviewed the PR, the findings landed as one
+review, the author pushed fixes and argued back on a couple. Now you go
+read what actually changed and decide: is this good enough to stamp? The
+round ends in **one review** that says so.
+
+```
+prior findings (in context)
+      │
+      ├─► head == reviewed SHA and no new replies?  ─yes─►  "Nothing changed." stop.
+      │
+      ├─► adjudicate each: remediated / explained / moot / outstanding
+      │       (read the new code — a reply saying "fixed" is a claim, not evidence)
+      │
+      ├─► delta significant?  ─yes─►  panel-review over the new commits
+      │
+      ├─► thread hygiene: reply + resolve the ones you're satisfied with
+      │
+      └─► one review, last:  gate passes         ─►  approve
+                             a finding blocks    ─►  request changes
+                             no decision         ─►  comment
+```
+
+You are the **reviewer** here, not the author. You read code, reply to
+threads, and submit a review. You do **not** fix the author's code, commit, or
+push — if a finding is still outstanding, that's the author's work, and
+your job is to say so clearly and leave the thread open.
+
+## Language
+
+Write every word that lands on GitHub in ASD-STE100 Simplified Technical
+English — each thread reply, each new inline comment, and the review
+body.
+
+- Write short sentences. Keep an instruction to 20 words. Keep a
+  statement to 25 words.
+- Put one idea in each sentence.
+- Use the active voice. Write "the retry path bypasses the guard", not
+  "the guard is bypassed by the retry path".
+- Use simple tenses. Write "the test fails", not "the test has been
+  failing".
+- Use one word for one meaning. Do not change "function" to "method" to
+  "routine" in the same text.
+- Use the simplest word that is correct. Remove jargon, idioms,
+  metaphors, and figures of speech.
+- Do not make a noun out of a verb. Write "when the job starts", not "at
+  job initiation".
+- Keep a paragraph to six sentences or fewer.
+
+An outstanding reply has to tell the author exactly what to do next.
+`The retry path at line 88 still bypasses the guard.` does that in one
+sentence; a paragraph of hedging does not.
+
+## Prerequisite: the prior review must be in context
+
+This skill re-checks a review that already happened. It needs two things
+from this session's context:
+
+1. **The findings** — the `panel-review` synthesis (buckets + severities +
+   `file:line`), the `auto-review` run that posted them, or a findings list
+   the user pasted.
+2. **The reviewed SHA** — the head the review ran against.
+
+If the findings aren't in context, **stop and say so.** Don't reconstruct a
+baseline by reading whatever unresolved comments happen to be on the PR:
+those may be someone else's review, a bot's, or a subset of what the panel
+actually said, and silently re-checking against the wrong baseline produces
+an approval that means nothing. Tell the user the prior review isn't in
+context and offer the two real options: paste the review, or run a fresh
+`panel-review` / `auto-review`.
+
+The reviewed SHA is the one recoverable piece. If the findings are in
+context but the SHA isn't, take it from the `original_commit_id` of the
+review comments the prior run posted (`gh api
+"repos/{owner}/{repo}/pulls/<N>/comments" --jq '.[].original_commit_id'`)
+— they were anchored to it. If that turns up nothing either, stop: without
+a reviewed SHA there is no delta to check, and re-reading the whole PR is a
+fresh review, not a re-check.
+
+`auto-post-panel-review-comments` must also be installed: the round's
+review is submitted the way that skill submits one. `approve-pr` is needed
+for the follow-up after an approval. `panel-review` is needed only if the
+delta turns out to be significant.
+
+## Target
+
+Resolve the PR once, up front, and reuse it throughout:
+
+```bash
+gh pr view <ref> --json number,url,title,author,state,isDraft,headRefOid,headRefName
+```
+
+Auto-detect from the current branch when the user didn't name one. Surface
+`PR #N — <title> — <url>` before doing anything outward-facing, so a wrong
+auto-detect is caught before a resolve or a review notification goes out.
+
+If the PR is `MERGED` or `CLOSED`, stop and say so — there's nothing to
+re-check or review.
+
+## Fast path: nothing changed
+
+**Do this before anything else.** Most re-checks are asked for prematurely —
+the author hasn't pushed yet. Detect that in two cheap calls and get out.
+
+```bash
+gh pr view <ref> --json headRefOid --jq '.headRefOid'   # NEW
+scripts/fetch_pr_threads.sh <pr>
+```
+
+Exit immediately when **both** hold:
+
+- `NEW` equals the reviewed SHA (`OLD`) — no code was pushed.
+- No unresolved thread of yours has a reply you haven't seen — i.e. every
+  one is `has_reply: false`, or `last_author` is you. Nothing was argued.
+
+There is nothing to adjudicate: no new code, no new argument. Don't rebuild
+the ledger, don't diff, don't re-read the PR, don't reply, don't resolve,
+don't submit a review. Your last review still says what you think. Say it
+in one line, add the decision line, and stop:
+
+```
+PR #61 — nothing changed since aaaa1111. 2 findings still open.
+
+DECISION: No action
+```
+
+Name the open count so the user knows the state without asking. If the PR
+was already fully satisfied at `OLD` but you never approved it, put that
+on the first line instead (`nothing changed; 0 open — rerun with approval
+intent to stamp it`) rather than silently approving off a stale read. The
+`DECISION: No action` line stays.
+
+Anything else — a push (`NEW != OLD`), or a reply you haven't adjudicated —
+means there's real work, so fall through to the full pass below.
+
+## The pass
+
+### 1. Rebuild the ledger
+
+Write down every finding from the prior review as a row: severity,
+`file:line`, the one-line claim, and the thread it was posted to (if it was
+posted). Status starts as `UNKNOWN` for all of them. This ledger is the
+spine of the whole pass — the gate reads it, and the report prints it.
+
+Fetch the threads (the script exists because REST doesn't expose per-thread
+`isResolved`, and reply chains have to be reconstructed from a flat list):
+
+```bash
+scripts/fetch_pr_threads.sh <pr>
+```
+
+It emits every review thread — resolved ones included, because you need to
+know which to leave alone — with `is_resolved`, the reply chain, and three
+precomputed flags per thread: `mine` (you authored the first comment),
+`has_reply` (someone replied after it), and `last_author`. Match each
+finding to its thread by `path` + `line` + the comment body.
+
+Findings that were never posted (routed to Linear, or reported to the user
+only) still belong in the ledger. They just have no thread, so step 5 skips
+them.
+
+### 2. Get the delta
+
+The reviewed SHA is `OLD`; the current head is `NEW`.
+
+```bash
+gh api "repos/{owner}/{repo}/compare/${OLD}...${NEW}" \
+  --jq '{status, ahead_by, behind_by, files: [.files[] | {filename, additions, deletions, status}], commits: [.commits[] | {sha: .sha[0:8], message: .commit.message}]}'
+```
+
+`status` is the important field:
+
+- `ahead` — the author pushed on top of what you reviewed. This is the
+  normal case: the delta is exactly `ahead_by` commits, and it's the only
+  code nobody has reviewed.
+- `identical` — nothing was pushed, so you only got here because the author
+  replied. Skip the diff entirely: adjudicate those replies (step 3, the
+  EXPLAINED path) and nothing else. Findings nobody argued are still
+  outstanding.
+- `diverged` — the author rebased or force-pushed, so `OLD` is no longer an
+  ancestor. You can still read the compare's file list, but it now includes
+  base-branch churn, and there is **no clean delta to isolate**. Treat this
+  as a re-review trigger (see step 4) and say why in the report.
+
+Then read the actual changes. `gh pr diff <N>` for the whole PR; for the
+delta specifically, the compare above already carries per-file stats, and
+`gh api "repos/{owner}/{repo}/compare/${OLD}...${NEW}" -H "Accept:
+application/vnd.github.diff"` gives you the patch.
+
+### 3. Adjudicate each finding
+
+For each ledger row, assign exactly one status. The rule that matters:
+**the code is the evidence; the reply is a claim.** "Fixed in abc1234"
+tells you where to look, not that it's fixed.
+
+- **REMEDIATED** — you read the new code at the site and the problem is
+  genuinely gone. Note the commit that did it. A fix that handles the
+  reported case but leaves the same bug one call site over is **not**
+  remediated; it's outstanding, and saying so is the whole value of a
+  second look.
+- **EXPLAINED** — the author pushed back and, having checked the code
+  yourself, the pushback holds. "There's a guard upstream in `router.ts:40`"
+  is only an explanation once you've opened `router.ts:40`. An explanation
+  you can't substantiate is outstanding, not explained.
+- **MOOT** — the code the finding referred to no longer exists (deleted,
+  rewritten around) and the concern doesn't apply to what replaced it.
+  Confirm that last clause; a rewrite that carries the bug forward is
+  outstanding.
+- **OUTSTANDING** — not fixed, not explained, partially fixed, or an
+  explanation that didn't survive contact with the code.
+
+Two things the baseline doesn't cover, both of which you own:
+
+- **New problems in the delta.** The fixes are new, unreviewed code and can
+  introduce their own bugs. Anything you find gets added to the ledger as a
+  `NEW` row at your own severity. This is a real finding, not a nitpick —
+  it blocks the gate exactly like an outstanding one.
+- **Findings the delta made obsolete or relevant.** A refactor in the delta
+  can resurrect a finding you'd marked moot, or moot one you'd marked
+  outstanding. Re-read, don't carry statuses forward mechanically.
+
+Don't re-litigate settled ground. A finding the author explained in a way
+you accepted stays accepted; you're checking remediation, not running the
+review again from scratch.
+
+### 4. Decide whether the panel needs to see the delta
+
+Here's the honest framing: **the panel reviewed `OLD`. Nobody has reviewed
+the delta.** So the question isn't "was the change big?" — it's _"is the
+delta small and legible enough that me reading it in step 3 counts as
+adequate review?"_
+
+Read it yourself and re-run `panel-review` when the answer is no. Signals
+that it's no:
+
+- The delta does more than the fixes you asked for — new behavior, a
+  refactor carried along, unrelated cleanup.
+- Any fix is a **structural rework** (the approach changed, logic moved
+  across layers) rather than a local patch. A rework is a new design, and a
+  new design deserves independent eyes.
+- The delta reaches into risk-carrying surface: auth, payments, migrations,
+  dependency or lockfile changes, CI config, anything touching secrets.
+- It's simply large. Somewhere north of ~150 changed lines or ~5 files,
+  your own read stops being a substitute for a panel — treat those as a
+  soft threshold, not a rule, and weigh legibility over raw count (a
+  400-line codemod can be more legible than a 40-line concurrency fix).
+- `compare` came back `diverged` — you can't isolate what's new, so you
+  can't claim to have read it.
+
+When the delta is a handful of targeted, mechanical fixes to the exact
+lines the panel flagged, and you've read them, don't burn a fan-out. Say in
+the report that you skipped it and why.
+
+**Running the re-review over the delta.** `panel-review --base <ref>` diffs
+`<ref>...HEAD` using _local_ `HEAD`, so the PR's new head must be checked
+out first:
+
+```bash
+gh pr checkout <N>            # requires a clean working tree
+panel-review --base <OLD>     # invoke the skill; it drives panel-review.sh
+```
+
+If the working tree is dirty, **stop and say so** rather than stashing or
+checking out on the user's behalf — that can silently lose work.
+
+If `compare` said `diverged`, `--base <OLD>` will quietly walk back to the
+merge base and review the _entire_ PR instead of the delta. That's not
+wrong, just wider than advertised — so in that case review `--pr <N>`
+deliberately and tell the user the delta couldn't be isolated.
+
+Invoke the `panel-review` **skill**, don't hand-roll its fan-out. Fold its
+findings into the ledger as `NEW` rows and adjudicate them like any other.
+This is **one** extra round, not a loop: if the fresh panel surfaces
+must-fix or should-fix findings, they go into this round's review, which
+then requests changes. Point the user at `panel-review-loop` if they want
+iteration to convergence.
+
+### 5. Thread hygiene
+
+**First, check that the round can submit its review.** Before the first
+reply or resolve, make the pending-review check that
+`auto-post-panel-review-comments` defines under "Submit". When you have a
+pending review on this PR, stop here: reply to nothing, resolve nothing,
+and report that the pending review must be submitted or discarded first.
+A round that replies and resolves and then cannot submit its verdict
+leaves the threads closed and the PR with no review.
+
+Then close the loop on the PR so the author can see what you accepted,
+without adding noise. Do this **before** the review in step 6: a reply
+belongs to the thread it answers, and the review must be the last thing
+the round posts. Four rules, applied per thread:
+
+- **Only touch threads that are yours.** Resolve nothing you didn't open
+  (`mine: false`). Another reviewer's thread is theirs to close, and a bot's
+  thread isn't yours to speak for.
+- **Already resolved → leave it entirely alone.** No reply, no re-resolve.
+- **Satisfied (REMEDIATED / EXPLAINED / MOOT) → resolve it.** Reply first
+  _only if the thread has no reply yet_ (`has_reply: false`) — a short
+  confirmation, one line: `Confirmed fixed in abc1234.` If the author
+  already replied, the resolve _is_ your acknowledgment; a "thanks,
+  confirmed" on top of it is noise. Never stack a second reply under your
+  own.
+- **Outstanding → never resolve.** Reply once, saying specifically what's
+  still missing (`The retry path at line 88 still bypasses the guard.`), so
+  the author isn't guessing. Skip the reply only if your own comment is
+  already the last word on the thread — repeating yourself doesn't help.
+
+```bash
+# reply (heredoc so markdown and newlines survive)
+gh api --method POST \
+  "repos/{owner}/{repo}/pulls/<N>/comments/<parent.database_id>/replies" \
+  -f body="$(cat <<'EOF'
+Confirmed fixed in abc1234.
+EOF
+)"
+
+# resolve (needs thread_id, not a comment id)
+gh api graphql -F threadId="<thread_id>" -f query='
+  mutation($threadId: ID!) {
+    resolveReviewThread(input: { threadId: $threadId }) {
+      thread { isResolved }
+    }
+  }'
+```
+
+### 6. Submit the round's review
+
+Every full pass ends in **one review**, and it is the last thing you post.
+Evaluate the gate below, then choose the event. Apply the rules in order.
+The first rule that matches wins:
+
+1. `COMMENT` — **no verdict is possible on this PR.** It is your own PR
+   (gate 5), or it is a draft (gate 4).
+2. `COMMENT` — **the head moved** since you adjudicated (gate 6).
+3. `REQUEST_CHANGES` — **a finding blocks.** A row above polish (CRITICAL,
+   HIGH or MEDIUM) is `OUTSTANDING` or `NEW`, or the delta has a
+   substantiated questionable-approach flag.
+4. `APPROVE` — **the gate passes.**
+5. `COMMENT` — **no decision.** Nothing above polish is open, but the gate
+   failed: the delta needed a panel that did not run or did not return
+   (gate 3), or only polish rows are still open (gate 1).
+
+**What goes in the review.** Every row with the status `NEW` is an inline
+comment in the review, at its `file:line`. An `OUTSTANDING` row that has a
+thread is not posted again: step 5 replied on it. An `OUTSTANDING` row
+with no thread (the first review put it in its body, or never posted it)
+goes into this review's body as a `**Location:**` block, so the reason for
+a request is always visible on the PR.
+
+Build and submit the review the way `auto-post-panel-review-comments`
+does — its "The review" section owns the payload, the comment body shape,
+the check that each line can take an inline comment, and what to do when
+GitHub rejects the review. (Step 5 already made its pending-review check.)
+Hand it five things: the rows with the status `NEW` as the findings, the
+event, the body lines below, the pinned `commit_id`, and — with an
+`APPROVE` or a `REQUEST_CHANGES` event — the head-moved line from the
+table below, which it uses when the head moves before the submit.
+
+**The pinned commit is always the head SHA that you adjudicated** — the
+40-character SHA that step 2 calls the new head. It is never the word
+`NEW`, and it is never a head that the author pushed after you read the
+code. When the head moved (rule 2), the review still pins the SHA that you
+looked at.
+
+**The body.** You write all of it and hand it over; the first line is
+fixed:
+
+| Verdict                        | First line of the body                                                  |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| Approve                        | the user's message; otherwise see below                                 |
+| Request changes                | `This PR still needs changes.`                                          |
+| Comment: your own PR           | `No decision: this is my own PR.`                                       |
+| Comment: draft                 | `No decision: this PR is a draft.`                                      |
+| Comment: head moved            | `No decision: the head moved during the re-check. I looked at <sha7>.`  |
+| Comment: delta not reviewed    | `No decision: the new commits need a panel review, and it did not run.` |
+| Comment: one polish row open   | `No decision: 1 optional comment is still open.`                        |
+| Comment: more polish rows open | `No decision: <n> optional comments are still open.`                    |
+
+- An approval with no user message takes `LGTM, just some small comments,
+nothing blocking` when the review has inline comments. With none, take a
+  short body from `approve-pr`'s list of defaults.
+- Under `This PR still needs changes.`, add one line for each
+  `OUTSTANDING` row above polish that has a thread: the link to its
+  thread, then what is still missing, in one sentence. The rows with the
+  status `NEW` are inline in this review and need no line. This is a list
+  of what is open, not a recap of the re-check: no ledger, no counts, no
+  remediated rows.
+- When a comment review follows a round in which the author fixed every
+  blocking finding, add `The changes I asked for are in.` after the first
+  line.
+
+**Withdraw a request you no longer make.** A comment review does not
+replace your earlier request for changes; GitHub keeps it in force. So
+dismiss your earlier request before you submit (see
+`auto-post-panel-review-comments`, "Withdrawing your earlier request for
+changes"; GitHub can refuse it, and the round continues when it does)
+when all three hold:
+
+- The event is `COMMENT` because the PR is a draft (rule 1), or because
+  only polish rows are still open (rule 5).
+- No row above polish is `OUTSTANDING` or `NEW`.
+- The delta did not need a panel, or the panel ran and returned.
+
+Do not withdraw it under rule 2: you have not read the current head. Do
+not withdraw it when the delta needed a panel that did not run: you judged
+that your own read of those commits is not enough, so you cannot say that
+the request is satisfied.
+
+**When there is nothing to post, post nothing**: your own PR with no `NEW`
+row to post, or a comment review that would repeat your last one at the
+same commit. The last line is then `DECISION: No action`, or
+`DECISION: Comment` when step 5 posted a reply (see step 7).
+
+**After an approval**, invoke the `approve-pr` skill and tell it the
+approval already landed. It does its follow-up (the Slack reaction) and
+does not submit a second review.
+
+### 7. Report
+
+```
+Recheck of PR #N — <title> — <url>
+Reviewed at <OLD> -> now <NEW> (<status>, <n> commits, <k> files, +a/-b)
+
+Remediated (n):
+  - [SEV] file:line — the finding — fixed in <sha>: what the fix does
+Explained (n):
+  - [SEV] file:line — the finding — the author's argument, and what you
+    checked that convinced you
+Moot (n):
+  - [SEV] file:line — the finding — why it no longer applies
+Outstanding (n):
+  - [SEV] file:line — the finding — exactly what is still missing
+New (n):
+  - [SEV] file:line — a problem in the delta (yours, or from the re-review)
+
+Panel re-review: skipped (<why>) | ran (<risk>, <bucket counts>)
+Threads: <n> resolved, <n> replied, <n> left open, <n> skipped (already resolved)
+Review: approved <url> with "<body>" | changes requested <url> | commented <url> — <why there is no decision> | none — <why>
+
+DECISION: <verdict>
+```
+
+Keep **Explained** honest — record what you _checked_, not just what the
+author _said_. That line is how the user audits whether your second look
+was real. Same for **Outstanding**: name the specific gap, because the
+author is going to read it and needs to act on it.
+
+The `DECISION:` line is the last line of the reply, on its own. Nothing
+follows it except a machine trailer the caller's system prompt asks for.
+The line says which review you submitted, one of four fixed strings:
+
+1. `DECISION: Approve` — you submitted an approving review.
+2. `DECISION: Request changes` — you submitted a review that requests
+   changes.
+3. `DECISION: Comment` — you submitted a comment review: no decision. Also
+   when you submitted no review but step 5 posted a reply: GitHub records
+   a thread reply as a comment review, so that is what landed.
+4. `DECISION: No action` — nothing of yours landed on the PR: the fast
+   path found nothing changed, a stop before step 5 (no prior review in
+   context, a merged or closed PR, a dirty working tree, a pending
+   review), a dry run, or a round with nothing to post and no reply.
+
+Put no reason on the line; the **Review** line and the ledger above are
+the reason. A reader who scrolls to the end gets the answer. A caller that
+reads only the last line gets the same one. When `pr-review-tab` drives
+this skill, the tab's one-line outcome goes above the line, and the line
+stays last.
+
+## The approval gate
+
+Approve only if **every one** of these holds:
+
+1. **Nothing outstanding.** Every baseline finding is REMEDIATED,
+   EXPLAINED, or MOOT. Zero `OUTSTANDING`.
+2. **Nothing new blocking.** No `NEW` row rises above polish — neither from
+   your own read of the delta nor from the fresh panel, and no substantiated
+   questionable-approach flag. A wrong-layer fix doesn't get stamped just
+   because every line-level finding is LOW.
+3. **The delta was actually reviewed.** If step 4 said the delta needed a
+   panel, the panel **ran and returned**. You cannot skip the re-review and
+   then approve off your own read — that's the judgment call step 4 already
+   made against you.
+4. **Not a draft.** `gh pr view <ref> --json isDraft --jq '.isDraft'` is
+   false. `gh pr review --approve` succeeds on drafts, but a draft is the
+   author saying "not ready".
+5. **Not your own PR.** Compare `gh api user --jq '.login'` against the PR
+   author. GitHub rejects a self-approval; don't attempt it.
+6. **Head unchanged since you started.** Re-fetch `headRefOid` immediately
+   before approving and confirm it still equals the `NEW` you adjudicated.
+   If the author pushed while you were reading, the current head is
+   unreviewed — withhold and say a re-check is needed.
+
+Conditions 4-6 have no thread to leave a comment on; the first line of
+the review body names them. Conditions 1-3 always correspond to something
+the author can see: an open thread, or a `NEW` finding you must surface —
+it is an inline comment in the round's review, at its `file:line` (or a
+block in the review body if it has none). A request for changes whose
+reason isn't visible on the PR is a silent block.
+
+A failed gate does not always mean a request for changes. Step 6 has the
+rule: a finding above polish blocks; everything else is "no decision".
+
+## Gotchas
+
+- **No push, no argument, no work.** Check the head SHA first and bail in
+  one line. A re-check asked for before the author pushed should cost two
+  API calls, not a full re-read of the PR — and it should not produce a
+  report, a resolve, or an approval.
+- **"Fixed in abc1234" is a claim.** The single most common failure of a
+  re-check is trusting the reply. Open the file at the new SHA. Half-fixes
+  and fixes-at-the-wrong-site both look exactly like fixes from the thread.
+- **Partial remediation is outstanding.** If the finding was "no validation
+  on quantity" and the author validated `quantity` but not `refundQuantity`
+  three lines down, the thread stays open. Being the second look means
+  catching precisely this.
+- **The delta is unreviewed code.** Fixes introduce bugs. Nobody — not the
+  panel, not the author's own reviewers — has looked at the commits pushed
+  since `OLD`. That's why step 4 exists, and why `NEW` findings block the
+  gate.
+- **Force-pushes hide the delta.** A `diverged` compare means you can't
+  isolate what's new. Don't paper over it by diffing against the base
+  branch and calling it a delta; re-review the whole PR and say so.
+- **Resolve only your own threads.** Resolving another reviewer's thread
+  speaks for them. Resolving a bot's thread hides signal from a human who
+  hasn't looked yet.
+- **Don't fix the code.** You're the reviewer. An outstanding finding gets
+  a reply, not a commit. (If the user actually wants the fixes made, that's
+  `pr-comment-handler` — a different skill, run from the author's side.)
+- **One extra round, not a loop.** A fresh panel that surfaces must-fixes
+  ends this skill: request changes, report and stop. Iterating to
+  convergence is `panel-review-loop`.
+- **One review, and it comes last.** Reply and resolve first, then submit
+  the review. GitHub and the tools that read the PR back take your latest
+  review as the round's verdict, and a thread reply can register as a
+  small comment review of its own. A reply after the review can hide the
+  verdict behind it.
+- **A new comment goes in the review, a reply goes on its thread.** Never
+  post a `NEW` finding as a standalone comment, and never repeat an
+  outstanding finding as a new comment.
+- **A request for changes stays until you lift it.** On a branch that
+  requires reviews it blocks the merge until you approve or the review is
+  dismissed. When the author fixed what
+  you asked for and you still cannot approve, withdraw it (step 6). A PR
+  blocked on a request you no longer make is the failure to avoid.
+- **Same PR throughout.** Resolve it once (Target) and reuse it. Don't
+  re-detect per step; the branch can drift, and a stray `gh pr view` in a
+  worktree resolves differently.
+- **A review is outward-facing.** It notifies the author. An approval can
+  unblock a merge, and a request for changes blocks one. The user invoking
+  this skill with approval intent is the authorization, but surface the PR
+  first and re-check the head SHA last.
+
+## Dry-run mode
+
+If the user asks for a dry run, or sets `RECHECK_PR_DRY_RUN=1`, do all the
+reading (it's read-only) but reply to nothing, resolve nothing, and submit
+no review. The fast path still short-circuits first — a no-op re-check
+writes no files. Otherwise write:
+
+- `./recheck.json` — the ledger plus the verdict. `event` is the review
+  event (`"APPROVE"`, `"REQUEST_CHANGES"`, `"COMMENT"`, or `null` when no
+  review would be submitted), `body` is the review body or `null`, and
+  `review_comments` holds the inline comments for the `NEW` rows:
+
+  ```json
+  {
+    "pr": 61,
+    "reviewed_sha": "aaaa1111",
+    "head_sha": "bbbb2222",
+    "compare_status": "ahead",
+    "findings": [
+      {
+        "severity": "HIGH",
+        "location": "src/charges/idempotency.ts:42",
+        "status": "REMEDIATED",
+        "evidence": "fixed in cc33dd44; key now hashed from request body"
+      },
+      {
+        "severity": "MEDIUM",
+        "location": "src/api/orders.ts:60",
+        "status": "OUTSTANDING",
+        "evidence": "quantity validated, refundQuantity at :63 still unchecked"
+      }
+    ],
+    "panel_rerun": { "needed": false, "reason": "delta is 2 targeted fixes, 18 lines" },
+    "threads": [
+      { "thread_id": "PRRT_a", "action": "resolve", "reply": "Confirmed fixed in cc33dd44." },
+      {
+        "thread_id": "PRRT_b",
+        "action": "reply-only",
+        "reply": "refundQuantity at line 63 is still unvalidated."
+      }
+    ],
+    "approve": false,
+    "event": "REQUEST_CHANGES",
+    "reason": "1 outstanding finding (orders.ts:60)",
+    "body": "This PR still needs changes.\n\n- <thread url>: refundQuantity at line 63 is still unvalidated.",
+    "review_comments": [],
+    "withdraw_earlier_request": false
+  }
+  ```
+
+- `./report.md` — the step 7 report, stating clearly that nothing was
+  replied to, resolved, or submitted.
+
+Honor user-supplied paths if provided.

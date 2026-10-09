@@ -20,6 +20,14 @@ import (
 // be read is named on errs and not printed as empty: "no PRs" and "could
 // not look" must never read the same.
 func Lists(out, errs io.Writer, s *engine.Snapshot) error {
+	if _, err := io.WriteString(out, listsText(s)); err != nil {
+		return err
+	}
+	_, err := io.WriteString(errs, failures(s))
+	return err
+}
+
+func listsText(s *engine.Snapshot) string {
 	var b strings.Builder
 	b.WriteString(sanitize.Line(s.Repo.Slug()) + "\n")
 	if s.Looked {
@@ -28,11 +36,7 @@ func Lists(out, errs io.Writer, s *engine.Snapshot) error {
 	if s.MineLooked {
 		b.WriteString(mineList(s.Mine))
 	}
-	if _, err := io.WriteString(out, b.String()); err != nil {
-		return err
-	}
-	_, err := io.WriteString(errs, failures(s))
-	return err
+	return b.String()
 }
 
 func failures(s *engine.Snapshot) string {

@@ -12,13 +12,13 @@ Status is `done` with the test that pins it, or the milestone that brings it.
 | ---------------------------------------------------------------------------------------------- | ---------------------- | -------------------------------------------------- |
 | The PR list query has the same fields as v1                                                    | `src/prlist.rs`        | done: `internal/prs` `TestFetchCallsGhWithV1Argv`                |
 | The My PRs search has the same fields as v1                                                    | `src/mine.rs`          | done: `internal/mine` `TestListSendsTheSearchToGh` |
-| Session id: MD5 of `review-prs:<root>:<owner>/<name>#<n>`, shaped as a UUID. The prefix stays. | `src/session.rs:19-30` | milestone 3                                        |
+| Session id: MD5 of `review-prs:<root>:<owner>/<name>#<n>`, shaped as a UUID. The prefix stays. | `src/session.rs:19-30` | done: `internal/session` `TestIDIsWhatV1FiledReviewsUnder` |
 | The repo root loses one trailing newline and nothing else                                      | `src/repo.rs`          | done: `internal/repo` `TestRootFrom`               |
 | Ledger: v1 JSONL. Write `[]`, never `null`. `reviewed` defaults to true.                       | `src/ledger.rs`        | done: `internal/ledger` `TestALineV1WroteIsWrittenBackWithTheSameBytes`, and `TestEveryFieldIsWrittenInV1Order` |
-| `dash-p` argv order, exit codes 0, 10, 20, and `--flag=value`                                  | `src/job.rs:264-339`   | milestone 3                                        |
-| The trailer: a fenced `autoreview` JSON block                                                  | `src/report.rs:84`     | milestone 3                                        |
-| The run directory layout                                                                       | `src/rundir.rs`        | milestone 3                                        |
-| `skills/` and `prompts/`, with mode 0755 on `*.sh` after staging                               | `src/skills.rs`        | milestone 3                                        |
+| `dash-p` argv order, exit codes 0, 10, 20, and `--flag=value`                                  | `src/job.rs:264-339`   | done: `internal/review` `TestTheDashpArgvIsV1s`, `TestClassifySaysWhatAnExitMeans`, `TestAFlagDashpDoesNotKnowIsOneToken` |
+| The trailer: a fenced `autoreview` JSON block                                                  | `src/report.rs:84`     | done: `internal/review` `TestTheInstructionIsV1sByteForByte`, `TestTheLastBlockThatParsesWins` |
+| The run directory layout                                                                       | `src/rundir.rs`        | done: `internal/rundir` `TestThePathsOfAPass` |
+| `skills/` and `prompts/`, with mode 0755 on `*.sh` after staging                               | `src/skills.rs`        | done for `skills/`: `internal/skills` `TestStageWritesTheBundleWhereTheAgentLooks`, and `embed_test.go`. `prompts/` comes with `panel`. |
 
 ## Behavior rules
 
@@ -33,20 +33,20 @@ Status is `done` with the test that pins it, or the milestone that brings it.
 | A `gh` call has a deadline, and the deadline kills its process group                                                         | done: `internal/gh` `TestADeadlineStopsGhAndWhatItStarted`                                              |
 | The selection follows the PR number, not the row                                                                             | done: `internal/tui` `TestTheSelectionStaysOnItsPRWhenTheRowsMove`                                      |
 | The view closes only after the engine says the run has ended                                                                 | done: `internal/tui` `TestQuitAsksTheEngineAndClosesWhenTheRunHasEnded`                                 |
-| The verdict comes from GitHub `latestReviews`. The trailer is a fallback. A claim of approval is vetoed when nothing landed. | milestone 3                                                                                             |
-| "The call failed" and "nothing landed" stay distinct                                                                         | milestone 3                                                                                             |
-| One process group for each job. Stop is TERM, TERM, KILL.                                                                    | milestone 3                                                                                             |
-| A killed job is never read as an outage and retried                                                                          | milestone 6                                                                                             |
-| On quit: TERM to every group, then reactions, then worktrees, then print                                                     | milestones 3, 6, 7                                                                                      |
-| "Reaped" is handled before the readback, and the slot is free then                                                           | milestone 3                                                                                             |
-| A session is never pinned when its transcript exists                                                                         | milestone 3                                                                                             |
+| The verdict comes from GitHub `latestReviews`. The trailer is a fallback. A claim of approval is vetoed when nothing landed. | done: `internal/review` `TestTheVerdictPrefersGitHubToTheAgent`, `internal/engine` `TestTheVerdictIsGitHubsAndNotTheReviewersOwn` |
+| "The call failed" and "nothing landed" stay distinct                                                                         | done: `internal/review` `TestACallThatFailedAndNothingLandedStayDistinct` |
+| One process group for each job. Stop is TERM, TERM, KILL.                                                                    | done: `internal/proc` `TestEachProcessLeadsItsOwnGroup`, `TestStopEndsAGrandchildThatIgnoresTERM` |
+| A killed job is never read as an outage and retried                                                                          | done for a stop and a timeout: `internal/engine` `TestQuitStopsTheRunningReviewsAndNeverStartsTheQueued`, `TestAReviewThatRunsPastItsTimeIsStoppedAndTimedOut`. The retry itself is milestone 6. |
+| On quit: TERM to every group, then reactions, then worktrees, then print                                                     | done for the kills: `internal/engine` `TestQuitStopsTheRunningReviewsAndNeverStartsTheQueued`. Reactions are milestone 6, worktrees milestone 7. |
+| "Reaped" is handled before the readback, and the slot is free then                                                           | done: `internal/engine` `TestASlotIsFreeWhenAProcessEndsNotWhenItsResultIsRead` |
+| A session is never pinned when its transcript exists                                                                         | done: `internal/session` `TestPlanFor`, `internal/review` `TestAtMostOneSessionFlagIsSentAndOnlyToClaude` |
 | A session is never resumed when it is open elsewhere                                                                         | milestone 6                                                                                             |
-| A failed pass forces a fresh review                                                                                          | milestone 3                                                                                             |
+| A failed pass forces a fresh review                                                                                          | milestone 5 |
 | CI pending or failing holds a PR. A stack hold never keeps a loop alive.                                                     | milestone 5                                                                                             |
 | A PR that GitHub called finished stays finished for the run                                                                  | milestone 5                                                                                             |
 | Only a new head SHA resets the pass cap                                                                                      | milestone 5                                                                                             |
 | The reaction is removed on every end state. Removal waits for the add.                                                       | milestone 6                                                                                             |
-| Exit status 0 only when every job in the last pass ended done                                                                | milestone 3                                                                                             |
+| Exit status 0 only when every job in the last pass ended done                                                                | done: `internal/engine` `TestAFailedReviewFailsTheRunAndSaysWhy`, `TestAPassReviewsEveryReadyPRAndEndsClean` |
 | A task runs in its own worktree and refuses a fork                                                                           | milestone 7                                                                                             |
 | Babysitting follows v1 decision 0030 (`src/babysit.rs`)                                                                      | milestone 7                                                                                             |
 
@@ -60,4 +60,5 @@ Status is `done` with the test that pins it, or the milestone that brings it.
 | A panic on the engine goroutine gives the terminal back first | done: `cmd/autoreview/screen.go`                                                        |
 | The engine never blocks on a reader                           | done: `internal/engine` `TestChangedHoldsOneTokenHoweverManySnapshots`                  |
 | Unread input is discarded when the view closes                | done: `cmd/autoreview/flush.go` (no automated test yet; milestone 4 adds the pty cases) |
+| The plain printer never makes the engine wait | done: `internal/plain` `TestThePrinterNeverMakesTheEngineWait` |
 | Nothing prints outside `cmd/`                                 | done: `forbidigo` in `.golangci.yml`                                                    |

@@ -21,8 +21,13 @@ jobs:
           go-version-file: go.mod
       - name: Vet
         run: go vet ./...
+      # The end-to-end tests start the test binary itself as gh and dash-p,
+      # dozens of times. With the race detector each start takes a second,
+      # so that package runs without it. The engine it drives is raced below.
       - name: Test
-        run: go test -race ./...
+        run: go test -race $(go list ./... | grep -v /cmd/)
+      - name: Test end to end
+        run: go test ./cmd/...
       - name: Build
         run: go build -o autoreview ./cmd/autoreview
 

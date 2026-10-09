@@ -7,7 +7,9 @@ This is version 2, a rewrite in Go. Version 1 is the Rust repo
 
 ## Status
 
-This build is read-only. It shows both lists and starts no review.
+Off a terminal, this build reviews: one pass over every PR that is ready,
+with a summary and an exit status a script can trust. On a terminal, the
+view shows both lists and starts no review yet.
 
 - **Review** lists the open PRs in the repo and says where each one stands:
   ready, held for CI, held under another PR, seen, or approved.
@@ -27,11 +29,14 @@ cd some/github/checkout
 /path/to/autoreview
 ```
 
-You need `gh`, logged in (`gh auth login`).
+You need `gh`, logged in (`gh auth login`). A review also needs `dash-p`
+and `claude` (or `codex`).
 
 - On a terminal, it opens the full-screen view and looks at the PR list every
   two minutes. Press `?` for the keys and `q` to quit.
-- On a pipe, it looks once and prints one line for each PR.
+- On a pipe, or with `--headless`, it makes one pass: it reviews every PR
+  that is ready and exits 0 only when every review ran to its end.
+- `--no-post` reviews and leaves the PR alone.
 - `autoreview 213 240` limits the run to those PRs.
 - `autoreview --help` lists the flags.
 

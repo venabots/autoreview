@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/spf13/pflag"
+
+	"github.com/venabots/autoreview/internal/review"
 )
 
 // View is which front-end a run uses.
@@ -36,8 +39,33 @@ type Config struct {
 	// SkipCI reviews a PR whose checks have not passed.
 	SkipCI bool
 	// Watch is the wait between two looks at the PR list.
-	Watch   Interval
-	View    View
+	Watch Interval
+	View  View
+
+	// Once is accepted and changes nothing off a terminal, where a run
+	// makes one pass anyway. Scripts written for v1 pass it.
+	Once bool
+	// NoPost reviews and leaves the PR alone.
+	NoPost bool
+	// Continue resumes a PR's earlier review session.
+	Continue bool
+	// Jobs is how many reviews run at once.
+	Jobs int
+	// Timeout is the limit for one review. Zero means none.
+	Timeout time.Duration
+	// Budget is the cost cap for one review, as written, or empty.
+	Budget string
+	// LogDir is where the run directory is made, or empty for a temporary
+	// directory.
+	LogDir string
+	// Skills is the --skills value, not yet checked against the disk.
+	Skills string
+	// Focus is what the reviewers are told to look at, or empty.
+	Focus        string
+	Orchestrator review.Orchestrator
+	// Override is a shell command that replaces the built-in reviewer.
+	Override string
+
 	Help    bool
 	Version bool
 }
@@ -52,6 +80,10 @@ const DefaultWatch = "2"
 // EnvWatch names the variable that sets the wait between looks.
 const EnvWatch = "AUTOREVIEW_WATCH_INTERVAL"
 
+// valued names the flags that take a value, in the order their values are
+// checked. The first one has a short form.
+var valued = []string{"jobs", "timeout", "budget", "log-dir", "skills", "focus", "orchestrator"}
+
 // noValue marks a --watch given with no value. No interval can contain it.
 const noValue = "\x00"
 
@@ -65,6 +97,10 @@ func Parse(args []string, env func(string) string) (Config, error) {
 	var cfg Config
 	var watch string
 	var screen, plain bool
+	raw := map[string]*string{}
+	for _, name := range valued {
+		raw[name] = new(string)
+	}
 	fs := pflag.NewFlagSet("autoreview", pflag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
@@ -74,6 +110,13 @@ func Parse(args []string, env func(string) string) (Config, error) {
 	fs.BoolVar(&cfg.SkipCI, "skip-wait-for-ci", false, "")
 	fs.StringVarP(&watch, "watch", "w", "", "")
 	fs.Lookup("watch").NoOptDefVal = noValue
+	fs.BoolVar(&cfg.Once, "once", false, "")
+	fs.BoolVarP(&cfg.NoPost, "no-post", "n", false, "")
+	fs.BoolVarP(&cfg.Continue, "continue", "C", false, "")
+	fs.StringVarP(raw["jobs"], "jobs", "j", "", "")
+	for _, name := range valued[1:] {
+		fs.StringVar(raw[name], name, "", "")
+	}
 	fs.BoolVar(&screen, "tui", false, "")
 	fs.BoolVar(&plain, "headless", false, "")
 	fs.BoolVarP(&cfg.Help, "help", "h", false, "")
@@ -98,6 +141,45 @@ func Parse(args []string, env func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.View, cfg.Only, cfg.Watch = view, only, interval
+	given := func(name string) bool { return fs.Changed(name) }
+	return withReviewFlags(cfg, raw, given, env)
+}
+
+// withReviewFlags checks the flags that say how a review runs.
+func withReviewFlags(cfg Config, raw map[string]*string, given func(string) bool, env func(string) string) (Config, error) {
+	for _, name := range valued {
+		if err := refuseFlagAsValue(name, *raw[name]); err != nil {
+			return Config{}, err
+		}
+	}
+	var err error
+	if cfg.Jobs, err = count("jobs", chosen(*raw["jobs"], given("jobs"), env(EnvJobs), defaultJobs), 1, maxJobs); err != nil {
+		return Config{}, err
+	}
+	timeout, err := count("timeout", chosen(*raw["timeout"], given("timeout"), env(EnvTimeout), defaultTimeout), 0, maxTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Timeout = seconds(timeout)
+	if value := chosen(*raw["budget"], given("budget"), env(EnvBudget), ""); value != "" || given("budget") {
+		if cfg.Budget, err = budget(value); err != nil {
+			return Config{}, err
+		}
+	}
+	if given("focus") {
+		if cfg.Focus, err = ParseFocus(*raw["focus"]); err != nil {
+			return Config{}, err
+		}
+	}
+	if cfg.Orchestrator, err = review.ParseOrchestrator(chosen(*raw["orchestrator"], given("orchestrator"), env(EnvOrchestrator), "claude")); err != nil {
+		return Config{}, err
+	}
+	cfg.LogDir = chosen(*raw["log-dir"], given("log-dir"), env(EnvLogDir), "")
+	cfg.Skills = chosen(*raw["skills"], given("skills"), env(EnvSkills), "")
+	cfg.Override = env(EnvOverride)
+	if cfg.NoPost && cfg.Override != "" {
+		return Config{}, fmt.Errorf("--no-post cannot be used with $%s: that command decides for itself what it posts", EnvOverride)
+	}
 	return cfg, nil
 }
 

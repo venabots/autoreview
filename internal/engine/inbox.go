@@ -2,9 +2,12 @@ package engine
 
 import (
 	"sync"
+	"time"
 
 	"github.com/venabots/autoreview/internal/mine"
+	"github.com/venabots/autoreview/internal/proc"
 	"github.com/venabots/autoreview/internal/prs"
+	"github.com/venabots/autoreview/internal/review"
 )
 
 // input is one thing the engine reacts to. Commands, results from GitHub
@@ -35,8 +38,31 @@ type mineListed struct {
 	err  error
 }
 
+// jobReaped says a review's process has ended. It is sent before anything
+// the process left behind is read, so the slot is free at once and the
+// time the process took does not include the reading.
+type jobReaped struct {
+	pr      int
+	exit    proc.Exit
+	elapsed time.Duration
+	meta    *review.Meta
+}
+
+// jobSettled says everything about a finished review is known.
+type jobSettled struct {
+	pr      int
+	outcome outcome
+}
+
+// guardFired says a review ran past the time its own harness should have
+// stopped it at.
+type guardFired struct{ pr int }
+
 func (listed) input()     {}
 func (mineListed) input() {}
+func (jobReaped) input()  {}
+func (jobSettled) input() {}
+func (guardFired) input() {}
 
 // inbox is an unbounded queue. put never blocks: the view calls it from its
 // update loop, and a full queue must not freeze the screen or lose a key.
