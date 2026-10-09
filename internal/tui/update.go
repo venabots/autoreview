@@ -30,7 +30,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.took(msg.snap)
 	case tickMsg:
 		m.now = time.Time(msg)
-		return m.synced(), tick()
+		return m.polled().synced(), tick()
 	case spinner.TickMsg:
 		return m.spun(msg)
 	case tea.BackgroundColorMsg:
