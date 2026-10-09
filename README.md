@@ -36,7 +36,8 @@ and `claude` (or `codex`).
 - On a terminal, it opens the full-screen view, reviews every PR that is
   ready, and stays open. `R` reviews the selected PR now, `x x` stops a
   review, `r` reopens a finished one in a new terminal tab, `l` shows the
-  run log. Press `?` for every key and `q` to quit.
+  run log. Press `?` for every key and `q` to quit. On exit it prints one
+  line, and the full summary is in the run log.
 - On a pipe, or with `--headless`, it makes one pass: it reviews every PR
   that is ready and exits 0 only when every review ran to its end.
 - `--no-post` reviews and leaves the PR alone.

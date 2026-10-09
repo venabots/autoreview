@@ -55,13 +55,12 @@ func runScreen(cfg cli.Config, rc repo.Context, stdout, stderr io.Writer) int {
 	discardInput()
 	run.printer.Close()
 
-	if result.Code == engine.ExitInterrupted && len(result.Final.Reviewed()) > 0 {
-		// The printer wrote this to the log while the view had the screen.
-		say(stderr, "interrupted; the running reviews were stopped\n")
-	}
-	out, errs := plain.Final(result, cfg.NoPost)
-	say(io.MultiWriter(stdout, run.log), "%s", out)
-	say(io.MultiWriter(stderr, run.log), "%s", errs)
+	// The full summary goes to the log, and one line to the screen.
+	summary, failures := plain.Final(result, cfg.NoPost)
+	say(run.log, "%s%s", summary, failures)
+	out, errs := plain.AfterView(result)
+	say(stdout, "%s", out)
+	say(stderr, "%s", errs)
 	if viewErr != nil && !errors.Is(viewErr, tea.ErrProgramKilled) {
 		say(stderr, "error: the view stopped: %v\n", viewErr)
 		return engine.ExitFailed
