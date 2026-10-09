@@ -186,7 +186,8 @@ func TestOnATerminalTheViewOpensAndQGivesTheTerminalBack(t *testing.T) {
 		t.Fatalf("the view never left the alternate screen:\n%q", drawn)
 	}
 	after := drawn[strings.LastIndex(drawn, leaveAltScreen):]
-	for _, want := range []string{"2 reviews: 2 commented · summary in ", "/autoreview.log", "exit=0", "leftover=0"} {
+	// The view watches, so q ends a run that would have gone on.
+	for _, want := range []string{"2 reviews: 2 commented · summary in ", "/autoreview.log", "exit=130", "leftover=0"} {
 		if !strings.Contains(after, want) {
 			t.Errorf("after the view closed the terminal lacks %q:\n%s", want, after)
 		}
@@ -269,9 +270,29 @@ func TestCtrlCQuitsAtOnceAndLeavesNoInputForTheShell(t *testing.T) {
 	wantCooked(t, drawn)
 }
 
+func TestWithOnceTheViewMakesOnePassAndQEndsWithItsStatus(t *testing.T) {
+	fixtures := sandbox(t)
+	term := inTerminal(t, "--once", "9")
+	term.waitFor(enterAltScreen)
+	for range 500 {
+		if len(dashpCalls(t, fixtures)) == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(700 * time.Millisecond)
+	term.press("q")
+	drawn := term.finish()
+	after := drawn[strings.LastIndex(drawn, leaveAltScreen):]
+	if !strings.Contains(after, "1 review: 1 commented") || !strings.Contains(after, "exit=0") {
+		t.Errorf("after the view closed:\n%s\nwant the pass's own status", after)
+	}
+	wantCooked(t, drawn)
+}
+
 func TestTheViewOpensOnARepoWithNothingToReview(t *testing.T) {
 	sandbox(t)
-	term := inTerminal(t, "4")
+	term := inTerminal(t, "--once", "4")
 	term.waitFor(enterAltScreen)
 	time.Sleep(1500 * time.Millisecond)
 	term.press("q")

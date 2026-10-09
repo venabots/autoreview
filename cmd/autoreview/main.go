@@ -98,14 +98,36 @@ func wantsScreen(view cli.View, stderr io.Writer) bool {
 
 // engineConfig watches only under the view. A run off a terminal looks
 // once: nobody is there to press q.
+// engineConfig is how the run loops.
+//
+//   - The view watches: it looks every --watch minutes, reviews what has
+//     become ready, and rests a reviewed PR for the --babysit interval.
+//     --once makes it one pass that holds.
+//   - Off a terminal, --watch does the same and never ends by itself.
+//   - Off a terminal, --babysit makes a pass every --babysit minutes and
+//     ends when nothing is left.
+//   - Otherwise a run makes one pass, after it waits for checks that are
+//     still running.
 func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 	c := engine.Config{
-		Repo:  rc,
-		Gates: prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
-		Only:  cfg.Only,
+		Repo:      rc,
+		Gates:     prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
+		Only:      cfg.Only,
+		MaxPasses: cfg.MaxPasses,
+		MaxIdle:   cfg.MaxIdle,
 	}
-	if screen {
+	switch {
+	case screen || cfg.WatchGiven:
 		c.Watch = cfg.Watch.Duration
+		c.Loop = engine.LoopWatch
+		c.Watching = !cfg.Once
+		c.Rest = cfg.Babysit.Duration
+	case cfg.BabysitGiven:
+		c.Watch = cfg.Babysit.Duration
+		c.Loop = engine.LoopBabysit
+		c.Watching = true
+	case !cfg.SkipCI:
+		c.CIWait = cfg.CIWait.Duration
 	}
 	return c
 }
