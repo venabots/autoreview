@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/venabots/autoreview/internal/engine"
+	"github.com/venabots/autoreview/internal/queue"
 	"github.com/venabots/autoreview/internal/review"
 )
 
@@ -75,7 +76,7 @@ func TestTheListShowsWhatTheRunIsDoingFirst(t *testing.T) {
 		}
 	}
 	wantOnScreen(t, m,
-		"autoreview · acme/widgets · one pass · lists every 2m",
+		"autoreview · acme/widgets · one pass · press w to watch",
 		"1 running · 1 queued · 1 finished · next look in 1m30s",
 		"reviewing 1m03s · claude", "x x stops it",
 	)
@@ -418,4 +419,50 @@ func TestInTheFocusEditorTheArrowsMoveTheCursorAndNotTheTab(t *testing.T) {
 	if got := commands(hs); len(got) != 1 || got[0] != (engine.SetFocus{Text: "aXb"}) {
 		t.Errorf("the engine was sent %v, want the focus with the X before the b", got)
 	}
+}
+
+func TestTheHeaderSaysWhetherTheRunWatches(t *testing.T) {
+	m, hs := reviewingModel(t, 150, 30)
+	snap := reviewing(t)
+	snap.Watching, snap.Rest = true, 30*time.Minute
+	hs.eng.snap = snap
+	m = send(m, snapshotMsg{snap: snap})
+	wantOnScreen(t, m, "autoreview · acme/widgets · watching every 2m · a reviewed PR rests 30m")
+}
+
+func TestWStartsAndStopsWatching(t *testing.T) {
+	m, hs := reviewingModel(t, 150, 30)
+	m = press(t, m, "w")
+	wantOnScreen(t, m, "watching: reviewing what becomes ready, every 2m")
+	snap := reviewing(t)
+	snap.Watching = true
+	hs.eng.snap = snap
+	m = press(t, send(m, snapshotMsg{snap: snap}), "w")
+	wantOnScreen(t, m, "no longer watching; R still reviews a PR")
+	if got := commands(hs); len(got) != 2 || got[0] != (engine.SetWatch{On: true}) || got[1] != (engine.SetWatch{On: false}) {
+		t.Errorf("the engine was sent %v", got)
+	}
+}
+
+func TestARestingOrCappedPRSaysSoInItsRowAndDetail(t *testing.T) {
+	m, hs := reviewingModel(t, 200, 30)
+	snap := reviewing(t)
+	for i := range snap.Reviews {
+		switch snap.Reviews[i].PR.Number {
+		case 6:
+			snap.Reviews[i].Wait, snap.Reviews[i].Until = queue.WaitResting, start.Add(12*time.Minute)
+		case 5:
+			snap.Reviews[i].Wait = queue.WaitCapped
+		}
+	}
+	hs.eng.snap = snap
+	m = send(m, snapshotMsg{snap: snap})
+	wantOnScreen(t, m, "○ #6 · commented · rest 12m00s", "✓ #5 · capped")
+
+	// A capped PR the run never reviewed comes before the finished
+	// reviews; the resting PR is one of those.
+	m = press(t, m, "j", "j")
+	wantOnScreen(t, m, "#5 Bump the SDK", "capped: it has had every review this run gives one PR (--max-passes)")
+	m = press(t, m, "G")
+	wantOnScreen(t, m, "#6 Tidy the docs", "resting after its review; it may be reviewed again in 12m00s", "R reviews it again now")
 }

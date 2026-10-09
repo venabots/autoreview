@@ -6,6 +6,7 @@ package queue
 import (
 	"cmp"
 	"slices"
+	"time"
 
 	"github.com/venabots/autoreview/internal/prs"
 )
@@ -22,6 +23,11 @@ const (
 	WaitChecks
 	// WaitStacked means it sits on another open PR, which is reviewed first.
 	WaitStacked
+	// WaitResting means the run reviewed it a short while ago, and gives
+	// its author time to answer before it looks again.
+	WaitResting
+	// WaitCapped means it has had every review this run gives one PR.
+	WaitCapped
 	// WaitSeen means nothing has changed since you last acted on it.
 	WaitSeen
 	// WaitApproved means GitHub says it is approved.
@@ -32,6 +38,9 @@ const (
 type Row struct {
 	PR   prs.PR
 	Wait Wait
+	// Until is when a resting PR may be reviewed again. It is zero for
+	// every other wait.
+	Until time.Time
 }
 
 // Rows is the review list. It shows every PR the sweep could review, and

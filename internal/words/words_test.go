@@ -73,10 +73,12 @@ func TestWait(t *testing.T) {
 		{"stacked with no parent named", queue.Row{Wait: queue.WaitStacked}, "stacked"},
 		{"seen", queue.Row{Wait: queue.WaitSeen}, "seen"},
 		{"approved", queue.Row{Wait: queue.WaitApproved}, "approved"},
+		{"capped", queue.Row{Wait: queue.WaitCapped}, "capped"},
+		{"resting", queue.Row{Wait: queue.WaitResting, Until: time.Time{}.Add(12*time.Minute + 5*time.Second)}, "rest 12m05s"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := Wait(c.row); got != c.want {
+			if got := Wait(c.row, time.Time{}); got != c.want {
 				t.Errorf("Wait = %q, want %q", got, c.want)
 			}
 		})

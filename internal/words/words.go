@@ -45,8 +45,9 @@ func Interval(d time.Duration) string {
 	return Duration(d)
 }
 
-// Wait is where a PR on the review list stands, in a word or two.
-func Wait(row queue.Row) string {
+// Wait is where a PR on the review list stands, in a word or two. now is
+// what a rest is counted down from.
+func Wait(row queue.Row, now time.Time) string {
 	switch row.Wait {
 	case queue.WaitChecks:
 		if row.PR.CI == prs.CIFailing {
@@ -58,6 +59,10 @@ func Wait(row queue.Row) string {
 			return "stacked"
 		}
 		return fmt.Sprintf("on #%d", row.PR.Parent.Number)
+	case queue.WaitResting:
+		return "rest " + Duration(row.Until.Sub(now))
+	case queue.WaitCapped:
+		return "capped"
 	case queue.WaitSeen:
 		return "seen"
 	case queue.WaitApproved:

@@ -93,11 +93,13 @@ func nowLines(row reviewRow, f facts) []line {
 		return append(lines, note("x x stops it", dimStyle))
 	case row.job != nil && row.job.State == engine.JobQueued:
 		return []line{note("queued · starts when a review slot frees", dimStyle)}
+	case row.job != nil && row.listed != nil && row.listed.Wait != queue.WaitNext:
+		return []line{note(waitReason(*row.listed, f), waitStyle(row.listed.Wait)), note("R reviews it again now", dimStyle), {}}
 	case row.job != nil:
 		return []line{note("R reviews it again now", dimStyle), {}}
 	}
 	return []line{
-		note(waitReason(*row.listed, f.nextLook), waitStyle(row.listed.Wait)),
+		note(waitReason(*row.listed, f), waitStyle(row.listed.Wait)),
 		note("R reviews it now", dimStyle),
 	}
 }
@@ -189,16 +191,20 @@ func joinDots(parts []string) string {
 }
 
 // waitReason says why a PR is not being reviewed, in a sentence.
-func waitReason(row queue.Row, nextLook time.Duration) string {
+func waitReason(row queue.Row, f facts) string {
 	next := ""
-	if nextLook > 0 {
-		next = "; next look in " + words.Duration(nextLook)
+	if f.nextLook > 0 {
+		next = "; next look in " + words.Duration(f.nextLook)
 	}
 	switch row.Wait {
 	case queue.WaitChecks:
 		return "held until its checks pass (checks " + ciWord(row.PR.CI).text + ")" + next
 	case queue.WaitStacked:
 		return stackedReason(row.PR.Parent)
+	case queue.WaitResting:
+		return "resting after its review; it may be reviewed again in " + words.Duration(row.Until.Sub(f.now))
+	case queue.WaitCapped:
+		return "capped: it has had every review this run gives one PR (--max-passes); a push starts the count again"
 	case queue.WaitSeen:
 		return "nothing has happened on it since you last engaged"
 	case queue.WaitApproved:
@@ -221,7 +227,7 @@ func waitStyle(w queue.Wait) lipgloss.Style {
 	switch w {
 	case queue.WaitChecks, queue.WaitStacked:
 		return yellowStyle
-	case queue.WaitSeen, queue.WaitApproved:
+	case queue.WaitSeen, queue.WaitApproved, queue.WaitResting, queue.WaitCapped:
 		return dimStyle
 	}
 	return plainStyle

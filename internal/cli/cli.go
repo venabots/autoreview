@@ -42,9 +42,23 @@ type Config struct {
 	Watch Interval
 	View  View
 
-	// Once is accepted and changes nothing off a terminal, where a run
-	// makes one pass anyway. Scripts written for v1 pass it.
+	// Once makes one pass and stops looking for work. Under the view, the
+	// view then holds for a person.
 	Once bool
+	// WatchGiven and BabysitGiven say the flags were given. A run off a
+	// terminal loops only when asked.
+	WatchGiven   bool
+	BabysitGiven bool
+	// Babysit is the wait between passes of a run that babysits. Under
+	// --watch, and in the view, it is how long a reviewed PR rests.
+	Babysit Interval
+	// CIWait is how long a run that looks once waits for checks that are
+	// still running.
+	CIWait Interval
+	// MaxIdle is how many idle looks in a row end a run that babysits.
+	// MaxPasses is how many reviews one PR gets in a run.
+	MaxIdle   int
+	MaxPasses int
 	// NoPost reviews and leaves the PR alone.
 	NoPost bool
 	// Continue resumes a PR's earlier review session.
@@ -82,7 +96,7 @@ const EnvWatch = "AUTOREVIEW_WATCH_INTERVAL"
 
 // valued names the flags that take a value, in the order their values are
 // checked. The first one has a short form.
-var valued = []string{"jobs", "timeout", "budget", "log-dir", "skills", "focus", "orchestrator"}
+var valued = []string{"jobs", "timeout", "budget", "log-dir", "skills", "focus", "orchestrator", "max-idle", "max-passes"}
 
 // noValue marks a --watch given with no value. No interval can contain it.
 const noValue = "\x00"
@@ -95,7 +109,7 @@ func Parse(args []string, env func(string) string) (Config, error) {
 	}
 
 	var cfg Config
-	var watch string
+	var watch, babysit string
 	var screen, plain bool
 	raw := map[string]*string{}
 	for _, name := range valued {
@@ -110,6 +124,8 @@ func Parse(args []string, env func(string) string) (Config, error) {
 	fs.BoolVar(&cfg.SkipCI, "skip-wait-for-ci", false, "")
 	fs.StringVarP(&watch, "watch", "w", "", "")
 	fs.Lookup("watch").NoOptDefVal = noValue
+	fs.StringVarP(&babysit, "babysit", "b", "", "")
+	fs.Lookup("babysit").NoOptDefVal = noValue
 	fs.BoolVar(&cfg.Once, "once", false, "")
 	fs.BoolVarP(&cfg.NoPost, "no-post", "n", false, "")
 	fs.BoolVarP(&cfg.Continue, "continue", "C", false, "")
@@ -142,7 +158,11 @@ func Parse(args []string, env func(string) string) (Config, error) {
 	}
 	cfg.View, cfg.Only, cfg.Watch = view, only, interval
 	given := func(name string) bool { return fs.Changed(name) }
-	return withReviewFlags(cfg, raw, given, env)
+	cfg, err = withReviewFlags(cfg, raw, given, env)
+	if err != nil {
+		return Config{}, err
+	}
+	return withLoopFlags(cfg, raw, babysit, given, env)
 }
 
 // withReviewFlags checks the flags that say how a review runs.
@@ -223,7 +243,7 @@ func prNumbers(args []string) ([]int, error) {
 }
 
 // optionalValueFlags take their value with "=" only.
-var optionalValueFlags = map[string]bool{"--watch": true, "-w": true}
+var optionalValueFlags = map[string]bool{"--watch": true, "-w": true, "--babysit": true, "-b": true}
 
 // refuseSpacedValue catches `--watch 5`. The flag's value is optional, so
 // the 5 would be read as PR #5 and the run would watch one PR at the default

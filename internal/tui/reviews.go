@@ -12,6 +12,7 @@ import (
 	"github.com/venabots/autoreview/internal/queue"
 	"github.com/venabots/autoreview/internal/report"
 	"github.com/venabots/autoreview/internal/review"
+	"github.com/venabots/autoreview/internal/words"
 )
 
 // reviewRow is one PR on the Review tab: where it stands on GitHub, and
@@ -36,6 +37,8 @@ const (
 	sectionNext
 	sectionChecks
 	sectionStacked
+	sectionResting
+	sectionCapped
 	sectionFinished
 	sectionSeen
 	sectionApproved
@@ -56,6 +59,10 @@ func (r reviewRow) section() section {
 		return sectionChecks
 	case queue.WaitStacked:
 		return sectionStacked
+	case queue.WaitResting:
+		return sectionResting
+	case queue.WaitCapped:
+		return sectionCapped
 	case queue.WaitSeen:
 		return sectionSeen
 	case queue.WaitApproved:
@@ -178,7 +185,7 @@ func rowIcon(row reviewRow, spin string) span {
 // rowWord is where the row stands, in a word or two and a color.
 func rowWord(row reviewRow, now time.Time) word {
 	if job, ok := row.finished(); ok {
-		return word{report.Outcome(job), outcomeColor(job)}
+		return word{report.Outcome(job) + afterReview(row, now), outcomeColor(job)}
 	}
 	if row.job != nil {
 		text := report.Progress(*row.job, now)
@@ -187,7 +194,21 @@ func rowWord(row reviewRow, now time.Time) word {
 		}
 		return word{text, spinnerStyle}
 	}
-	return waitWord(*row.listed)
+	return waitWord(*row.listed, now)
+}
+
+// afterReview is what holds a reviewed PR now, after the word for its
+// review: " · rest 12m", " · capped". A reviewed PR that nothing holds
+// adds nothing.
+func afterReview(row reviewRow, now time.Time) string {
+	if row.listed == nil {
+		return ""
+	}
+	switch row.listed.Wait {
+	case queue.WaitResting, queue.WaitCapped:
+		return " · " + words.Wait(*row.listed, now)
+	}
+	return ""
 }
 
 func outcomeColor(job engine.Job) lipgloss.Style {

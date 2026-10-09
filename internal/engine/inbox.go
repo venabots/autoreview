@@ -32,6 +32,13 @@ type ReviewNow struct{ PR int }
 // StopJob stops the review of one PR.
 type StopJob struct{ PR int }
 
+// SetWatch turns the loop on or off. Off, the run reviews only what a
+// person asks for; on, it reviews what becomes ready at each look.
+type SetWatch struct{ On bool }
+
+func (SetWatch) input()   {}
+func (SetWatch) command() {}
+
 // SetFocus changes what the reviewers are told to look at, for every
 // review that has not started. An empty text tells them nothing.
 type SetFocus struct{ Text string }

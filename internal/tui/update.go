@@ -10,6 +10,7 @@ import (
 
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/sanitize"
+	"github.com/venabots/autoreview/internal/words"
 )
 
 // wheelLines is how far one notch of the wheel scrolls the right pane.
@@ -128,6 +129,8 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 		return m.stopPressed(), nil
 	case intentFocus:
 		return m.focusOpened()
+	case intentWatch:
+		return m.watchToggled(), nil
 	case intentQuit:
 		return m.quitPressed()
 	case intentInterrupt:
@@ -375,4 +378,15 @@ func (m Model) synced() Model {
 	}
 	m.paneKey = key
 	return m
+}
+
+// watchToggled starts or stops watching for new work. Off, the run reviews
+// only what R asks for.
+func (m Model) watchToggled() Model {
+	on := !m.snap.Watching
+	m.eng.Do(engine.SetWatch{On: on})
+	if on {
+		return m.flashed("watching: reviewing what becomes ready, every " + words.Interval(m.snap.Watch))
+	}
+	return m.flashed("no longer watching; R still reviews a PR")
 }

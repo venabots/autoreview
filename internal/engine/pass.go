@@ -20,6 +20,8 @@ const exitNotStarted = 127
 // only the engine needs to supervise it.
 type job struct {
 	view Job
+	// head is the commit the PR was at when its review was planned.
+	head string
 	plan session.Plan
 	spec review.Spec
 	proc proc.Proc
@@ -70,8 +72,7 @@ func ready(rows []queue.Row) []queue.Row {
 // held ends: there is nothing to wait for.
 func (e *Engine) startPass(w workers, r run, rows []queue.Row) run {
 	if len(rows) == 0 {
-		e.journal(NothingToReview{})
-		return e.rest(r, ExitOK)
+		return r
 	}
 	pass, err := e.deps.Run.Pass(r.snap.Pass + 1)
 	if err != nil {
@@ -84,7 +85,7 @@ func (e *Engine) startPass(w workers, r run, rows []queue.Row) run {
 	r.snap.Phase = Reviewing
 	r.jobs = make([]job, len(rows))
 	for i, row := range rows {
-		r.jobs[i] = job{view: Job{
+		r.jobs[i] = job{head: row.PR.Head, view: Job{
 			PR:           row.PR.Number,
 			Title:        row.PR.Title,
 			Author:       row.PR.Author,
@@ -97,17 +98,23 @@ func (e *Engine) startPass(w workers, r run, rows []queue.Row) run {
 	return e.fill(w, r)
 }
 
-// rest is the run with its work done, ending with code: over, or held for
-// a person when the run was asked to stay.
+// rest is the run with its work done, ending with code: over, or idle when
+// the run is held for a person or loops.
 func (e *Engine) rest(r run, code int) run {
 	r.code = code
-	if e.cfg.HoldOpen {
+	if e.cfg.HoldOpen || r.snap.Watching {
 		r.snap.Phase = Idle
-		r.held = true
 		return r
 	}
 	r.snap.Phase = Done
 	return r
+}
+
+// counted remembers a review that has its end state: it counts against
+// the PR's cap and starts its rest, whether it ran to its end or not.
+func (e *Engine) counted(r run, j job) run {
+	r.track = r.track.Reviewed(j.view.PR, j.head, time.Now(), j.view.Verdict == "approved", e.policy())
+	return e.regate(r)
 }
 
 // withEarlier adds the reviews of a pass that has ended to the ones kept
@@ -158,7 +165,7 @@ func running(jobs []job) int {
 func (e *Engine) start(w workers, r run, i int) run {
 	j := r.jobs[i]
 	pr := j.view.PR
-	j.plan = e.planFor(pr)
+	j.plan = e.planFor(r, pr)
 	if j.plan.Note != "" {
 		e.journal(Noted{Text: j.plan.Note})
 	}
@@ -177,7 +184,7 @@ func (e *Engine) start(w workers, r run, i int) run {
 		j.view.Outcome = review.OutcomeWord(review.Exit{Code: exitNotStarted}, false)
 		j.view.Error = sanitize.Line(err.Error())
 		e.journal(JobFinished{Job: j.view})
-		return withJob(r, i, j)
+		return e.counted(withJob(r, i, j), j)
 	}
 	j.proc = started
 	j.view.State = JobRunning
@@ -195,12 +202,40 @@ func (e *Engine) start(w workers, r run, i int) run {
 // planFor decides the session a review of this PR runs in. An agent that
 // takes no session gets the empty plan: a planned id that is never sent
 // must not be shown, recorded or resumed.
-func (e *Engine) planFor(pr int) session.Plan {
+//
+// A PR this run reviewed before is re-checked in the session that review
+// ran in, which already holds the findings. A review that failed leaves
+// nothing to re-check, so the next one starts fresh.
+func (e *Engine) planFor(r run, pr int) session.Plan {
 	if e.cfg.Override == "" && !e.cfg.Orchestrator.SupportsSessions() {
 		return session.Plan{}
 	}
 	id := session.ID(e.cfg.Repo.Root, e.cfg.Repo.Owner, e.cfg.Repo.Name, pr)
-	return session.PlanFor(id, pr, e.cfg.Continue, e.deps.Sessions)
+	prior, ok := lastReview(r, pr)
+	switch {
+	case !ok:
+		return session.PlanFor(id, pr, e.cfg.Continue, e.deps.Sessions)
+	case prior.State != JobDone || !session.UUIDShaped(prior.Session):
+		return session.PlanFor(id, pr, false, e.deps.Sessions)
+	case e.deps.Sessions.InUse(prior.Session):
+		return session.Plan{
+			ID:   id,
+			Note: fmt.Sprintf("PR #%d has a review session open in another tab or process; reviewing fresh", pr),
+		}
+	}
+	return session.Plan{ID: prior.Session, Flag: session.FlagResume}
+}
+
+// lastReview is the newest review of pr in this run that has ended.
+func lastReview(r run, pr int) (Job, bool) {
+	for _, jobs := range [][]Job{views(r.jobs), r.snap.Earlier} {
+		for _, j := range jobs {
+			if j.PR == pr && j.State.Settled() {
+				return j, true
+			}
+		}
+	}
+	return Job{}, false
 }
 
 func (e *Engine) request(pr int, plan session.Plan, r run) review.Request {
@@ -296,7 +331,7 @@ func (e *Engine) settled(w workers, r run, in jobSettled) run {
 		j.view.Error = in.outcome.agentError
 	}
 	e.journal(JobFinished{Job: j.view})
-	return e.endPassIfSettled(w, withJob(r, i, j))
+	return e.endPassIfSettled(w, e.counted(withJob(r, i, j), j))
 }
 
 // finished is a review that ran to its end: what it decided, and its place
@@ -340,6 +375,12 @@ func (e *Engine) endPassIfSettled(w workers, r run) run {
 		code = ExitFailed
 	}
 	r = e.rest(r, code)
+	r.passEnded = true
+	if e.cfg.Loop == LoopBabysit && r.snap.Phase == Idle {
+		// A run that babysits waits a whole interval after a pass, for the
+		// authors to answer it.
+		r = e.lookIn(w, r, e.cfg.Watch)
+	}
 	if r.snap.Phase != Idle || len(r.requested) == 0 {
 		return r
 	}
