@@ -82,7 +82,9 @@ Still to come: `marks` (the eyes reaction), `task` (worktrees) and
   reviews.
 - A run under the view is held open (`Config.HoldOpen`): it makes its pass
   and stays for `ReviewNow`, `StopJob` and `SetFocus` until `Quit`.
-- One-shot, watch, babysit and once will be one loop with a `Policy` value.
+- One-shot, watch, babysit and once are one loop: `Config.Loop`, with the
+  pass cap, the rest and the push reset as a `queue.Policy`. What the run
+  remembers about each PR is a `queue.Track`, which is pure.
 - A review and an override are data: a pure `review.Spec`. A task will be
   too. The test fake sits where a process starts (`proc.Starter`).
 - A monitor goroutine for each review sends two messages through the inbox:
@@ -111,8 +113,8 @@ Each one leaves a binary that runs. One PR for each milestone.
 | 2 | `autoreview stats`, with ledger read and append | done |
 | 3 | Headless one pass: positional PRs, `--once`, `--no-post`, `--continue`, the override, summary, exit status, ctrl-C | done |
 | 4 | The view runs reviews: `R`, `x`, `f`, `r`, `l`, the rendered review, the summary after close, the pty tests | done |
-| 5 | Loop policies: watch, `--babysit`, rest, cap, CI hold and the wait for pending checks, stack hold, `--max-idle`, `w` | next |
-| 6 | Eyes reaction, codex, the exit-10 fallback, the in-use check, the activity tail | |
+| 5 | Loop policies: watch, `--babysit`, rest, cap, CI hold and the wait for pending checks, stack hold, `--max-idle`, `w` | done |
+| 6 | Eyes reaction, codex, the exit-10 fallback, the in-use check, the activity tail | next |
 | 7 | My PRs tasks, after v1 decision 0030: `f` fix, `u` conflicts, `c` comments, `b` babysit, `B` babysit all | |
 | 8 | Formula, tap, README, cutover rename | |
 | 9 | `panel` (optional) | |

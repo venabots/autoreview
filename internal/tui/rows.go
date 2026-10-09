@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -71,8 +72,8 @@ func reviewIcon(r mine.Review) span {
 	return styled("○", dimStyle)
 }
 
-func waitWord(row queue.Row) word {
-	return word{words.Wait(row), waitColor(row)}
+func waitWord(row queue.Row, now time.Time) word {
+	return word{words.Wait(row, now), waitColor(row)}
 }
 
 func waitColor(row queue.Row) lipgloss.Style {
@@ -84,7 +85,7 @@ func waitColor(row queue.Row) lipgloss.Style {
 		return yellowStyle
 	case queue.WaitStacked:
 		return yellowStyle
-	case queue.WaitSeen:
+	case queue.WaitSeen, queue.WaitResting, queue.WaitCapped:
 		return dimStyle
 	case queue.WaitApproved:
 		return greenStyle

@@ -97,6 +97,7 @@ var keys = map[string]tea.KeyPressMsg{
 	"?":      {Code: '?', Text: "?"},
 	"x":      {Code: 'x', Text: "x"},
 	"z":      {Code: 'z', Text: "z"},
+	"w":      {Code: 'w', Text: "w"},
 	"r":      {Code: 'r', Text: "r"},
 	"R":      {Code: 'r', Text: "R", Mod: tea.ModShift},
 	"f":      {Code: 'f', Text: "f"},
@@ -153,7 +154,7 @@ func TestTheKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
 	want := map[string]intent{
 		"j": intentDown, "k": intentUp, "g": intentTop, "G": intentBottom, "down": intentDown,
 		"left": intentFirstTab, "right": intentSecondTab,
-		"o": intentOpen, "m": intentMouse, "q": intentQuit, "?": intentKeys, "x": intentStop, "z": intentNone,
+		"o": intentOpen, "m": intentMouse, "q": intentQuit, "?": intentKeys, "x": intentStop, "z": intentNone, "w": intentWatch,
 		"r": intentResume, "R": intentReviewNow, "f": intentFocus, "l": intentLog, "enter": intentNone,
 		"tab": intentSwitchTab, "esc": intentBack, "space": intentPageDown,
 		"ctrl+c": intentInterrupt, "ctrl+d": intentPageDown, "ctrl+u": intentPageUp,
@@ -168,7 +169,7 @@ func TestTheKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
 func TestTheFirstFrameShowsTheRunAndTheFirstPR(t *testing.T) {
 	m, _ := newModel(t, 120, 30)
 	wantOnScreen(t, m,
-		"autoreview · acme/widgets · read-only · lists every 2m",
+		"autoreview · acme/widgets · read-only",
 		" Review 4 ", " My PRs 2 ",
 		"○ #9 · ready", "@alice alice/retry",
 		"✗ #8 · CI pending", "○ #6 · seen", "✓ #5 · approved",

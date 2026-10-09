@@ -24,6 +24,7 @@ const (
 	intentReviewNow
 	intentStop
 	intentFocus
+	intentWatch
 	intentLog
 	intentMouse
 	intentKeys
@@ -58,6 +59,7 @@ var keyNames = map[string]intent{
 	"R":         intentReviewNow,
 	"x":         intentStop,
 	"f":         intentFocus,
+	"w":         intentWatch,
 	"l":         intentLog,
 	"m":         intentMouse,
 	"?":         intentKeys,
@@ -86,6 +88,7 @@ var helpLines = []keyHelp{
 	{"r", "resume the selected review in a new terminal tab"},
 	{"o", "open the selected PR in the browser"},
 	{"x x", "stop the selected review"},
+	{"w", "start or stop watching for new work"},
 	{"f", "type what the reviewers look at (the focus)"},
 	{"l", "show the run log here; esc puts it away"},
 	{"m", "give the mouse back to the terminal, to select text"},
@@ -111,7 +114,7 @@ func footerHints(shown tab) []hint {
 	}
 	return []hint{
 		{"q", "quit"}, {"j/k", "move"}, {"r", "resume"}, {"o", "open"}, {"R", "review now"},
-		{"tab", "my PRs"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
+		{"tab", "my PRs"}, {"w", "watch"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
 	}
 }
 

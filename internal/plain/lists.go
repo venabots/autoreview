@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/mine"
@@ -31,7 +32,7 @@ func listsText(s *engine.Snapshot) string {
 	var b strings.Builder
 	b.WriteString(sanitize.Line(s.Repo.Slug()) + "\n")
 	if s.Looked {
-		b.WriteString(reviewList(s.Reviews, s.Truncated))
+		b.WriteString(reviewList(s.Reviews, s.Truncated, s.At))
 	}
 	if s.MineLooked {
 		b.WriteString(mineList(s.Mine))
@@ -50,7 +51,7 @@ func failures(s *engine.Snapshot) string {
 	return b.String()
 }
 
-func reviewList(rows []queue.Row, truncated bool) string {
+func reviewList(rows []queue.Row, truncated bool, at time.Time) string {
 	total := words.Count(len(rows), "PR")
 	if truncated {
 		total = fmt.Sprintf("%d+ PRs", len(rows))
@@ -59,7 +60,7 @@ func reviewList(rows []queue.Row, truncated bool) string {
 	for i, row := range rows {
 		cells[i] = []string{
 			fmt.Sprintf("#%d", row.PR.Number),
-			words.Wait(row),
+			words.Wait(row, at),
 			"@" + sanitize.Line(row.PR.Author),
 			sanitize.Line(row.PR.Branch),
 			sanitize.Line(row.PR.Title),

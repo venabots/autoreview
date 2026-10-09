@@ -28,17 +28,18 @@ func headerLine(s *engine.Snapshot) line {
 	return l
 }
 
-// modeText says what the run does by itself. A run with no directory of
-// its own only reads the lists.
+// modeText says what the run does by itself: watch for work, or hold
+// after its pass. A run with no directory of its own only reads the lists.
 func modeText(s *engine.Snapshot) string {
-	what := "one pass"
-	if s.RunDir == "" {
-		what = "read-only"
+	switch {
+	case s.RunDir == "":
+		return "read-only"
+	case s.Watching && s.Rest > 0:
+		return "watching every " + words.Interval(s.Watch) + " · a reviewed PR rests " + words.Interval(s.Rest)
+	case s.Watching:
+		return "watching every " + words.Interval(s.Watch)
 	}
-	if s.Watch == 0 {
-		return what
-	}
-	return what + " · lists every " + words.Interval(s.Watch)
+	return "one pass · press w to watch"
 }
 
 // tabGap is the space between the two tab labels.
