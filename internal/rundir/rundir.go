@@ -83,6 +83,13 @@ func (r Run) Pass(n int) (Pass, error) {
 	return makePass(filepath.Join(r.Root, fmt.Sprintf("pass-%d", n)))
 }
 
+// Tasks makes the directory the tasks of one kind write their job files
+// to: `tasks/fix/pr-4.log`. Tasks run beside the passes, so their files
+// are not in one.
+func (r Run) Tasks(tag string) (Pass, error) {
+	return makePass(filepath.Join(r.Root, "tasks", tag))
+}
+
 // Pass is the directory one pass writes its job files to.
 type Pass struct {
 	Dir string
