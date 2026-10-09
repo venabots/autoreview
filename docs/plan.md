@@ -120,6 +120,23 @@ Each one leaves a binary that runs. One PR for each milestone.
 | 8 | Formula, tap, README, cutover rename | next |
 | 9 | `panel` (optional) | |
 
+## Cutover
+
+The formula is in this repo, at `packaging/autoreview.rb`, and
+`cmd/autoreview/formula_test.go` checks it against the build. A tag makes a
+GitHub release (`release.yml`) and writes that formula into
+`venabots/homebrew-tap` (`bump-tap.yml`). The steps below are one way: ask the
+owner before each one.
+
+1. Rename `venabots/autoreview` to `venabots/autoreview-v1`.
+2. Rename `venabots/autoreview-v2` to `venabots/autoreview`. The module path
+   is already `github.com/venabots/autoreview`.
+3. Add the `HOMEBREW_TAP_TOKEN` secret to the renamed repo. Without it,
+   `bump-tap.yml` fails and the tap keeps the v1 formula.
+4. Tag `main` and push the tag. The tap's formula then builds v2 with Go.
+5. `brew update && brew upgrade venabots/tap/autoreview`. `review-prs` and
+   `gum` go away. `panel` goes away too, unless milestone 9 lands first.
+
 ## Tests
 
 - **Unit, in table form:** the pure packages. The v1 cases and fixtures are

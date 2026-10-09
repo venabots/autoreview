@@ -28,10 +28,23 @@ same ledger as version 1.
 
 [docs/plan.md](docs/plan.md) has the milestones that come next.
 
-## Run it
+## Install
+
+After the cutover, Homebrew installs this version:
+
+```sh
+brew install venabots/tap/autoreview
+```
+
+Until then, build it from source:
 
 ```sh
 go build -o autoreview ./cmd/autoreview
+```
+
+## Run it
+
+```sh
 cd some/github/checkout
 /path/to/autoreview
 ```
