@@ -103,6 +103,12 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 	case intentSwitchTab:
 		m.tab = 1 - m.tab
 		return m.synced(), nil
+	case intentFirstTab:
+		m.tab = tabReview
+		return m.synced(), nil
+	case intentSecondTab:
+		m.tab = tabMine
+		return m.synced(), nil
 	case intentKeys:
 		return m.showing(sideKeys), nil
 	case intentLog:

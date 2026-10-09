@@ -14,6 +14,11 @@ const (
 	intentPageUp
 	intentPageDown
 	intentSwitchTab
+	// intentFirstTab and intentSecondTab are the arrows. They name a side,
+	// so the left arrow on the left tab does nothing: an arrow that wrapped
+	// would move the way it does not point.
+	intentFirstTab
+	intentSecondTab
 	intentOpen
 	intentResume
 	intentReviewNow
@@ -46,6 +51,8 @@ var keyNames = map[string]intent{
 	"pgup":      intentPageUp,
 	"tab":       intentSwitchTab,
 	"shift+tab": intentSwitchTab,
+	"left":      intentFirstTab,
+	"right":     intentSecondTab,
 	"o":         intentOpen,
 	"r":         intentResume,
 	"R":         intentReviewNow,
@@ -74,7 +81,7 @@ var helpLines = []keyHelp{
 	{"j/k", "move between PRs (or the arrow keys)"},
 	{"g/G", "first or last PR"},
 	{"^d/^u", "scroll the right pane (or space and the page keys)"},
-	{"tab", "switch between Review and My PRs (or click one)"},
+	{"tab", "switch between Review and My PRs (or ←/→, or click one)"},
 	{"R", "review the selected PR now, whatever holds it"},
 	{"r", "resume the selected review in a new terminal tab"},
 	{"o", "open the selected PR in the browser"},

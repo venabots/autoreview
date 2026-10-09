@@ -405,3 +405,17 @@ func TestAReviewOfAPRThatLeftTheListIsStillShown(t *testing.T) {
 		t.Errorf("the engine was sent %v", commands(hs))
 	}
 }
+
+func TestInTheFocusEditorTheArrowsMoveTheCursorAndNotTheTab(t *testing.T) {
+	m, hs := reviewingModel(t, 150, 30)
+	m = typeText(t, press(t, m, "f"), "ab")
+	m = press(t, m, "left")
+	m = typeText(t, m, "X")
+	if m.tab != tabReview {
+		t.Fatal("an arrow typed into the focus editor changed the tab")
+	}
+	m = press(t, m, "right", "right", "enter")
+	if got := commands(hs); len(got) != 1 || got[0] != (engine.SetFocus{Text: "aXb"}) {
+		t.Errorf("the engine was sent %v, want the focus with the X before the b", got)
+	}
+}
