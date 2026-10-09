@@ -22,8 +22,11 @@ func TestMain(m *testing.M) {
 	case "gh":
 		os.Exit(fakeGh(os.Args[1:]))
 	case "dash-p":
+		if isPanelCall(os.Args[1:]) {
+			os.Exit(fakePanelist(os.Args[1:]))
+		}
 		os.Exit(fakeDashp(os.Args[1:]))
-	case "claude", "codex":
+	case "claude", "codex", "opencode":
 		// Only looked for on PATH. A run that starts one has a bug.
 		os.Exit(99)
 	}

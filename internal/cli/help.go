@@ -12,6 +12,8 @@ Usage: autoreview [PR ...] [--watch[=MINUTES]] [--babysit[=MINUTES]] [--once]
                   [--skip-wait-for-ci] [--tui | --headless]
        autoreview stats [--since WHEN] [--repo NAME] [--json]
                   (how each model has done; see autoreview stats --help)
+       autoreview panel [--base REF | --uncommitted | --staged | --tree [PATH]]
+                  (one change, several models; see autoreview panel --help)
        autoreview --help | --version
 
 Run it inside a GitHub checkout. A PR is ready for review when something on
