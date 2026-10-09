@@ -34,6 +34,12 @@ type JobFinished struct {
 	Job Job
 }
 
+// JobRetrying says a review failed with exit 10 and waits for a slot to
+// run again under the fallback.
+type JobRetrying struct {
+	Job Job
+}
+
 // Noted is something a person should know that is not a result: a session
 // that was open elsewhere, a claim that GitHub contradicted.
 type Noted struct {
@@ -48,5 +54,6 @@ func (NothingToReview) event() {}
 func (PassStarted) event()     {}
 func (JobStarted) event()      {}
 func (JobFinished) event()     {}
+func (JobRetrying) event()     {}
 func (Noted) event()           {}
 func (Interrupted) event()     {}

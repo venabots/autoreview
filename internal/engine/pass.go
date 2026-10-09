@@ -16,6 +16,9 @@ import (
 // is the shell's "command not found".
 const exitNotStarted = 127
 
+// exitAgentError is dash-p's status for an orchestrator that failed.
+const exitAgentError = 10
+
 // job is one review as the engine holds it: what a reader sees, and what
 // only the engine needs to supervise it.
 type job struct {
@@ -165,11 +168,11 @@ func running(jobs []job) int {
 func (e *Engine) start(w workers, r run, i int) run {
 	j := r.jobs[i]
 	pr := j.view.PR
-	j.plan = e.planFor(r, pr)
+	j.plan = e.planFor(r, j)
 	if j.plan.Note != "" {
 		e.journal(Noted{Text: j.plan.Note})
 	}
-	request := e.request(pr, j.plan, r)
+	request := e.request(j, r)
 	j.spec = review.SpecFor(request)
 	started, err := e.deps.Procs.Start(proc.Command{
 		Path:   j.spec.Path,
@@ -184,12 +187,24 @@ func (e *Engine) start(w workers, r run, i int) run {
 		j.view.Outcome = review.OutcomeWord(review.Exit{Code: exitNotStarted}, false)
 		j.view.Error = sanitize.Line(err.Error())
 		e.journal(JobFinished{Job: j.view})
+		e.clearMark(pr)
 		return e.counted(withJob(r, i, j), j)
 	}
 	j.proc = started
 	j.view.State = JobRunning
 	j.view.StartedAt = time.Now()
 	j.view.Resumed = review.Skill(request) == "recheck-pr"
+	j.view.Stderr = j.spec.Stderr
+	switch {
+	case j.spec.Override:
+		j.view.FollowStderr = true
+	case j.plan.Flag != session.FlagNone:
+		j.view.Follow = j.plan.ID
+		j.view.FollowFromEnd = j.plan.Resumes()
+	}
+	if e.deps.Marks != nil {
+		e.deps.Marks.Show(pr)
+	}
 	if j.spec.Guard > 0 {
 		j.guard = time.AfterFunc(j.spec.Guard, func() { e.in.put(guardFired{pr: pr}) })
 	}
@@ -206,8 +221,12 @@ func (e *Engine) start(w workers, r run, i int) run {
 // A PR this run reviewed before is re-checked in the session that review
 // ran in, which already holds the findings. A review that failed leaves
 // nothing to re-check, so the next one starts fresh.
-func (e *Engine) planFor(r run, pr int) session.Plan {
-	if e.cfg.Override == "" && !e.cfg.Orchestrator.SupportsSessions() {
+func (e *Engine) planFor(r run, j job) session.Plan {
+	pr := j.view.PR
+	// A retry under the fallback is always a fresh review. It runs where
+	// the first attempt failed, and that attempt's session is not one to
+	// resume.
+	if j.view.First != nil || (e.cfg.Override == "" && !j.view.Orchestrator.SupportsSessions()) {
 		return session.Plan{}
 	}
 	id := session.ID(e.cfg.Repo.Root, e.cfg.Repo.Owner, e.cfg.Repo.Name, pr)
@@ -238,11 +257,12 @@ func lastReview(r run, pr int) (Job, bool) {
 	return Job{}, false
 }
 
-func (e *Engine) request(pr int, plan session.Plan, r run) review.Request {
+func (e *Engine) request(j job, r run) review.Request {
+	pr := j.view.PR
 	return review.Request{
 		PR:           pr,
-		Orchestrator: e.cfg.Orchestrator,
-		Session:      plan,
+		Orchestrator: j.view.Orchestrator,
+		Session:      j.plan,
 		NoPost:       e.cfg.NoPost,
 		Focus:        r.snap.Focus,
 		Timeout:      e.cfg.Timeout,
@@ -317,6 +337,9 @@ func (e *Engine) settled(w workers, r run, in jobSettled) run {
 	}
 	j := r.jobs[i]
 	state := review.Classify(j.exit, j.guardTripped, j.spec.Override)
+	if e.retries(j, state) {
+		return e.retried(w, r, i, in.outcome)
+	}
 	switch {
 	case j.stopped:
 		j.view.State = JobFailed
@@ -331,7 +354,51 @@ func (e *Engine) settled(w workers, r run, in jobSettled) run {
 		j.view.Error = in.outcome.agentError
 	}
 	e.journal(JobFinished{Job: j.view})
+	e.clearMark(j.view.PR)
 	return e.endPassIfSettled(w, e.counted(withJob(r, i, j), j))
+}
+
+func (e *Engine) clearMark(pr int) {
+	if e.deps.Marks != nil {
+		e.deps.Marks.Clear(pr)
+	}
+}
+
+// retries says a failed review runs again under the fallback.
+//
+// Exit 10 is the orchestrator failing, not the review finding something: a
+// provider outage, a usage limit, a session that errored. Only that is
+// retried, once. A review that was stopped, by a person or for time, is not:
+// a killed reviewer can exit 10 too. An override owns its own exit status.
+func (e *Engine) retries(j job, state review.State) bool {
+	agentFailed := state == review.Failed && !j.exit.Signaled && j.exit.Code == exitAgentError
+	stopped := j.stopped || j.guardTripped
+	// A run that is ending starts no retry.
+	return agentFailed && !stopped && !j.spec.Override && e.cfg.Fallback != nil && j.view.First == nil && !e.quitting.Load()
+}
+
+// retried puts a review that failed with exit 10 back in the queue under
+// the fallback, ahead of every review that waits for a slot. What the
+// failed attempt wrote is set aside under its orchestrator's name, so the
+// retry cannot cover the explanation of the failure. The reaction stays
+// on: it is the same review.
+func (e *Engine) retried(w workers, r run, i int, out outcome) run {
+	j := r.jobs[i]
+	r.pass.ArchiveAttempt(j.view.PR, j.view.Orchestrator.Backend)
+	first := &Attempt{
+		Orchestrator: j.view.Orchestrator,
+		Outcome:      review.OutcomeWord(j.exit, false),
+		Error:        out.agentError,
+		Elapsed:      j.view.Elapsed,
+	}
+	j = job{head: j.head, view: Job{
+		PR: j.view.PR, Title: j.view.Title, Author: j.view.Author, State: JobQueued,
+		Orchestrator: *e.cfg.Fallback, PassDir: j.view.PassDir, First: first,
+	}}
+	e.journal(JobRetrying{Job: j.view})
+	r = withJob(r, i, j)
+	r.jobs = movedFirst(r.jobs, i)
+	return e.fill(w, r)
 }
 
 // finished is a review that ran to its end: what it decided, and its place

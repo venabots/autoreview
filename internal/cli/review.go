@@ -18,6 +18,7 @@ const (
 	EnvLogDir       = "AUTOREVIEW_LOG_DIR"
 	EnvSkills       = "AUTOREVIEW_SKILLS"
 	EnvOrchestrator = "AUTOREVIEW_ORCHESTRATOR"
+	EnvFallback     = "AUTOREVIEW_FALLBACK"
 	// EnvOverride names a shell command that replaces the built-in
 	// reviewer. The PR number replaces each {} in it.
 	EnvOverride = "AUTOREVIEW_CMD"

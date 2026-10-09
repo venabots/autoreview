@@ -203,3 +203,14 @@ func TestAfterViewIsOneLine(t *testing.T) {
 		t.Errorf("a run that reviewed nothing left %q and %q", out, errs)
 	}
 }
+
+func TestARetryIsOneLine(t *testing.T) {
+	job := engine.Job{PR: 9, Author: "alice", Orchestrator: review.Orchestrator{Backend: "codex"},
+		First: &engine.Attempt{Orchestrator: review.Claude(), Outcome: "exit 10", Error: "usage limit"}}
+	if got := say(engine.JobRetrying{Job: job}).out; got != "RETRY   #9 (claude exit 10: usage limit · retrying with codex)\n" {
+		t.Errorf("say = %q", got)
+	}
+	if got := say(engine.JobStarted{Job: job}).out; got != "start   #9 @alice (reviewing with codex)\n" {
+		t.Errorf("say = %q", got)
+	}
+}

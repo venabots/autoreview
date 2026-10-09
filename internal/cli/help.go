@@ -6,6 +6,7 @@ const Help = `autoreview: one place to review your team's PRs and handle your ow
 Usage: autoreview [PR ...] [--watch[=MINUTES]] [--babysit[=MINUTES]] [--once]
                   [--no-post] [--continue] [--jobs N] [--focus TEXT]
                   [--timeout SECONDS] [--budget USD] [--orchestrator SPEC]
+                  [--fallback SPEC|none]
                   [--skills DIR|installed] [--log-dir DIR] [--max-passes N]
                   [--max-idle N] [--all] [--dependabot] [--stacked]
                   [--skip-wait-for-ci] [--tui | --headless]
@@ -62,6 +63,10 @@ end.
   --orchestrator SPEC The agent that runs each review: claude or codex, with
                       an optional model, as in codex:gpt-5.5 (default claude,
                       or $AUTOREVIEW_ORCHESTRATOR).
+  --fallback SPEC     The agent that retries a review whose agent failed
+                      (exit 10: an outage, a usage limit). Default auto (or
+                      $AUTOREVIEW_FALLBACK): the other of claude and codex,
+                      when it is installed. "none" turns the retry off.
   --skills VALUE      Which review skills run (or $AUTOREVIEW_SKILLS). Unset:
                       the ones this binary carries. A directory of
                       <name>/SKILL.md: those. The word "installed": none are

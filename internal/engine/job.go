@@ -65,4 +65,28 @@ type Job struct {
 	Session string
 	// PassDir holds the files the review wrote.
 	PassDir string
+	// First is the attempt that failed before the fallback took over, or
+	// nil when this is the first attempt.
+	First *Attempt
+	// Follow is the session whose transcript shows what the review is
+	// doing, or empty when none is known while it runs. FollowFromEnd says
+	// the session is resumed: what it held before belongs to earlier
+	// reviews.
+	Follow        string
+	FollowFromEnd bool
+	// Stderr is the file the reviewer writes its stderr to. FollowStderr
+	// says it is the only live record: an override keeps no transcript.
+	Stderr       string
+	FollowStderr bool
+}
+
+// Attempt is what is kept of an orchestrator that failed with exit 10
+// before the fallback took over: enough to say what happened.
+type Attempt struct {
+	Orchestrator review.Orchestrator
+	Outcome      string
+	// Error is why the harness said it failed: a usage limit, an API error.
+	// The exit status says a provider failed; this says which way.
+	Error   string
+	Elapsed time.Duration
 }

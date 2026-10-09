@@ -61,11 +61,12 @@ internal/rundir    the run directory
 internal/skills    staging the bundled skills
 internal/report    the summary table and the lines under it
 internal/term      opening a new terminal tab (Herdr, cmux, Ghostty)
+internal/marks     the eyes reaction while a review runs
+internal/activity  what a running review does, from its transcript
 internal/tui       the view
 ```
 
-Still to come: `marks` (the eyes reaction), `task` (worktrees) and
-`panel`.
+Still to come: `task` (worktrees) and `panel`.
 
 **The engine**
 
@@ -98,8 +99,8 @@ Still to come: `marks` (the eyes reaction), `task` (worktrees) and
 - `Update` calls `eng.Do(...)` directly, so two keys cannot arrive reversed.
 - The view runs no process. Opening a browser or a terminal tab is an
   `Actions` function that `cmd/autoreview` hands in.
-- The view will tail the transcript itself. Activity never enters the
-  engine.
+- The view tails the transcript itself, once a second, through
+  `internal/activity`. Activity never enters the engine.
 - `cmd/autoreview` prints the summary after the alternate screen closes.
 
 ## Milestones
@@ -114,8 +115,8 @@ Each one leaves a binary that runs. One PR for each milestone.
 | 3 | Headless one pass: positional PRs, `--once`, `--no-post`, `--continue`, the override, summary, exit status, ctrl-C | done |
 | 4 | The view runs reviews: `R`, `x`, `f`, `r`, `l`, the rendered review, the summary after close, the pty tests | done |
 | 5 | Loop policies: watch, `--babysit`, rest, cap, CI hold and the wait for pending checks, stack hold, `--max-idle`, `w` | done |
-| 6 | Eyes reaction, codex, the exit-10 fallback, the in-use check, the activity tail | next |
-| 7 | My PRs tasks, after v1 decision 0030: `f` fix, `u` conflicts, `c` comments, `b` babysit, `B` babysit all | |
+| 6 | Eyes reaction, codex, the exit-10 fallback, the in-use check, the activity tail | done |
+| 7 | My PRs tasks, after v1 decision 0030: `f` fix, `u` conflicts, `c` comments, `b` babysit, `B` babysit all | next |
 | 8 | Formula, tap, README, cutover rename | |
 | 9 | `panel` (optional) | |
 

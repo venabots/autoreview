@@ -37,7 +37,8 @@ and `claude` (or `codex`).
 - On a terminal, it opens the full-screen view and watches. A reviewed PR
   rests 30 minutes, and gets at most three reviews in a run. `R` reviews the selected PR now, `x x` stops a
   review, `r` reopens a finished one in a new terminal tab, `l` shows the
-  run log, `w` stops or starts watching. Press `?` for every key and `q` to
+  run log, `w` stops or starts watching. A running review shows what it is
+  doing. Press `?` for every key and `q` to
   quit. On exit it prints one
   line, and the full summary is in the run log.
 - On a pipe, or with `--headless`, it makes one pass: it reviews every PR

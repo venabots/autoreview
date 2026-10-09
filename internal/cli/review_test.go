@@ -110,3 +110,27 @@ func TestParseFocusCountsCharactersNotBytes(t *testing.T) {
 		t.Errorf("ParseFocus = %q, want the line breaks collapsed", got)
 	}
 }
+
+func TestTheFallback(t *testing.T) {
+	cases := []struct {
+		args []string
+		env  map[string]string
+		want review.Fallback
+	}{
+		{nil, nil, review.Fallback{Kind: review.FallbackAuto}},
+		{[]string{"--fallback", "none"}, nil, review.Fallback{Kind: review.FallbackNone}},
+		{[]string{"--fallback=codex:gpt-5.5"}, nil, review.Fallback{Kind: review.FallbackSpec, Spec: review.Orchestrator{Backend: "codex", Model: "gpt-5.5"}}},
+		{nil, map[string]string{EnvFallback: "off"}, review.Fallback{Kind: review.FallbackNone}},
+	}
+	for _, c := range cases {
+		cfg, err := Parse(c.args, envOf(c.env))
+		if err != nil || cfg.Fallback != c.want {
+			t.Errorf("Parse(%q) fallback = %+v, %v; want %+v", c.args, cfg.Fallback, err, c.want)
+		}
+	}
+	for _, bad := range [][]string{{"--fallback", "claude"}, {"--orchestrator", "codex", "--fallback", "codex"}, {"--fallback", "gemini"}} {
+		if _, err := Parse(bad, noEnv); err == nil {
+			t.Errorf("Parse(%q) was accepted", bad)
+		}
+	}
+}

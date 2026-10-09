@@ -157,7 +157,7 @@ func (m Model) reviewContent() (string, string) {
 		return "review/none", wrapped(emptyPane(m.noReviews()), w)
 	}
 	f := facts{now: m.now, nextLook: m.untilNextLook(), root: m.snap.Repo.Root, resumeCommand: m.act.ResumeCommand}
-	content := wrapped(reviewDetail(row, f), w)
+	content := wrapped(reviewDetail(row, f, m.tails[row.pr]), w)
 	if job, done := row.finished(); done && job.State == engine.JobDone {
 		content += "\n\n" + headingStyle.Render("REVIEW") + "\n" + m.reviewBody(job)
 	}

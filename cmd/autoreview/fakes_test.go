@@ -46,6 +46,8 @@ func fakeGh(args []string) int {
 		return serve(dir, "mine.json")
 	case strings.HasPrefix(joined, "api graphql -F owner=acme -F name=widgets "):
 		return serve(dir, "prs.json")
+	case strings.HasPrefix(joined, "api repos/acme/widgets/issues/") && strings.Contains(joined, "/reactions"):
+		return react(args)
 	case len(args) == 7 && joined == "pr view "+args[2]+" --repo acme/widgets --json latestReviews":
 		fmt.Println(latestReviews(args[2]))
 		return 0
@@ -88,7 +90,8 @@ var firstNumber = regexp.MustCompile(`[0-9]+`)
 // fakeDashp is a review that takes no time. It logs its argv on one line,
 // writes the meta file dash-p writes, and prints dash-p's envelope.
 //
-//   - $FAKE_DASHP_FAIL lists the PRs whose review fails with exit 10.
+//   - $FAKE_DASHP_FAIL lists the PRs whose review fails with exit 10: "9",
+//     or "9:claude" to fail only under that agent.
 //   - $FAKE_DASHP_DECISION is the decision in the trailer (commented).
 //   - $FAKE_DASHP_NO_TRAILER lists the PRs whose review has no trailer.
 //   - $FAKE_DASHP_SLEEP is how many seconds the review takes. The sandbox
@@ -118,9 +121,16 @@ func fakeDashp(args []string) int {
 		time.Sleep(time.Minute)
 	}
 	if seconds, err := strconv.Atoi(os.Getenv("FAKE_DASHP_SLEEP")); err == nil {
-		time.Sleep(time.Duration(seconds) * time.Second)
+		// A review that takes a while says what it is doing, the way a real
+		// one does: in its session's transcript.
+		say := transcriptWriter(args)
+		say(`{"type":"text","text":"Reading the diff."}`)
+		time.Sleep(time.Duration(seconds) * time.Second / 2)
+		say(`{"type":"tool_use","name":"Bash","input":{"description":"Run the test suite","command":"go test ./..."}}`)
+		time.Sleep(time.Duration(seconds) * time.Second / 2)
 	}
-	failed := slices.Contains(strings.Fields(os.Getenv("FAKE_DASHP_FAIL")), pr)
+	failing := strings.Fields(os.Getenv("FAKE_DASHP_FAIL"))
+	failed := slices.Contains(failing, pr) || slices.Contains(failing, pr+":"+harnessOf(args))
 	for i, arg := range args {
 		if arg == "--meta-file" && i+1 < len(args) {
 			meta := fmt.Sprintf(`{"session_id":%q,"total_cost_usd":0.42,"model_resolved":"claude-fable-5"}`, session)
@@ -179,4 +189,69 @@ func steady(text, fixtures string) string {
 	text = regexp.MustCompile(`<fixtures>/logs/run-[0-9]+`).ReplaceAllString(text, "<run>")
 	text = sessionShape.ReplaceAllString(text, "<session>")
 	return elapsed.ReplaceAllString(text, "Ns")
+}
+
+// react logs a reaction call to $FAKE_GH_DIR/reactions and answers an add
+// with an id.
+func react(args []string) int {
+	joined := strings.Join(args, " ")
+	f, err := os.OpenFile(filepath.Join(os.Getenv("FAKE_GH_DIR"), "reactions"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err == nil {
+		_, _ = fmt.Fprintln(f, joined)
+		_ = f.Close()
+	}
+	if strings.Contains(joined, "--method POST") {
+		fmt.Println("77")
+	}
+	return 0
+}
+
+// reactionCalls is every reaction call the run made, one line each.
+func reactionCalls(t *testing.T, fixtures string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(fixtures, "reactions"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+}
+
+// harnessOf is the agent dash-p was asked to drive.
+func harnessOf(args []string) string {
+	for i, arg := range args {
+		if arg == "-H" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return "claude"
+}
+
+// transcriptWriter appends assistant blocks to the transcript of the
+// session dash-p was given, under $CLAUDE_CONFIG_DIR, as Claude Code does.
+// With no session named it writes nothing: that review's transcript is
+// not known until it ends.
+func transcriptWriter(args []string) func(block string) {
+	session := ""
+	for i, arg := range args {
+		if (arg == "--session-id" || arg == "--resume") && i+1 < len(args) {
+			session = args[i+1]
+		}
+	}
+	dir := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-sandbox")
+	if session == "" || os.Getenv("CLAUDE_CONFIG_DIR") == "" || os.MkdirAll(dir, 0o700) != nil {
+		return func(string) {}
+	}
+	path := filepath.Join(dir, session+".jsonl")
+	return func(block string) {
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+		if err != nil {
+			return
+		}
+		defer func() { _ = f.Close() }()
+		at := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+		_, _ = fmt.Fprintf(f, `{"type":"assistant","timestamp":%q,"message":{"content":[%s]}}`+"\n", at, block)
+	}
 }

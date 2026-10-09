@@ -53,14 +53,18 @@ type facts struct {
 
 // reviewDetail is the right pane for one PR on the Review tab: what the PR
 // is, what the run is doing about it now, and what its last review found.
-// The review's own text goes under these lines.
-func reviewDetail(row reviewRow, f facts) []line {
+// The review's own text goes under these lines. tail is how a running
+// review is followed.
+func reviewDetail(row reviewRow, f facts, tail followed) []line {
 	lines := []line{
 		titleLine(row.pr, row.title()),
 		note(byline(row), dimStyle),
 		{},
 	}
 	lines = append(lines, nowLines(row, f)...)
+	if row.running() && row.job.State == engine.JobRunning {
+		lines = append(lines, activityLines(*row.job, tail, f.now)...)
+	}
 	if job, ok := row.finished(); ok {
 		lines = append(lines, lastReview(job, f)...)
 	}
@@ -86,11 +90,13 @@ func nowLines(row reviewRow, f facts) []line {
 	switch {
 	case row.running():
 		by := row.job.Orchestrator.Label()
-		lines := []line{note(report.Progress(*row.job, f.now)+" · "+by, spinnerStyle)}
-		if row.job.Session != "" {
-			lines = append(lines, note("session "+row.job.Session, dimStyle))
+		if first := row.job.First; first != nil {
+			by += " after " + first.Orchestrator.Label() + " failed"
 		}
-		return append(lines, note("x x stops it", dimStyle))
+		return []line{note(report.Progress(*row.job, f.now)+" · "+by, spinnerStyle), note("x x stops it", dimStyle)}
+	case row.job != nil && row.job.State == engine.JobQueued && row.job.First != nil:
+		return []line{note(fmt.Sprintf("queued · %s failed; waiting for a slot to retry with %s",
+			row.job.First.Orchestrator.Label(), row.job.Orchestrator.Label()), yellowStyle)}
 	case row.job != nil && row.job.State == engine.JobQueued:
 		return []line{note("queued · starts when a review slot frees", dimStyle)}
 	case row.job != nil && row.listed != nil && row.listed.Wait != queue.WaitNext:
@@ -109,6 +115,9 @@ func lastReview(job engine.Job, f facts) []line {
 	lines := []line{{styled("LAST REVIEW", headingStyle)}, field("result", resultWord(job))}
 	if job.Error != "" {
 		lines = append(lines, field("error", word{sanitize.Line(job.Error), redStyle}))
+	}
+	if job.First != nil {
+		lines = append(lines, field("fallback", word{sanitize.Line(report.FirstFailure(job.First)) + "; retried with " + job.Orchestrator.Label(), yellowStyle}))
 	}
 	lines = append(lines,
 		field("verdict", word{report.Verdict(job.Verdict), outcomeColor(job)}),

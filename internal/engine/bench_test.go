@@ -154,6 +154,8 @@ type setup struct {
 	sessions session.Probe
 	record   func(Finished) error
 	reviewer *reviewer
+	// marks is the reaction, or nil.
+	marks Marks
 	// list replaces the fixed list of prs, for a test whose PRs change
 	// between looks.
 	list func() (prs.Listing, error)
@@ -193,6 +195,7 @@ func newBench(t *testing.T, s setup) *bench {
 		},
 		Mine:     func(context.Context) ([]mine.PR, error) { return nil, nil },
 		Procs:    b.reviewer,
+		Marks:    s.marks,
 		Sessions: s.sessions,
 		Run:      run,
 		Transcript: func(string) (string, bool) {
@@ -261,6 +264,8 @@ func (b *bench) journal() []string {
 			out[i] = "note: " + ev.Text
 		case Interrupted:
 			out[i] = "interrupted"
+		case JobRetrying:
+			out[i] = fmt.Sprintf("retry %d", ev.Job.PR)
 		}
 	}
 	return out

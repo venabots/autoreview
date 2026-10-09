@@ -40,8 +40,40 @@ func Summary(jobs []engine.Job) string {
 			lines = append(lines, fmt.Sprintf("panel #%d: %s", job.PR, panel(job.Trailer.Panel)))
 		}
 	}
+	for _, job := range jobs {
+		if line, ok := FallbackLine(job); ok {
+			lines = append(lines, line)
+		}
+	}
 	lines = append(lines, ErrorLines(jobs)...)
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// FirstFailure is how the first attempt of a retried review failed:
+// "claude exit 10: usage limit".
+func FirstFailure(first *engine.Attempt) string {
+	what := first.Orchestrator.Label() + " " + first.Outcome
+	if first.Error != "" {
+		what += ": " + first.Error
+	}
+	return what
+}
+
+// FallbackLine says what happened to a review that ran again under the
+// fallback, or nothing for a review that ran once.
+func FallbackLine(job engine.Job) (string, bool) {
+	if job.First == nil || !job.State.Settled() {
+		return "", false
+	}
+	first := fmt.Sprintf("PR #%d: %s failed (%s)", job.PR, job.First.Orchestrator.Label(), strings.TrimPrefix(FirstFailure(job.First), job.First.Orchestrator.Label()+" "))
+	to := job.Orchestrator.Label()
+	switch job.State {
+	case engine.JobDone:
+		return first + "; reviewed with " + to + " instead", true
+	case engine.JobTimedOut:
+		return first + ", then " + to + " timed out", true
+	}
+	return fmt.Sprintf("%s, then %s failed (%s)", first, to, job.Outcome), true
 }
 
 func risk(t *review.Trailer) string {

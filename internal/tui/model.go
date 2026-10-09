@@ -35,6 +35,9 @@ type Actions struct {
 	OpenTab func(ctx context.Context, label, command string) (where string, err error)
 	// ResumeCommand writes the command line that reopens a review in dir.
 	ResumeCommand func(dir, reopen string) string
+	// Transcript finds the transcript of a session, for the activity of a
+	// review that is running.
+	Transcript func(id string) (string, bool)
 }
 
 type tab int
@@ -101,6 +104,8 @@ type Model struct {
 
 	text reviewText
 	log  logTail
+	// tails follows each running review, by PR.
+	tails map[int]followed
 	// dark is true on a dark terminal. It picks the colors of a rendered
 	// review.
 	dark bool

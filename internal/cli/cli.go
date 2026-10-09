@@ -77,6 +77,10 @@ type Config struct {
 	// Focus is what the reviewers are told to look at, or empty.
 	Focus        string
 	Orchestrator review.Orchestrator
+	// Fallback is what retries a review whose orchestrator failed: auto,
+	// none, or a named orchestrator. It is resolved against what is
+	// installed when the run starts.
+	Fallback review.Fallback
 	// Override is a shell command that replaces the built-in reviewer.
 	Override string
 
@@ -96,7 +100,7 @@ const EnvWatch = "AUTOREVIEW_WATCH_INTERVAL"
 
 // valued names the flags that take a value, in the order their values are
 // checked. The first one has a short form.
-var valued = []string{"jobs", "timeout", "budget", "log-dir", "skills", "focus", "orchestrator", "max-idle", "max-passes"}
+var valued = []string{"jobs", "timeout", "budget", "log-dir", "skills", "focus", "orchestrator", "fallback", "max-idle", "max-passes"}
 
 // noValue marks a --watch given with no value. No interval can contain it.
 const noValue = "\x00"
@@ -193,6 +197,12 @@ func withReviewFlags(cfg Config, raw map[string]*string, given func(string) bool
 	}
 	if cfg.Orchestrator, err = review.ParseOrchestrator(chosen(*raw["orchestrator"], given("orchestrator"), env(EnvOrchestrator), "claude")); err != nil {
 		return Config{}, err
+	}
+	if cfg.Fallback, err = review.ParseFallback(chosen(*raw["fallback"], given("fallback"), env(EnvFallback), "auto")); err != nil {
+		return Config{}, err
+	}
+	if cfg.Fallback.Kind == review.FallbackSpec && cfg.Fallback.Spec == cfg.Orchestrator {
+		return Config{}, fmt.Errorf("--fallback %s is the orchestrator itself; name another, or none", cfg.Orchestrator.Label())
 	}
 	cfg.LogDir = chosen(*raw["log-dir"], given("log-dir"), env(EnvLogDir), "")
 	cfg.Skills = chosen(*raw["skills"], given("skills"), env(EnvSkills), "")

@@ -257,3 +257,28 @@ func TestOutcome(t *testing.T) {
 		})
 	}
 }
+
+func TestFallbackLine(t *testing.T) {
+	first := &engine.Attempt{Orchestrator: review.Claude(), Outcome: "exit 10", Error: "usage limit"}
+	codex := review.Orchestrator{Backend: "codex"}
+	cases := []struct {
+		job  engine.Job
+		want string
+	}{
+		{engine.Job{PR: 9, State: engine.JobDone, Orchestrator: codex, First: first}, "PR #9: claude failed (exit 10: usage limit); reviewed with codex instead"},
+		{engine.Job{PR: 9, State: engine.JobTimedOut, Orchestrator: codex, First: first}, "PR #9: claude failed (exit 10: usage limit), then codex timed out"},
+		{engine.Job{PR: 9, State: engine.JobFailed, Outcome: "exit 10", Orchestrator: codex, First: &engine.Attempt{Orchestrator: review.Claude(), Outcome: "exit 10"}},
+			"PR #9: claude failed (exit 10), then codex failed (exit 10)"},
+	}
+	for _, c := range cases {
+		if got, ok := FallbackLine(c.job); !ok || got != c.want {
+			t.Errorf("FallbackLine = %q, %v; want %q", got, ok, c.want)
+		}
+	}
+	if _, ok := FallbackLine(engine.Job{PR: 9, State: engine.JobDone}); ok {
+		t.Error("a review that ran once has a fallback line")
+	}
+	if _, ok := FallbackLine(engine.Job{PR: 9, State: engine.JobRunning, First: first}); ok {
+		t.Error("a retry that is still running has a fallback line")
+	}
+}

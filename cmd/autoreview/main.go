@@ -22,6 +22,7 @@ import (
 	"github.com/venabots/autoreview/internal/prs"
 	"github.com/venabots/autoreview/internal/repo"
 	"github.com/venabots/autoreview/internal/sanitize"
+	"github.com/venabots/autoreview/internal/session"
 	"github.com/venabots/autoreview/internal/stats"
 	"github.com/venabots/autoreview/internal/term"
 	"github.com/venabots/autoreview/internal/tui"
@@ -175,5 +176,6 @@ func actions(rc repo.Context) tui.Actions {
 			return kind.Name(), err
 		},
 		ResumeCommand: term.ResumeCommand,
+		Transcript:    session.StoreIn(session.ConfigDir(os.Getenv)).Transcript,
 	}
 }
