@@ -4,6 +4,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/queue"
 	"github.com/venabots/autoreview/internal/repo"
@@ -64,6 +65,10 @@ type Snapshot struct {
 	Jobs []Job
 	// Earlier is the newest review of each PR from the passes before it.
 	Earlier []Job
+	// Tasks is every task of the run on your own PRs, oldest first.
+	Tasks []Job
+	// Babysit is which of your PRs are babysat, and what each has had.
+	Babysit babysit.State
 	// Focus is what the reviewers are told to look at, or empty.
 	Focus string
 	// Watching says the run reviews what becomes ready at each look.

@@ -19,6 +19,8 @@ import (
 	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/rundir"
 	"github.com/venabots/autoreview/internal/session"
+	"github.com/venabots/autoreview/internal/task"
+	"github.com/venabots/autoreview/internal/worktree"
 )
 
 // Config is what one run was asked to do.
@@ -110,6 +112,13 @@ type Deps struct {
 	// Record keeps a finished review in the ledger. It is nil when the
 	// ledger is off. It runs off the engine's goroutine.
 	Record func(Finished) error
+	// Prepare makes the worktree a task runs in, and Finish gives it back
+	// or says why it is kept. Pushed reads whether a PR's head moved from a
+	// commit. TaskRefusal says why a kind of task cannot run, or is empty.
+	Prepare     func(ctx context.Context, r task.Request) (worktree.Prepared, error)
+	Finish      func(ctx context.Context, p worktree.Prepared) (kept string, err error)
+	Pushed      func(ctx context.Context, pr int, before string) (string, bool)
+	TaskRefusal func(k task.Kind) string
 	// Marks puts a reaction on a PR while its review runs. It is nil under
 	// --no-post, which promises to leave the PR alone.
 	Marks Marks
@@ -201,7 +210,9 @@ type run struct {
 	// jobs is the reviews of the newest pass, with what the engine alone
 	// knows about each.
 	jobs []job
-	pass rundir.Pass
+	// tasks is every task of the run on your own PRs.
+	tasks []taskJob
+	pass  rundir.Pass
 	// requested is the PRs a person asked for while a pass was running,
 	// for the pass after it.
 	requested []int
@@ -243,6 +254,7 @@ func (e *Engine) Run() Result {
 			r = e.look(w, r)
 		}
 		r = e.afterLook(w, r)
+		r = e.stoppedIfQuiet(r)
 		e.publish(r)
 	}
 	e.settleMarks()
@@ -252,13 +264,16 @@ func (e *Engine) Run() Result {
 func (e *Engine) handle(w workers, r run, in input) run {
 	switch in := in.(type) {
 	case Quit:
-		return e.quit(r)
+		return e.quit(w, r)
 	case listed:
 		r.pending--
 		r = e.withListing(r, in)
 	case mineListed:
 		r.pending--
 		r.snap = withMine(r.snap, in)
+		if in.err == nil {
+			return e.babysitLook(w, r)
+		}
 	case jobReaped:
 		return e.reaped(w, r, in)
 	case guardFired:
@@ -273,6 +288,18 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		r.snap.Focus = in.Text
 	case SetWatch:
 		return e.setWatch(w, r, in.On)
+	case RunTask:
+		return e.requestTask(w, r, in.Request)
+	case Babysit:
+		return e.setBabysit(w, r, in.Change)
+	case taskReady:
+		return e.taskReady(w, r, in)
+	case taskReaped:
+		return e.taskReaped(w, r, in)
+	case taskSettled:
+		return e.taskSettled(r, in)
+	case taskGuard:
+		return e.taskGuard(r, in)
 	}
 	return r
 }
@@ -280,12 +307,12 @@ func (e *Engine) handle(w workers, r run, in input) run {
 // quit ends a run that had not ended by itself. That is an interrupt,
 // whoever asked: a key in the view, or a signal. A run with reviews alive
 // stops them first and ends when the last one has been collected.
-func (e *Engine) quit(r run) run {
-	switch r.snap.Phase {
-	case Done, Stopping:
+func (e *Engine) quit(w workers, r run) run {
+	switch {
+	case r.snap.Phase == Done || r.snap.Phase == Stopping:
 		return r
-	case Reviewing:
-		return e.stopReviews(r)
+	case r.snap.Phase == Reviewing || !tasksQuiet(r):
+		return e.stopAll(w, r)
 	}
 	r.snap.Phase = Done
 	// A held run that is not watching has done its work, and ends with the
@@ -293,6 +320,31 @@ func (e *Engine) quit(r run) run {
 	if !e.cfg.HoldOpen || r.snap.Watching || !r.snap.Looked {
 		r.code = ExitInterrupted
 	}
+	return withTaskStatus(r)
+}
+
+// withTaskStatus fails a run whose own status is clean when a task did not
+// run to its end. A failed task is a failed job, as a failed review is.
+func withTaskStatus(r run) run {
+	if r.code == ExitOK && tasksFailed(r) {
+		r.code = ExitFailed
+	}
+	return r
+}
+
+// stoppedIfQuiet ends a run that is stopping once nothing it started is
+// still alive: no review, no task, no worktree being made.
+func (e *Engine) stoppedIfQuiet(r run) run {
+	if r.snap.Phase != Stopping || !tasksQuiet(r) {
+		return r
+	}
+	for _, j := range r.jobs {
+		if !j.view.State.Settled() {
+			return r
+		}
+	}
+	r.snap.Phase = Done
+	r.code = ExitInterrupted
 	return r
 }
 
@@ -302,6 +354,7 @@ func (e *Engine) publish(r run) {
 	s.Seq = e.Snapshot().Seq + 1
 	s.At = time.Now()
 	s.Jobs = views(r.jobs)
+	s.Tasks = taskViews(r.tasks)
 	e.current.Store(&s)
 	select {
 	case e.changed <- struct{}{}:
