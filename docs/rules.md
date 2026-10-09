@@ -18,7 +18,7 @@ Status is `done` with the test that pins it, or the milestone that brings it.
 | `dash-p` argv order, exit codes 0, 10, 20, and `--flag=value`                                  | `src/job.rs:264-339`   | done: `internal/review` `TestTheDashpArgvIsV1s`, `TestClassifySaysWhatAnExitMeans`, `TestAFlagDashpDoesNotKnowIsOneToken` |
 | The trailer: a fenced `autoreview` JSON block                                                  | `src/report.rs:84`     | done: `internal/review` `TestTheInstructionIsV1sByteForByte`, `TestTheLastBlockThatParsesWins` |
 | The run directory layout                                                                       | `src/rundir.rs`        | done: `internal/rundir` `TestThePathsOfAPass` |
-| `skills/` and `prompts/`, with mode 0755 on `*.sh` after staging                               | `src/skills.rs`        | done for `skills/`: `internal/skills` `TestStageWritesTheBundleWhereTheAgentLooks`, and `embed_test.go`. `prompts/` comes with `panel`. |
+| `skills/` and `prompts/`, with mode 0755 on `*.sh` after staging                               | `src/skills.rs`        | done: `internal/skills` `TestStageWritesTheBundleWhereTheAgentLooks`, and `embed_test.go` `TestTheBinaryCarriesV1sFourPanelPrompts` for `prompts/` |
 
 ## Behavior rules
 

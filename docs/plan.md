@@ -64,9 +64,11 @@ internal/term      opening a new terminal tab (Herdr, cmux, Ghostty)
 internal/marks     the eyes reaction while a review runs
 internal/activity  what a running review does, from its transcript
 internal/tui       the view
+internal/panel     `autoreview panel`: one change, several models, one synthesis
+internal/task      the tasks on your own PRs, and their skills
+internal/worktree  the worktree each task runs in
+internal/babysit   when a babysat PR gets another fix
 ```
-
-Still to come: `task` (worktrees) and `panel`.
 
 **The engine**
 
@@ -118,7 +120,7 @@ Each one leaves a binary that runs. One PR for each milestone.
 | 6 | Eyes reaction, codex, the exit-10 fallback, the in-use check, the activity tail | done |
 | 7 | My PRs tasks, after v1 decision 0030: `f` fix, `u` conflicts, `c` comments, `b` babysit, `B` babysit all | done |
 | 8 | Formula, tap, README, cutover rename | next |
-| 9 | `panel` (optional) | |
+| 9 | `panel` (optional): `autoreview panel`, in `internal/panel` | done |
 
 ## Cutover
 
