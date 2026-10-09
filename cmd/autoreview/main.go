@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/charmbracelet/x/term"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/venabots/autoreview/internal/prs"
 	"github.com/venabots/autoreview/internal/repo"
 	"github.com/venabots/autoreview/internal/sanitize"
+	"github.com/venabots/autoreview/internal/stats"
 )
 
 // version is set at build time with -ldflags "-X main.version=...". A
@@ -33,6 +35,12 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	// A subcommand is the first argument and nothing else. A PR number can
+	// never be read as one, and a flag before it is an error cli.Parse names.
+	if len(args) > 0 && args[0] == cli.Stats {
+		return stats.Run(args[1:], os.Getenv, time.Now(), term.IsTerminal(os.Stdout.Fd()), stdout, stderr)
+	}
+
 	cfg, err := cli.Parse(args, os.Getenv)
 	if err != nil {
 		say(stderr, "error: %v\nsee autoreview --help\n", err)

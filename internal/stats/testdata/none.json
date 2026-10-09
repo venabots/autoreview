@@ -1,0 +1,17 @@
+{
+  "generated_at": 1791488230,
+  "since": null,
+  "ledger": "testdata/ledger.jsonl",
+  "overview": {
+    "runs": 0,
+    "repos": 0,
+    "first_at": null,
+    "last_at": null,
+    "decisions": {},
+    "risks": {},
+    "sources": {}
+  },
+  "attention": [],
+  "unresolved": {},
+  "cohorts": []
+}

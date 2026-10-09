@@ -239,3 +239,60 @@ func TestHelpAndVersion(t *testing.T) {
 		t.Errorf("--version: exit %d, stdout %q", code, stdout)
 	}
 }
+
+// The stats report needs no repo and no gh: it reads the ledger and nothing
+// else. These run with no sandbox to prove it.
+func TestStatsReportsFromALedger(t *testing.T) {
+	ledger := filepath.Join("..", "..", "internal", "stats", "testdata", "ledger.jsonl")
+	want, err := os.ReadFile(filepath.Join("..", "..", "internal", "stats", "testdata", "plain.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	stdout, stderr, code := autoreview(t, "stats", "--ledger", ledger)
+
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	// The last line names the ledger by the path it was given.
+	body, _, _ := strings.Cut(stdout, "\nledger: ")
+	wantBody, _, _ := strings.Cut(string(want), "\nledger: ")
+	if body != wantBody {
+		t.Errorf("stdout:\n%s\nwant:\n%s", body, wantBody)
+	}
+	if !strings.HasSuffix(stdout, "ledger: "+ledger+"\n") {
+		t.Errorf("the report does not end by naming the ledger: %q", stdout[max(len(stdout)-120, 0):])
+	}
+}
+
+func TestStatsReadsTheLedgerTheEnvironmentNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "ledger.jsonl")
+	t.Setenv("AUTOREVIEW_LEDGER", path)
+
+	stdout, stderr, code := autoreview(t, "stats")
+	if code != 0 || stderr != "" || !strings.HasPrefix(stdout, "no reviews recorded yet in "+path) {
+		t.Errorf("an empty ledger: exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+
+	t.Setenv("AUTOREVIEW_LEDGER", "off")
+	stdout, stderr, code = autoreview(t, "stats")
+	if code != 1 || stdout != "" || !strings.HasPrefix(stderr, "error: the ledger is off") {
+		t.Errorf("a ledger that is off: exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+}
+
+func TestStatsIsASubcommandOnlyAsTheFirstArgument(t *testing.T) {
+	stdout, _, code := autoreview(t, "stats", "--help")
+	if code != 0 || !strings.HasPrefix(stdout, "autoreview stats: ") {
+		t.Errorf("stats --help: exit %d, stdout %q", code, stdout)
+	}
+	_, stderr, code := autoreview(t, "--all", "stats")
+	if code != 1 || stderr != "error: stats is a subcommand and goes first: autoreview stats\nsee autoreview --help\n" {
+		t.Errorf("--all stats: exit %d, stderr %q", code, stderr)
+	}
+	_, stderr, code = autoreview(t, "stats", "--bogus")
+	if code != 1 || !strings.HasPrefix(stderr, "error: unknown arg: --bogus") {
+		t.Errorf("stats --bogus: exit %d, stderr %q", code, stderr)
+	}
+}

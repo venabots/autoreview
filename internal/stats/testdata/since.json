@@ -1,0 +1,294 @@
+{
+  "generated_at": 1791488230,
+  "since": 1784073600,
+  "ledger": "testdata/ledger.jsonl",
+  "overview": {
+    "runs": 15,
+    "repos": 3,
+    "first_at": 1784080800,
+    "last_at": 1786320000,
+    "decisions": {
+      "approved": 5,
+      "changes-requested": 2,
+      "commented": 5,
+      "unknown": 3
+    },
+    "risks": {
+      "CRITICAL": 2,
+      "HIGH": 2,
+      "LOW": 6,
+      "MEDIUM": 2,
+      "unknown": 3
+    },
+    "sources": {
+      "autoreview": 14,
+      "panel": 1
+    }
+  },
+  "attention": [
+    "glm-5.3 on opencode answered 1 of 14 launches"
+  ],
+  "unresolved": {
+    "claude": 1,
+    "coderabbitai": 1,
+    "copilot": 1,
+    "deepsource": 1,
+    "opencode": 1,
+    "sonar": 1,
+    "x<y>&z": 1
+  },
+  "cohorts": [
+    {
+      "key": {
+        "backend": "codex",
+        "model": "gpt-5.5"
+      },
+      "runs": 15,
+      "answered": 15,
+      "failed": 0,
+      "raw_findings": 45,
+      "raw_runs": 15,
+      "kept": 20,
+      "kept_unique": 14,
+      "kept_high": 9,
+      "dropped": 0,
+      "keep_num": 20,
+      "keep_den": 41,
+      "first_at": 1784080800,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 15,
+        "denominator": 15,
+        "value": 1.0,
+        "low": 0.7961107336956521,
+        "high": 1.0
+      },
+      "keep_rate": {
+        "numerator": 20,
+        "denominator": 41,
+        "value": 0.4878048780487805,
+        "low": 0.34254187239935696,
+        "high": 0.6351574068413481
+      },
+      "raw_per_run": 3.0,
+      "sample": "emerging",
+      "median_secs": 59
+    },
+    {
+      "key": {
+        "backend": "opencode",
+        "model": "grok-4.6"
+      },
+      "runs": 14,
+      "answered": 10,
+      "failed": 4,
+      "raw_findings": 15,
+      "raw_runs": 10,
+      "kept": 7,
+      "kept_unique": 5,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 7,
+      "keep_den": 14,
+      "first_at": 1784080800,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 10,
+        "denominator": 14,
+        "value": 0.7142857142857143,
+        "low": 0.4535045882751561,
+        "high": 0.882788120898909
+      },
+      "keep_rate": {
+        "numerator": 7,
+        "denominator": 14,
+        "value": 0.5,
+        "low": 0.2679886791947528,
+        "high": 0.7320113208052473
+      },
+      "raw_per_run": 1.5,
+      "sample": "emerging",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "claude",
+        "model": "claude-opus-4.7"
+      },
+      "runs": 14,
+      "answered": 14,
+      "failed": 0,
+      "raw_findings": 23,
+      "raw_runs": 14,
+      "kept": 6,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 3,
+      "keep_num": 4,
+      "keep_den": 23,
+      "first_at": 1784080800,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 14,
+        "denominator": 14,
+        "value": 1.0,
+        "low": 0.7846829880728186,
+        "high": 1.0
+      },
+      "keep_rate": {
+        "numerator": 4,
+        "denominator": 23,
+        "value": 0.17391304347826086,
+        "low": 0.06978540350612772,
+        "high": 0.3713805478529566
+      },
+      "raw_per_run": 1.6428571428571428,
+      "sample": "emerging",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "opencode",
+        "model": "glm-5.3"
+      },
+      "runs": 14,
+      "answered": 1,
+      "failed": 13,
+      "raw_findings": 1,
+      "raw_runs": 1,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 1,
+      "first_at": 1784080800,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 1,
+        "denominator": 14,
+        "value": 0.07142857142857142,
+        "low": 0.012721886112291648,
+        "high": 0.3146926955395781
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 1,
+        "value": 0.0,
+        "low": 0.0,
+        "high": 0.7934567085261071
+      },
+      "raw_per_run": 1.0,
+      "sample": "thin",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "codex",
+        "model": "gpt-5.6-sol"
+      },
+      "runs": 2,
+      "answered": 2,
+      "failed": 0,
+      "raw_findings": 2,
+      "raw_runs": 2,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 2,
+      "first_at": 1784433600,
+      "last_at": 1785456000,
+      "availability": {
+        "numerator": 2,
+        "denominator": 2,
+        "value": 1.0,
+        "low": 0.3423719528896193,
+        "high": 1.0
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 2,
+        "value": 0.0,
+        "low": 0.0,
+        "high": 0.6576280471103807
+      },
+      "raw_per_run": 1.0,
+      "sample": "thin",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "gemini",
+        "model": "unknown"
+      },
+      "runs": 2,
+      "answered": 0,
+      "failed": 0,
+      "raw_findings": 0,
+      "raw_runs": 0,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 0,
+      "first_at": 1785121200,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "low": null,
+        "high": null
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "low": null,
+        "high": null
+      },
+      "raw_per_run": null,
+      "sample": "thin",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "claude",
+        "model": "unknown"
+      },
+      "runs": 1,
+      "answered": 1,
+      "failed": 0,
+      "raw_findings": 1,
+      "raw_runs": 1,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 1,
+      "first_at": 1784332920,
+      "last_at": 1784332920,
+      "availability": {
+        "numerator": 1,
+        "denominator": 1,
+        "value": 1.0,
+        "low": 0.20654329147389294,
+        "high": 1.0
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 1,
+        "value": 0.0,
+        "low": 0.0,
+        "high": 0.7934567085261071
+      },
+      "raw_per_run": 1.0,
+      "sample": "thin",
+      "median_secs": 8
+    }
+  ]
+}

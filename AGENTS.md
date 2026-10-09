@@ -34,6 +34,14 @@ golangci-lint fmt                         # gofmt and goimports
 - `cmd/autoreview` prints the result after the alternate screen closes. On a
   pipe, `internal/plain` prints the same facts as plain lines.
 - Every `gh` call goes through a `gh.Runner`, so a test hands in a function.
+- The ledger is shared with v1, which still appends to it. `internal/ledger`
+  writes v1's bytes exactly: call `Record.MarshalJSON()`, never
+  `json.Marshal`, which escapes `<`, `>` and `&`.
+- Three tests check v2 against v1 on a real ledger. They are skipped unless
+  `AUTOREVIEW_LEDGER_ROUNDTRIP`, `AUTOREVIEW_STATS_ORACLE` (a copy of a
+  ledger file) and `AUTOREVIEW_V1` (the v1 binary) are set. Run them after a
+  change to `internal/ledger` or `internal/stats`, and never put a line of a
+  real ledger in the repo.
 - The end-to-end tests in `cmd/autoreview` link the test binary as `gh`. A
   new `gh` call needs an answer in `fakeGh` before its test can pass.
 
@@ -66,6 +74,9 @@ golangci-lint fmt                         # gofmt and goimports
 
 ## Working here
 
+- CI runs the Go version in `go.mod`, which is older than the one on this
+  machine. Run `GOTOOLCHAIN=go1.26.0 go test ./...` before a push. A test
+  must not pin what the standard library does where releases differ.
 - To see the view without a person, run it in `tmux` and read the pane:
   `tmux new-session -d -x 120 -y 30 ./autoreview`, then
   `tmux capture-pane -p`.
