@@ -391,7 +391,8 @@ fixed:
 | Verdict                        | First line of the body                                                  |
 | ------------------------------ | ----------------------------------------------------------------------- |
 | Approve                        | the user's message; otherwise see below                                 |
-| Request changes                | `This PR still needs changes.`                                          |
+| Request changes: one row open  | `Just one thing left before this gets in.`                              |
+| Request changes: more open     | `Just a few things left before this gets in.`                           |
 | Comment: your own PR           | `No decision: this is my own PR.`                                       |
 | Comment: draft                 | `No decision: this PR is a draft.`                                      |
 | Comment: head moved            | `No decision: the head moved during the re-check. I looked at <sha7>.`  |
@@ -402,7 +403,11 @@ fixed:
 - An approval with no user message takes `LGTM, just some small comments,
 nothing blocking` when the review has inline comments. With none, take a
   short body from `approve-pr`'s list of defaults.
-- Under `This PR still needs changes.`, add one line for each
+- A request for changes reads as a note from a teammate, not as a ruling.
+  Count the rows above polish that are `OUTSTANDING` or `NEW`, and a
+  substantiated questionable-approach flag on the delta as one more. One
+  takes the first line, and any other count takes the second.
+- Under that line, add one line for each
   `OUTSTANDING` row above polish that has a thread: the link to its
   thread, then what is still missing, in one sentence. The rows with the
   status `NEW` are inline in this review and need no line. This is a list
@@ -617,7 +622,7 @@ writes no files. Otherwise write:
     "approve": false,
     "event": "REQUEST_CHANGES",
     "reason": "1 outstanding finding (orders.ts:60)",
-    "body": "This PR still needs changes.\n\n- <thread url>: refundQuantity at line 63 is still unvalidated.",
+    "body": "Just one thing left before this gets in.\n\n- <thread url>: refundQuantity at line 63 is still unvalidated.",
     "review_comments": [],
     "withdraw_earlier_request": false
   }
