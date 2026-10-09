@@ -35,6 +35,20 @@ cp "$root/cmd/autoreview/testdata/mine.json" "$sandbox/fixtures/mine.json"
 cp "$root/cmd/autoreview/testdata/repo.json" "$sandbox/fixtures/repo.json"
 [ -d "$sandbox/repo/.git" ] || git -C "$sandbox/repo" init --quiet
 
+# The tasks on the My PRs tab (f, c, u, b, B) need your PR's branch on an
+# origin to make a worktree from, and their skills installed.
+if [ ! -d "$sandbox/origin" ]; then
+  git init --quiet --bare "$sandbox/origin"
+  git -C "$sandbox/repo" -c user.name=Sandbox -c user.email=sandbox@example.com \
+    commit --quiet --allow-empty -m start
+  git -C "$sandbox/repo" remote add origin "$sandbox/origin"
+  git -C "$sandbox/repo" push --quiet origin HEAD:refs/heads/main HEAD:refs/heads/me/my-own-work
+fi
+for skill in babysit-pr pr-comment-handler sync-main; do
+  mkdir -p "$sandbox/claude/skills/$skill"
+  echo "# $skill" >"$sandbox/claude/skills/$skill/SKILL.md"
+done
+
 cd "$sandbox/repo"
 exec env \
   PATH="$sandbox/bin:$PATH" \
