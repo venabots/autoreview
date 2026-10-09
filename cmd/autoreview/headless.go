@@ -17,6 +17,7 @@ import (
 	"github.com/venabots/autoreview/internal/findings"
 	"github.com/venabots/autoreview/internal/gh"
 	"github.com/venabots/autoreview/internal/ledger"
+	"github.com/venabots/autoreview/internal/marks"
 	"github.com/venabots/autoreview/internal/plain"
 	"github.com/venabots/autoreview/internal/proc"
 	"github.com/venabots/autoreview/internal/repo"
@@ -81,6 +82,9 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 	// Which skills run is for the log and a plain run. A note is for a
 	// person, so it is printed before the view covers the screen.
 	say(io.MultiWriter(out, logFile), "skills: %s\n", prepared.skills)
+	if prepared.fallbackLine != "" {
+		say(io.MultiWriter(out, logFile), "fallback: %s\n", prepared.fallbackLine)
+	}
 	for _, note := range prepared.notes {
 		say(io.MultiWriter(stderr, logFile), "note: %s\n", sanitize.Line(note))
 	}
@@ -96,6 +100,10 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 		return review.Verdict(ctx, gh.Exec, rc.Slug(), pr, rc.Me, since)
 	}
 	deps.Record = recorder(rc)
+	if !cfg.NoPost {
+		// --no-post promises to leave the PR alone, the reaction too.
+		deps.Marks = marks.New(gh.Exec, rc.Owner, rc.Name)
+	}
 
 	config := engineConfig(cfg, rc, held)
 	config.Review = true
@@ -107,6 +115,7 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 	config.Timeout = cfg.Timeout
 	config.Budget = cfg.Budget
 	config.Orchestrator = cfg.Orchestrator
+	config.Fallback = prepared.fallback
 	config.Override = cfg.Override
 	config.Dashp = prepared.dashp
 
@@ -122,7 +131,11 @@ type prepared struct {
 	skillsDir string
 	// skills says which copy of the skills runs.
 	skills string
-	notes  []string
+	// fallback retries a review whose orchestrator failed, or is nil.
+	// fallbackLine says which, or why there is none.
+	fallback     *review.Orchestrator
+	fallbackLine string
+	notes        []string
 }
 
 // prepare checks what a review needs and makes the run directory. A
@@ -137,9 +150,19 @@ func prepare(cfg cli.Config, rc repo.Context) (prepared, error) {
 			return prepared{}, err
 		}
 		p.dashp = dashp
-		if _, err := exec.LookPath(cfg.Orchestrator.CLI()); err != nil {
+		if !installed(cfg.Orchestrator.CLI()) {
 			return prepared{}, fmt.Errorf("%s is not installed, and it runs the reviews (--orchestrator chooses another)", cfg.Orchestrator.CLI())
 		}
+		if !cfg.Orchestrator.DiscoversStagedSkills() {
+			if err := missingSkills(cfg.Orchestrator); err != nil {
+				return prepared{}, err
+			}
+		}
+		fallback, line, err := resolveFallback(cfg)
+		if err != nil {
+			return prepared{}, err
+		}
+		p.fallback, p.fallbackLine = fallback, line
 	}
 	source, err := skills.Parse(cfg.Skills)
 	if err != nil {
@@ -152,9 +175,6 @@ func prepare(cfg cli.Config, rc repo.Context) (prepared, error) {
 		return p, nil
 	}
 	p.skills = source.Describe(version)
-	if !cfg.Orchestrator.DiscoversStagedSkills() {
-		return p, missingSkills(cfg.Orchestrator)
-	}
 	staged, err := skills.Stage(source, bundle.Skills(), p.run.Agent())
 	if err != nil {
 		return prepared{}, err
@@ -162,14 +182,45 @@ func prepare(cfg cli.Config, rc repo.Context) (prepared, error) {
 	if staged {
 		p.skillsDir = p.run.Agent()
 	}
-	installed := []string{
+	dirs := []string{
 		filepath.Join(session.ConfigDir(os.Getenv), "skills"),
 		filepath.Join(rc.Root, ".claude", "skills"),
 	}
-	if note := skills.ShadowNote(installed, source.Names(bundle.Skills())); note != "" {
+	if note := skills.ShadowNote(dirs, source.Names(bundle.Skills())); note != "" {
 		p.notes = append(p.notes, note)
 	}
 	return p, nil
+}
+
+func installed(cli string) bool {
+	_, err := exec.LookPath(cli)
+	return err == nil
+}
+
+// resolveFallback decides at the start which orchestrator retries a review
+// whose orchestrator failed, and says so. Found out at the first failure,
+// a fallback that cannot run would turn one outage into two.
+//
+// A fallback named by the person must be installed. An automatic one is
+// the other agent if it is installed, and is dropped with a reason when it
+// lacks the review skills.
+func resolveFallback(cfg cli.Config) (*review.Orchestrator, string, error) {
+	resolved, ok := cfg.Fallback.Resolve(cfg.Orchestrator, installed)
+	if !ok {
+		return nil, cfg.Fallback.Describe(cfg.Orchestrator, nil), nil
+	}
+	if !installed(resolved.CLI()) {
+		return nil, "", fmt.Errorf("--fallback %s is not installed", resolved.CLI())
+	}
+	if !resolved.DiscoversStagedSkills() {
+		if err := missingSkills(resolved); err != nil {
+			if cfg.Fallback.Kind == review.FallbackSpec {
+				return nil, "", fmt.Errorf("--fallback %s: %w", resolved.Label(), err)
+			}
+			return nil, "none (" + err.Error() + ")", nil
+		}
+	}
+	return &resolved, resolved.Label(), nil
 }
 
 func findDashp() (string, error) {

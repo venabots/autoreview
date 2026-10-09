@@ -47,13 +47,22 @@ func sandbox(t *testing.T) (fixtures string) {
 	t.Setenv("FAKE_GH_LOGIN", "me")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// codex finds its skills under ~/.agents/skills, so the automatic
+	// fallback is codex, as on a machine with both agents set up.
+	for _, skill := range []string{"auto-review", "panel-review", "recheck-pr"} {
+		dir := filepath.Join(home, ".agents", "skills", skill)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		write(t, dir, "SKILL.md", "# "+skill+"\n")
+	}
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("DASHP_BIN", "")
 	t.Setenv("FAKE_DASHP_LOG", filepath.Join(fixtures, "dash-p.log"))
 	for _, name := range []string{
 		"AUTOREVIEW_WATCH_INTERVAL", "AUTOREVIEW_JOBS", "AUTOREVIEW_TIMEOUT", "AUTOREVIEW_MAX_BUDGET_USD",
-		"AUTOREVIEW_SKILLS", "AUTOREVIEW_ORCHESTRATOR", "AUTOREVIEW_CMD",
+		"AUTOREVIEW_SKILLS", "AUTOREVIEW_ORCHESTRATOR", "AUTOREVIEW_CMD", "AUTOREVIEW_FALLBACK",
 		"FAKE_DASHP_FAIL", "FAKE_DASHP_DECISION", "FAKE_DASHP_NO_TRAILER", "FAKE_DASHP_HANG", "FAKE_DASHP_SLEEP",
 		"FAKE_GH_REVIEWS",
 	} {

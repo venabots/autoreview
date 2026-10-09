@@ -36,6 +36,8 @@ func say(ev engine.Event) text {
 		return text{out: startLine(ev.Job) + "\n"}
 	case engine.JobFinished:
 		return text{out: strings.Join(resultLines(ev.Job), "\n") + "\n"}
+	case engine.JobRetrying:
+		return text{out: fmt.Sprintf("RETRY   #%d (%s · retrying with %s)\n", ev.Job.PR, report.FirstFailure(ev.Job.First), ev.Job.Orchestrator.Label())}
 	case engine.Noted:
 		return text{errs: "note: " + sanitize.Line(ev.Text) + "\n"}
 	case engine.Interrupted:
@@ -63,7 +65,11 @@ func startLine(job engine.Job) string {
 	if job.Author != "" {
 		who = " @" + sanitize.Line(job.Author)
 	}
-	return fmt.Sprintf("start   #%d%s (%s)", job.PR, who, verb)
+	via := ""
+	if job.First != nil {
+		via = " with " + job.Orchestrator.Backend
+	}
+	return fmt.Sprintf("start   #%d%s (%s%s)", job.PR, who, verb, via)
 }
 
 // resultLines is the line for a finished review, and under a review that

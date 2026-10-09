@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -30,6 +31,7 @@ func TestOffATerminalTheRunReviewsAndReports(t *testing.T) {
 	stdout, stderr, code := autoreview(t, "9")
 
 	want := `skills: bundled (dev)
+fallback: codex
 acme/widgets
 review list: 1 PR
   #9  ready  @alice  alice/add-retry-logic  Add retry logic
@@ -338,6 +340,8 @@ func TestAMissingProgramIsNamedBeforeAnyReview(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			fixtures := sandbox(t)
+			// A home with no codex skills in it.
+			t.Setenv("HOME", t.TempDir())
 			bin := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
 			if c.remove != "" {
 				if err := os.Remove(filepath.Join(bin, c.remove)); err != nil {
@@ -424,4 +428,74 @@ func TestAnInterruptStopsTheReviewAndExits130(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Errorf("the reviewer, pid %d, outlived the run", reviewer)
+}
+
+func TestAReviewWhoseAgentFailsIsRetriedUnderTheOther(t *testing.T) {
+	fixtures := sandbox(t)
+	t.Setenv("FAKE_DASHP_FAIL", "9:claude")
+	stdout, stderr, code := autoreview(t, "9")
+
+	if code != 0 || stderr != "" {
+		t.Errorf("exit %d, stderr %q", code, stderr)
+	}
+	got := steady(stdout, fixtures)
+	for _, want := range []string{
+		"RETRY   #9 (claude exit 10: You've hit your session limit · resets 12pm · retrying with codex)\n",
+		"start   #9 @alice (reviewing with codex)\n",
+		"PR #9: claude failed (exit 10: You've hit your session limit · resets 12pm); reviewed with codex instead\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, got)
+		}
+	}
+	calls := dashpCalls(t, fixtures)
+	if len(calls) != 2 || !strings.HasPrefix(calls[0], "-H claude ") || !strings.HasPrefix(calls[1], "-H codex ") {
+		t.Fatalf("reviews started: %d, want claude then codex", len(calls))
+	}
+	if !strings.Contains(calls[1], "-- $auto-review 9\\n\\nWhen your reply concludes a PR review task, end it with a fenced code block tagged autoreview") {
+		t.Errorf("the codex retry does not carry the skill and then the trailer request in its prompt:\n%s", calls[1])
+	}
+	if logs, _ := filepath.Glob(filepath.Join(fixtures, "logs", "run-*", "pass-1", "pr-9.claude.log")); len(logs) != 1 {
+		t.Errorf("the failed attempt's log was not set aside: %v", logs)
+	}
+}
+
+func TestFallbackNoneLeavesAFailedReviewFailed(t *testing.T) {
+	fixtures := sandbox(t)
+	t.Setenv("FAKE_DASHP_FAIL", "9:claude")
+	stdout, _, code := autoreview(t, "9", "--fallback", "none")
+	if code != 1 || !strings.HasPrefix(stdout, "skills: bundled (dev)\nfallback: none\n") || len(dashpCalls(t, fixtures)) != 1 {
+		t.Errorf("exit %d, %d reviews, stdout:\n%s", code, len(dashpCalls(t, fixtures)), stdout)
+	}
+}
+
+func TestAnAutomaticFallbackWithoutItsSkillsIsDroppedAndSaysWhy(t *testing.T) {
+	sandbox(t)
+	t.Setenv("HOME", t.TempDir())
+	stdout, _, code := autoreview(t, "9")
+	if code != 0 || !strings.Contains(stdout, "fallback: none (codex has no auto-review, panel-review, recheck-pr skill; install the review skills under ~/.agents/skills)\n") {
+		t.Errorf("exit %d, stdout:\n%s", code, stdout)
+	}
+}
+
+func TestAReviewMarksItsPRWithAReactionWhileItRuns(t *testing.T) {
+	fixtures := sandbox(t)
+	t.Setenv("FAKE_DASHP_FAIL", "8")
+	autoreview(t, "9", "8", "--fallback=none")
+	calls := reactionCalls(t, fixtures)
+	for _, pr := range []string{"9", "8"} {
+		on := "api repos/acme/widgets/issues/" + pr + "/reactions --method POST -f content=eyes --jq .id"
+		off := "api repos/acme/widgets/issues/" + pr + "/reactions/77 --method DELETE"
+		if !slices.Contains(calls, on) || !slices.Contains(calls, off) {
+			t.Errorf("PR #%s: reaction calls %q, want it on and then off, a failed review too", pr, calls)
+		}
+	}
+}
+
+func TestNoPostLeavesNoReaction(t *testing.T) {
+	fixtures := sandbox(t)
+	autoreview(t, "9", "--no-post")
+	if calls := reactionCalls(t, fixtures); len(calls) != 0 {
+		t.Errorf("--no-post touched the PR: %q", calls)
+	}
 }
