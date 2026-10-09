@@ -42,6 +42,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == cli.Stats {
 		return stats.Run(args[1:], os.Getenv, time.Now(), xterm.IsTerminal(os.Stdout.Fd()), stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == cli.Panel {
+		return runPanel(args[1:], stdout, stderr)
+	}
 
 	cfg, err := cli.Parse(args, os.Getenv)
 	if err != nil {

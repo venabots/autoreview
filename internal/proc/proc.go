@@ -25,6 +25,11 @@ type Command struct {
 	// Env is added to this process's own environment.
 	Env []string
 	Dir string
+	// Stdin is a file the process reads, or "" for no stdin at all. A
+	// prompt too large for one argument arrives this way: Linux refuses
+	// an argument over 128KB, and macOS does not, so the failure would
+	// reach only the people who never saw it in testing.
+	Stdin string
 	// Stdout and Stderr are files the process writes to. Each is created,
 	// or emptied when it exists.
 	Stdout string
@@ -70,34 +75,77 @@ type OS struct {
 // next one is sent.
 const DefaultGrace = 200 * time.Millisecond
 
-// Start starts the command in a new process group, with no stdin. A
-// reviewer must not read the terminal, and must not inherit a handle on it.
+// Start starts the command in a new process group, with no stdin unless
+// the command names a file. A reviewer must not read the terminal, and must
+// not inherit a handle on it.
 func (o OS) Start(c Command) (Proc, error) {
-	stdout, err := create(c.Stdout)
+	files, err := openAll(c)
 	if err != nil {
-		return nil, err
-	}
-	stderr, err := create(c.Stderr)
-	if err != nil {
-		_ = stdout.Close()
 		return nil, err
 	}
 	cmd := exec.Command(c.Path, c.Args...)
 	cmd.Dir = c.Dir
 	cmd.Env = append(os.Environ(), c.Env...)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	cmd.Stdout = files.stdout
+	cmd.Stderr = files.stderr
+	if files.stdin != nil {
+		cmd.Stdin = files.stdin
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		_ = stdout.Close()
-		_ = stderr.Close()
+	err = cmd.Start()
+	// The child has its own copy of stdin now, or never will. Ours would
+	// only keep the file open for as long as the run lasts.
+	files.closeStdin()
+	if err != nil {
+		files.closeOutputs()
 		return nil, fmt.Errorf("starting %s: %w", c.Path, err)
 	}
 	grace := o.Grace
 	if grace == 0 {
 		grace = DefaultGrace
 	}
-	return &osProc{cmd: cmd, pgid: cmd.Process.Pid, files: []*os.File{stdout, stderr}, grace: grace}, nil
+	return &osProc{cmd: cmd, pgid: cmd.Process.Pid, files: []*os.File{files.stdout, files.stderr}, grace: grace}, nil
+}
+
+// handles are the files one process is started with.
+type handles struct {
+	stdin, stdout, stderr *os.File
+}
+
+// openAll opens every file the command names. When one fails, those
+// already open are closed, so a run that starts many commands does not
+// leak a descriptor for each one that could not start.
+func openAll(c Command) (handles, error) {
+	stdout, err := create(c.Stdout)
+	if err != nil {
+		return handles{}, err
+	}
+	stderr, err := create(c.Stderr)
+	if err != nil {
+		_ = stdout.Close()
+		return handles{}, err
+	}
+	h := handles{stdout: stdout, stderr: stderr}
+	if c.Stdin == "" {
+		return h, nil
+	}
+	stdin, err := os.Open(c.Stdin)
+	if err != nil {
+		h.closeOutputs()
+		return handles{}, err
+	}
+	return handles{stdin: stdin, stdout: stdout, stderr: stderr}, nil
+}
+
+func (h handles) closeStdin() {
+	if h.stdin != nil {
+		_ = h.stdin.Close()
+	}
+}
+
+func (h handles) closeOutputs() {
+	_ = h.stdout.Close()
+	_ = h.stderr.Close()
 }
 
 func create(path string) (*os.File, error) {

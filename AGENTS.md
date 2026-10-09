@@ -50,7 +50,9 @@ golangci-lint fmt                         # gofmt and goimports
   real ledger in the repo.
 - The end-to-end tests in `cmd/autoreview` link the test binary as `gh`,
   `dash-p`, `claude` and `codex` (`fakes_test.go`). A new `gh` call needs an
-  answer in `fakeGh` before its test can pass.
+  answer in `fakeGh` before its test can pass. The panel tests add
+  `opencode`, and the fake dash-p tells a panelist from a review by
+  `--output-format=text` (`panel_fakes_test.go`).
 
 ## Conventions
 

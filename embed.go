@@ -20,6 +20,25 @@ import (
 //go:embed all:skills
 var bundled embed.FS
 
+// The prompts `autoreview panel` hands its panelists and its synthesizer.
+// They are compiled in for the reason the skills are: a panel whose prompt
+// changed under it on disk would make two runs incomparable, and nothing
+// would say why.
+//
+//go:embed prompts/*.md
+var prompts embed.FS
+
+// Prompt is the text of one bundled prompt, by file name: "review.md".
+func Prompt(name string) string {
+	text, err := prompts.ReadFile("prompts/" + name)
+	if err != nil {
+		// Only the names in internal/panel are asked for, and
+		// embed_test.go reads each one.
+		panic(err)
+	}
+	return string(text)
+}
+
 // Skills is the bundled skills: one directory for each skill, each with a
 // SKILL.md.
 func Skills() fs.FS {

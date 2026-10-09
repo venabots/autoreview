@@ -92,6 +92,10 @@ type Config struct {
 // read as a subcommand only as the first argument.
 const Stats = "stats"
 
+// Panel is the subcommand that reviews one change with several models. It
+// is read as a subcommand only as the first argument, as Stats is.
+const Panel = "panel"
+
 // DefaultWatch is the wait between looks when nobody chose one.
 const DefaultWatch = "2"
 
@@ -240,8 +244,8 @@ func watchValue(flag string, env func(string) string) string {
 func prNumbers(args []string) ([]int, error) {
 	numbers := make([]int, 0, len(args))
 	for _, arg := range args {
-		if arg == Stats {
-			return nil, fmt.Errorf("%s is a subcommand and goes first: autoreview %s", Stats, Stats)
+		if arg == Stats || arg == Panel {
+			return nil, fmt.Errorf("%s is a subcommand and goes first: autoreview %s", arg, arg)
 		}
 		n, err := strconv.Atoi(arg)
 		if err != nil || n <= 0 || !allDigits(arg) {

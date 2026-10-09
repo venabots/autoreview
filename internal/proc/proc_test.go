@@ -105,6 +105,28 @@ func TestOutputGoesToTheFilesAndStdinIsEmpty(t *testing.T) {
 	}
 }
 
+func TestANamedStdinFileIsWhatTheProcessReads(t *testing.T) {
+	c := script(t, `cat`)
+	c.Stdin = filepath.Join(c.Dir, "prompt")
+	if err := os.WriteFile(c.Stdin, []byte("a prompt\nof two lines\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := start(t, c).Wait(); got != (Exit{}) {
+		t.Fatalf("exit = %+v", got)
+	}
+	if got := read(t, c.Stdout); got != "a prompt\nof two lines\n" {
+		t.Errorf("the process read %q", got)
+	}
+}
+
+func TestAStdinFileThatIsNotThereIsAnErrorBeforeAnythingStarts(t *testing.T) {
+	c := script(t, `echo started`)
+	c.Stdin = filepath.Join(c.Dir, "missing")
+	if _, err := (OS{}).Start(c); err == nil {
+		t.Fatal("Start succeeded with no stdin file to read")
+	}
+}
+
 func TestEachProcessLeadsItsOwnGroup(t *testing.T) {
 	c := script(t, `ps -o pgid= -p $$`)
 	p := start(t, c)

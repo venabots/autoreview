@@ -2,6 +2,7 @@ package autoreview
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -46,5 +47,19 @@ func TestEveryExecutableHelperIsNamedDotSh(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The prompts are v1's, byte for byte: a panel run in either version must
+// ask the same question, or the ledger compares two different reviews.
+func TestTheBinaryCarriesV1sFourPanelPrompts(t *testing.T) {
+	for _, name := range []string{"review.md", "audit.md", "synthesis.md", "audit-synthesis.md"} {
+		onDisk, err := os.ReadFile(filepath.Join("prompts", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if Prompt(name) != string(onDisk) {
+			t.Errorf("the embedded %s differs from prompts/%s", name, name)
+		}
 	}
 }
