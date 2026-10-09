@@ -19,18 +19,6 @@ type word struct {
 	style lipgloss.Style
 }
 
-func mineRows(list []mine.PR) []listRow {
-	out := make([]listRow, len(list))
-	for i, pr := range list {
-		out[i] = listRow{
-			pr:   pr.Number,
-			head: headLine(reviewIcon(pr.Review), pr.Number, blockerWord(pr)),
-			sub:  subLine(pr.Branch, pr.Title),
-		}
-	}
-	return out
-}
-
 func headLine(icon span, number int, state word) line {
 	return line{
 		icon,

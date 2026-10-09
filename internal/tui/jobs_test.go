@@ -153,7 +153,7 @@ func TestRAsksForAReviewOfTheSelectedPR(t *testing.T) {
 	}
 
 	m = press(t, m, "tab", "R")
-	wantOnScreen(t, m, "the run reviews other people's work")
+	wantOnScreen(t, m, "R reviews other people's work; f fixes your own PR")
 	if len(commands(hs)) != 1 {
 		t.Errorf("R on your own PR sent the engine %v", commands(hs))
 	}
@@ -296,13 +296,13 @@ func TestAFocusAPromptCannotCarryKeepsTheEditorOpen(t *testing.T) {
 	}
 }
 
-func TestTheFocusIsForTheReviewTab(t *testing.T) {
+func TestFOnMyPRsFixesAndOpensNoEditor(t *testing.T) {
 	m, _ := reviewingModel(t, 150, 30)
 	m = press(t, m, "tab", "f")
 	if m.editing {
 		t.Error("f opened the focus editor on My PRs")
 	}
-	wantOnScreen(t, m, "the focus is for reviews: tab shows them")
+	wantOnScreen(t, m, "fixing PR #4")
 }
 
 func TestLShowsTheRunLogAndFollowsIt(t *testing.T) {
@@ -366,7 +366,7 @@ func TestRSaysWhyThereIsNothingToResume(t *testing.T) {
 	hs.eng.snap = snap
 	m = press(t, send(m, snapshotMsg{snap: snap}), "j", "j", "r")
 	wantOnScreen(t, m, "PR #6's review has no session to resume")
-	wantOnScreen(t, press(t, m, "tab", "r"), "there is no review to resume here")
+	wantOnScreen(t, press(t, m, "tab", "r"), "PR #4 has had no task in this run")
 	if len(hs.tabs) != 0 {
 		t.Errorf("a tab was opened: %q", hs.tabs)
 	}

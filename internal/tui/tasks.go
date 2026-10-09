@@ -1,0 +1,149 @@
+package tui
+
+import (
+	"context"
+	"fmt"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/venabots/autoreview/internal/babysit"
+	"github.com/venabots/autoreview/internal/engine"
+	"github.com/venabots/autoreview/internal/task"
+)
+
+// notMine is what a key for your own PRs says on the Review tab.
+const notMine = "f, c, u, b and B work on your own PRs: tab shows them"
+
+// selectedMine is the row under the cursor on the My PRs tab.
+func (m Model) selectedMine() (mineRow, bool) {
+	pr, ok := m.selected()
+	if !ok || m.tab != tabMine {
+		return mineRow{}, false
+	}
+	for _, row := range mineRowsOf(m.snap) {
+		if row.pr.Number == pr {
+			return row, true
+		}
+	}
+	return mineRow{}, false
+}
+
+// minePicked is the selected one of your PRs, or the view after it said
+// why there is none.
+func (m Model) minePicked() (mineRow, Model, bool) {
+	if m.tab != tabMine {
+		return mineRow{}, m.flashed(notMine), false
+	}
+	row, ok := m.selectedMine()
+	if !ok {
+		return mineRow{}, m.flashed("you have no open PRs in this repo"), false
+	}
+	return row, m, true
+}
+
+// taskPressed asks for a task on the selected PR. Everything the engine
+// would refuse is refused here first, so the footer says why at once.
+func (m Model) taskPressed(k task.Kind) Model {
+	row, m, ok := m.minePicked()
+	if !ok {
+		return m
+	}
+	pr := row.pr.Number
+	switch {
+	case m.snap.Refusals[k] != "":
+		return m.flashed(fmt.Sprintf("not %s PR #%d: %s", k.Doing(), pr, m.snap.Refusals[k]))
+	case row.pr.CrossRepo:
+		return m.flashed(babysit.ForkError{PR: pr}.Error())
+	case row.live():
+		return m.flashed(fmt.Sprintf("PR #%d has a task running already", pr))
+	}
+	m.eng.Do(engine.RunTask{Request: task.Request{PR: pr, Kind: k, Title: row.pr.Title, Branch: row.pr.Branch, CrossRepo: row.pr.CrossRepo}})
+	return m.flashed(fmt.Sprintf("%s PR #%d", k.Doing(), pr))
+}
+
+// babysitPressed turns babysitting on or off for the selected PR.
+func (m Model) babysitPressed() Model {
+	row, m, ok := m.minePicked()
+	if !ok {
+		return m
+	}
+	c, err := m.snap.Babysit.Toggle(row.pr)
+	if err != nil {
+		return m.flashed(err.Error())
+	}
+	return m.babysat(c, fmt.Sprintf("PR #%d", row.pr.Number))
+}
+
+// babysitAllPressed turns babysitting on or off for every PR of yours.
+func (m Model) babysitAllPressed() Model {
+	if m.tab != tabMine {
+		return m.flashed(notMine)
+	}
+	return m.babysat(m.snap.Babysit.ToggleAll(), "your PRs")
+}
+
+// babysat sends a change. Babysitting runs the fix, so a fix that is
+// refused refuses babysitting too.
+func (m Model) babysat(c babysit.Change, what string) Model {
+	if why := m.snap.Refusals[task.Fix]; c.On && why != "" {
+		return m.flashed(fmt.Sprintf("not babysitting %s: %s", what, why))
+	}
+	m.eng.Do(engine.Babysit{Change: c})
+	return m.flashed(c.Said())
+}
+
+// resumingTask reopens the selected PR's last task in its worktree. A
+// session belongs to the directory it ran in, so a worktree that was
+// removed leaves nothing to reopen it in.
+func (m Model) resumingTask() (tea.Model, tea.Cmd) {
+	row, m, ok := m.minePicked()
+	if !ok {
+		return m, nil
+	}
+	pr := row.pr.Number
+	switch {
+	case row.task == nil:
+		return m.flashed(fmt.Sprintf("PR #%d has had no task in this run", pr)), nil
+	case row.live():
+		return m.flashed(fmt.Sprintf("PR #%d has a task running; resume it when it ends", pr)), nil
+	case sessionOf(*row.task) == "":
+		return m.flashed(fmt.Sprintf("PR #%d's task has no session to resume", pr)), nil
+	case row.task.Kept == "":
+		return m.flashed(fmt.Sprintf("PR #%d's task worktree is gone; its session was %s", pr, sessionOf(*row.task))), nil
+	}
+	command := m.act.ResumeCommand(row.task.Worktree, row.task.Orchestrator.ReopenCommand(sessionOf(*row.task)))
+	return m.flashed(fmt.Sprintf("opening PR #%d's task in a new tab", pr)), m.openTab(pr, "task", command)
+}
+
+// openTab opens a terminal tab off the update loop: a slow launch must
+// not freeze the screen.
+func (m Model) openTab(pr int, what, command string) tea.Cmd {
+	label := fmt.Sprintf("PR %d Resume", pr)
+	openTab := m.act.OpenTab
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+		defer cancel()
+		where, err := openTab(ctx, label, command)
+		return resumedMsg{pr: pr, what: what, where: where, err: err}
+	}
+}
+
+// stopTaskPressed stops the selected PR's task on the second press.
+func (m Model) stopTaskPressed() Model {
+	row, ok := m.selectedMine()
+	if !ok || row.task == nil || row.task.State != engine.JobRunning {
+		m.armed = confirm{}
+		if !ok {
+			return m.flashed("there is no task to stop here")
+		}
+		return m.flashed(fmt.Sprintf("PR #%d has no task running", row.pr.Number))
+	}
+	pr := row.pr.Number
+	if !m.armed.holds(confirmStop, pr, m.now) {
+		m.armed = confirm{kind: confirmStop, pr: pr, at: m.now}
+		return m.flashed(fmt.Sprintf("press x again to stop PR #%d's task", pr))
+	}
+	m.armed = confirm{}
+	m.eng.Do(engine.StopJob{PR: pr})
+	return m.flashed(fmt.Sprintf("stopping PR #%d's task", pr))
+}

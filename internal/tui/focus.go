@@ -10,9 +10,6 @@ import (
 // focusOpened opens the one-line editor for the focus in the footer, with
 // the focus as it is now. While it is open, every key goes to the editor.
 func (m Model) focusOpened() (tea.Model, tea.Cmd) {
-	if m.tab != tabReview {
-		return m.flashed("the focus is for reviews: tab shows them"), nil
-	}
 	m.editing = true
 	m.input.SetValue(m.snap.Focus)
 	m.input.CursorEnd()

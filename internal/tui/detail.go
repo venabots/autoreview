@@ -275,26 +275,6 @@ func engagementWord(e prs.Engagement) word {
 	return word{words.Engagement(e), plainStyle}
 }
 
-// mineDetail is the right pane for one of your PRs.
-func mineDetail(pr mine.PR) []line {
-	lines := []line{
-		titleLine(pr.Number, pr.Title),
-		note(sanitize.Line(pr.Branch), dimStyle),
-		{},
-		field("review", reviewersWord(pr)),
-		field("checks", ciWord(pr.CI)),
-		field("threads", threadsWord(pr.OpenThreads())),
-		field("merge", mergeWord(pr.Merge)),
-	}
-	if pr.Draft {
-		lines = append(lines, field("draft", word{"yes", plainStyle}))
-	}
-	if pr.CrossRepo {
-		lines = append(lines, field("from", word{"a fork", plainStyle}))
-	}
-	return lines
-}
-
 // reviewersWord names each reviewer who decided something. With none, it
 // gives GitHub's overall decision.
 func reviewersWord(pr mine.PR) word {
