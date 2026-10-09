@@ -29,6 +29,8 @@ func Result(job engine.Job) string {
 		return "finishing"
 	case engine.JobRunning:
 		return "running"
+	case engine.JobPreparing:
+		return "making its worktree"
 	}
 	return "queued"
 }

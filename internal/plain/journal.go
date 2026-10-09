@@ -8,6 +8,7 @@ import (
 	"github.com/venabots/autoreview/internal/report"
 	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/sanitize"
+	"github.com/venabots/autoreview/internal/task"
 	"github.com/venabots/autoreview/internal/words"
 )
 
@@ -57,6 +58,9 @@ func passHeadline(ev engine.PassStarted) string {
 }
 
 func startLine(job engine.Job) string {
+	if job.Task != task.Review {
+		return fmt.Sprintf("start   #%d (%s)", job.PR, job.Task.Doing())
+	}
 	verb := "reviewing"
 	if job.Resumed {
 		verb = "rechecking"
@@ -75,6 +79,9 @@ func startLine(job engine.Job) string {
 // resultLines is the line for a finished review, and under a review that
 // did not approve, why.
 func resultLines(job engine.Job) []string {
+	if job.Task != task.Review {
+		return []string{taskResultLine(job)}
+	}
 	took := words.Duration(job.Elapsed)
 	switch job.State {
 	case engine.JobTimedOut:
@@ -87,6 +94,28 @@ func resultLines(job engine.Job) []string {
 		line += ": " + job.Error
 	}
 	return []string{line}
+}
+
+// taskResultLine is the line for a finished task. What it did to the
+// branch comes last, on every outcome: a task that failed may still have
+// pushed.
+func taskResultLine(job engine.Job) string {
+	took := words.Duration(job.Elapsed)
+	pushed := job.Verdict
+	if pushed == "" {
+		pushed = "unknown"
+	}
+	switch job.State {
+	case engine.JobTimedOut:
+		return fmt.Sprintf("TIMEOUT #%d (%s, %s): %s", job.PR, job.Task.Tag(), took, pushed)
+	case engine.JobDone:
+		return fmt.Sprintf("done    #%d (%s, %s): %s", job.PR, job.Task.Tag(), took, pushed)
+	}
+	line := fmt.Sprintf("FAILED  #%d (%s, %s, %s): %s", job.PR, job.Task.Tag(), job.Outcome, took, pushed)
+	if job.Error != "" {
+		line += "; " + job.Error
+	}
+	return line
 }
 
 func whyLines(job engine.Job) []string {
@@ -105,10 +134,39 @@ func whyLines(job engine.Job) []string {
 	return lines
 }
 
-// Final is what a run that reviewed says at its end: the summary, where
-// the files are, and how to open a review again. A run that reviewed
-// nothing says nothing more.
+// Final is what a run says at its end: the summary of its reviews, where
+// the files are and how to open a review again, then the report of its
+// tasks. A run that did neither says nothing more.
 func Final(result engine.Result, noPost bool) (out, errs string) {
+	reviewsOut, reviewsErrs := reviewsFinal(result, noPost)
+	tasksOut, tasksErrs := tasksFinal(result.Final)
+	return reviewsOut + tasksOut, reviewsErrs + tasksErrs
+}
+
+func tasksFinal(s *engine.Snapshot) (out, errs string) {
+	if len(s.Tasks) == 0 {
+		return "", ""
+	}
+	where := strings.TrimSuffix(s.RunDir, "/") + "/tasks"
+	lines := []string{"", strings.TrimSuffix(report.Tasks(s.Tasks), "\n"), "", "task logs: " + where}
+	return strings.Join(lines, "\n") + "\n", failedLine(s.Tasks, "task")
+}
+
+// failedLine counts the jobs that did not end done, or is empty.
+func failedLine(jobs []engine.Job, noun string) string {
+	failed := 0
+	for _, job := range jobs {
+		if job.State != engine.JobDone {
+			failed++
+		}
+	}
+	if failed == 0 {
+		return ""
+	}
+	return fmt.Sprintf("error: %d of %s failed\n", failed, words.Count(len(jobs), noun))
+}
+
+func reviewsFinal(result engine.Result, noPost bool) (out, errs string) {
 	jobs := result.Final.Reviewed()
 	if len(jobs) == 0 {
 		return "", ""
@@ -119,16 +177,7 @@ func Final(result engine.Result, noPost bool) (out, errs string) {
 	if noPost {
 		lines = append(lines, "nothing was posted to any PR; the reviews are in "+where)
 	}
-	failed := 0
-	for _, job := range jobs {
-		if job.State != engine.JobDone {
-			failed++
-		}
-	}
-	if failed > 0 {
-		errs = fmt.Sprintf("error: %d of %s failed\n", failed, words.Count(len(jobs), "review"))
-	}
-	return strings.Join(lines, "\n") + "\n", errs
+	return strings.Join(lines, "\n") + "\n", failedLine(jobs, "review")
 }
 
 // filesOf is where the run's reviews wrote their files: the directory of
