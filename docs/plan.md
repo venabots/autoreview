@@ -135,7 +135,8 @@ owner before each one.
    is already `github.com/venabots/autoreview`.
 3. Add the `HOMEBREW_TAP_TOKEN` secret to the renamed repo. Without it,
    `bump-tap.yml` fails and the tap keeps the v1 formula.
-4. Tag `main` and push the tag. The tap's formula then builds v2 with Go.
+4. Tag `main` `v0.25.0` and push the tag. v2 continues v1's numbering. The
+   tap's formula then builds v2 with Go.
 5. `brew update && brew upgrade venabots/tap/autoreview`. `review-prs` and
    `gum` go away. `panel` goes away too, unless milestone 9 lands first.
 
