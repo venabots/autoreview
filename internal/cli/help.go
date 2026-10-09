@@ -25,6 +25,13 @@ reviews the PRs that have become ready. R reviews the selected PR now, x x
 stops a review, r reopens a finished review in a new terminal tab, w stops
 or starts watching, and q quits. Press ? in the view for every key.
 
+Your own PRs are never reviewed. tab shows them on the My PRs tab, with what
+blocks each one. There f fixes the selected PR once, u fixes its conflicts,
+c answers its review comments, b babysits it (fixes it again when it changes
+and needs work) and B babysits all of them. Each fix runs in a worktree of
+its own, with the babysit-pr, sync-main and pr-comment-handler skills you
+have installed.
+
 Off a terminal (a pipe, cron, CI), or with --headless, it makes one pass: it
 waits for checks that are still running, reviews every PR that is ready,
 prints one line for each step, and exits 0 only when every review ran to its
