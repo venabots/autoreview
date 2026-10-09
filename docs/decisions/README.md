@@ -63,3 +63,4 @@ comments and the commit history, not written at the time of the decision.
 - [0028](0028-the-view-acts-on-your-own-prs.md) The view acts on your own PRs
 - [0029](0029-a-review-round-submits-one-review.md) A review round submits one review
 - [0030](0030-babysitting-your-own-prs.md) Babysitting your own PRs
+- [0031](0031-a-request-for-changes-reads-as-a-teammate.md) A request for changes reads as a note from a teammate
