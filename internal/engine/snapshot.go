@@ -66,6 +66,13 @@ type Snapshot struct {
 	Earlier []Job
 	// Focus is what the reviewers are told to look at, or empty.
 	Focus string
+	// Watching says the run reviews what becomes ready at each look.
+	// Rest is how long a reviewed PR waits before it may be reviewed again.
+	Watching bool
+	Rest     time.Duration
+	// At is when the snapshot was published: the time a wait is measured
+	// from.
+	At time.Time
 	// RunDir is where the run writes its files, or empty for a run that
 	// only looks.
 	RunDir string

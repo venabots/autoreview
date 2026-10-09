@@ -13,6 +13,7 @@ import (
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/proc"
 	"github.com/venabots/autoreview/internal/prs"
+	"github.com/venabots/autoreview/internal/queue"
 	"github.com/venabots/autoreview/internal/repo"
 	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/rundir"
@@ -34,6 +35,20 @@ type Config struct {
 	// HoldOpen keeps the run alive when its work is done, for a person to
 	// read the results and ask for more. Only Quit ends it then.
 	HoldOpen bool
+	// Loop is what the run does after its first pass.
+	Loop Loop
+	// Watching starts the loop on. The view turns it off and on again.
+	Watching bool
+	// Rest is how long a PR waits after its review before it may be
+	// reviewed again. MaxPasses is how many reviews one PR gets in a run.
+	Rest      time.Duration
+	MaxPasses int
+	// MaxIdle is how many looks in a row may find nothing to review before
+	// a run that babysits stops. Zero means no limit.
+	MaxIdle int
+	// CIWait is how long a run that looks once waits for checks that are
+	// still running before it starts its pass. Zero means it does not wait.
+	CIWait time.Duration
 	// Jobs is how many reviews run at once. It is one or more.
 	Jobs int
 	// Continue resumes a PR's earlier review session when it has one.
@@ -54,6 +69,20 @@ type Config struct {
 	// Dashp is the path of the dash-p binary.
 	Dashp string
 }
+
+// Loop is what a run does after its first pass.
+type Loop int
+
+const (
+	// LoopNone makes one pass and ends, or holds under the view.
+	LoopNone Loop = iota
+	// LoopWatch reviews what becomes ready at each look, for as long as the
+	// run lasts. A reviewed PR rests, and a push starts its count again.
+	LoopWatch
+	// LoopBabysit looks again after each pass, and ends when nothing is
+	// left to review or to wait for.
+	LoopBabysit
+)
 
 // Deps is the outside world, as functions, so a test hands in its own.
 type Deps struct {
@@ -108,7 +137,10 @@ type Engine struct {
 // New makes an engine. Nothing happens until Run.
 func New(cfg Config, deps Deps) *Engine {
 	e := &Engine{cfg: cfg, deps: deps, in: newInbox(), changed: make(chan struct{}, 1)}
-	e.current.Store(&Snapshot{Phase: Idle, Looking: true, Repo: cfg.Repo, Watch: cfg.Watch, RunDir: deps.Run.Root, Focus: cfg.Focus})
+	e.current.Store(&Snapshot{
+		Phase: Idle, Looking: true, Repo: cfg.Repo, Watch: cfg.Watch, RunDir: deps.Run.Root, Focus: cfg.Focus,
+		Watching: cfg.Watching, Rest: cfg.Rest,
+	})
 	return e
 }
 
@@ -134,8 +166,22 @@ type run struct {
 	snap Snapshot
 	// pending counts the looks that have not answered.
 	pending int
-	// looks counts the looks that have fully answered.
-	looks int
+	// looks counts the looks that have fully answered. lookFails counts
+	// the failed ones since the last that worked.
+	looks     int
+	lookFails int
+	// listing is the last PR list that was read, and track what this run
+	// remembers about each PR it reviewed.
+	listing prs.Listing
+	track   queue.Track
+	// idle counts the looks in a row that found nothing to review.
+	// passEnded says a pass ended since the last look: the look straight
+	// after a pass is not idle, it is the first chance to see an answer.
+	idle      int
+	passEnded bool
+	// ciUntil is when a run that waits for pending checks stops waiting.
+	// It is zero when the run does not wait.
+	ciUntil time.Time
 	// jobs is the reviews of the newest pass, with what the engine alone
 	// knows about each.
 	jobs []job
@@ -143,10 +189,7 @@ type run struct {
 	// requested is the PRs a person asked for while a pass was running,
 	// for the pass after it.
 	requested []int
-	// held is true once the run has done what it was started for and
-	// stays only because a person may want more.
-	held bool
-	code int
+	code      int
 }
 
 // workers is what the loop hands to anything that starts a goroutine: the
@@ -154,6 +197,8 @@ type run struct {
 type workers struct {
 	ctx   context.Context
 	group *sync.WaitGroup
+	// timer starts the next look.
+	timer *time.Timer
 }
 
 // Run runs until the run ends, and returns how it ended. It returns only
@@ -165,11 +210,10 @@ func (e *Engine) Run() Result {
 	// only then does Wait have something that ends.
 	defer group.Wait()
 	defer cancel()
-	w := workers{ctx: ctx, group: &group}
-
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
 	defer timer.Stop()
+	w := workers{ctx: ctx, group: &group, timer: timer}
 
 	r := e.look(w, run{snap: *e.Snapshot()})
 	e.publish(r)
@@ -182,7 +226,7 @@ func (e *Engine) Run() Result {
 		case <-timer.C:
 			r = e.look(w, r)
 		}
-		r = e.afterLook(w, r, timer)
+		r = e.afterLook(w, r)
 		e.publish(r)
 	}
 	return Result{Code: r.code, Final: e.Snapshot()}
@@ -194,7 +238,7 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		return e.quit(r)
 	case listed:
 		r.pending--
-		r.snap = withListing(r.snap, in, e.cfg)
+		r = e.withListing(r, in)
 	case mineListed:
 		r.pending--
 		r.snap = withMine(r.snap, in)
@@ -210,6 +254,8 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		return e.stopJob(r, in.PR)
 	case SetFocus:
 		r.snap.Focus = in.Text
+	case SetWatch:
+		return e.setWatch(w, r, in.On)
 	}
 	return r
 }
@@ -225,9 +271,9 @@ func (e *Engine) quit(r run) run {
 		return e.stopReviews(r)
 	}
 	r.snap.Phase = Done
-	// A run that is held has already done its work, and ends with the
+	// A held run that is not watching has done its work, and ends with the
 	// status of that work. Any other run would have gone on.
-	if !r.held {
+	if !e.cfg.HoldOpen || r.snap.Watching || !r.snap.Looked {
 		r.code = ExitInterrupted
 	}
 	return r
@@ -237,6 +283,7 @@ func (e *Engine) quit(r run) run {
 func (e *Engine) publish(r run) {
 	s := r.snap
 	s.Seq = e.Snapshot().Seq + 1
+	s.At = time.Now()
 	s.Jobs = views(r.jobs)
 	e.current.Store(&s)
 	select {

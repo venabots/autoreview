@@ -154,6 +154,9 @@ type setup struct {
 	sessions session.Probe
 	record   func(Finished) error
 	reviewer *reviewer
+	// list replaces the fixed list of prs, for a test whose PRs change
+	// between looks.
+	list func() (prs.Listing, error)
 }
 
 func newBench(t *testing.T, s setup) *bench {
@@ -182,7 +185,12 @@ func newBench(t *testing.T, s setup) *bench {
 		s.sessions = session.Probe{Exists: func(string) bool { return false }, InUse: func(string) bool { return false }}
 	}
 	deps := Deps{
-		List:     func(context.Context) (prs.Listing, error) { return listing(s.prs...), nil },
+		List: func(context.Context) (prs.Listing, error) {
+			if s.list != nil {
+				return s.list()
+			}
+			return listing(s.prs...), nil
+		},
 		Mine:     func(context.Context) ([]mine.PR, error) { return nil, nil },
 		Procs:    b.reviewer,
 		Sessions: s.sessions,
@@ -266,4 +274,17 @@ func (b *bench) notes() []string {
 		}
 	}
 	return notes
+}
+
+// commandsFor is the argv of every review of pr that was started, in order.
+func (r *reviewer) commandsFor(pr int) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := []string{}
+	for _, c := range r.commands {
+		if prOf(c) == pr {
+			out = append(out, strings.Join(c.Args, " "))
+		}
+	}
+	return out
 }
