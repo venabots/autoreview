@@ -105,6 +105,8 @@ var keys = map[string]tea.KeyPressMsg{
 	"tab":    {Code: tea.KeyTab},
 	"esc":    {Code: tea.KeyEscape},
 	"down":   {Code: tea.KeyDown},
+	"left":   {Code: tea.KeyLeft},
+	"right":  {Code: tea.KeyRight},
 	"space":  {Code: tea.KeySpace, Text: " "},
 	"ctrl+c": {Code: 'c', Mod: tea.ModCtrl},
 	"ctrl+d": {Code: 'd', Mod: tea.ModCtrl},
@@ -150,6 +152,7 @@ func wantNotOnScreen(t *testing.T, m Model, unwanted ...string) {
 func TestTheKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
 	want := map[string]intent{
 		"j": intentDown, "k": intentUp, "g": intentTop, "G": intentBottom, "down": intentDown,
+		"left": intentFirstTab, "right": intentSecondTab,
 		"o": intentOpen, "m": intentMouse, "q": intentQuit, "?": intentKeys, "x": intentStop, "z": intentNone,
 		"r": intentResume, "R": intentReviewNow, "f": intentFocus, "l": intentLog, "enter": intentNone,
 		"tab": intentSwitchTab, "esc": intentBack, "space": intentPageDown,

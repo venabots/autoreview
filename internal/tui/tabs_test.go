@@ -62,3 +62,29 @@ func TestTabAtFollowsTheLabelsAsTheyGrow(t *testing.T) {
 		}
 	}
 }
+
+func TestTheArrowsShowTheTabOnTheirSide(t *testing.T) {
+	m, _ := newModel(t, 120, 30)
+
+	m = press(t, m, "right")
+	wantOnScreen(t, m, "#4 My own work", "tab review")
+	m = press(t, m, "right")
+	wantOnScreen(t, m, "#4 My own work")
+
+	m = press(t, m, "left")
+	wantOnScreen(t, m, "#9 Add retry logic", "tab my PRs")
+	m = press(t, m, "left")
+	wantOnScreen(t, m, "#9 Add retry logic")
+}
+
+func TestATabShownByAnArrowKeepsItsSelection(t *testing.T) {
+	m, _ := newModel(t, 120, 30)
+	m = press(t, m, "j", "right", "j", "left")
+	wantOnScreen(t, m, "#8 Fix the cache")
+	wantOnScreen(t, press(t, m, "right"), "#3 Second thing")
+}
+
+func TestTheKeyHelpNamesTheArrows(t *testing.T) {
+	m, _ := newModel(t, 120, 30)
+	wantOnScreen(t, press(t, m, "?"), "switch between Review and My PRs (or ←/→, or click one)")
+}
