@@ -61,9 +61,11 @@ The first rule that matches wins:
 | 1   | Post-only request                                            | `COMMENT`         | `Comments only. No decision.`                                                   |
 | 2   | Your own PR, or a draft                                      | `COMMENT`         | `No decision: this is my own PR.` / `No decision: this PR is a draft.`          |
 | 3   | The head moved during the review                             | `COMMENT`         | `No decision: the head moved during the review. These comments are for <sha7>.` |
-| 4   | A must-fix or should-fix finding, or a questionable approach | `REQUEST_CHANGES` | `This PR needs changes. See the comments.`                                      |
+| 4   | A must-fix or should-fix finding, or a questionable approach | `REQUEST_CHANGES` | `Just a few things I think we should update before this gets in.` (see below)   |
 | 5   | The gate passes                                              | `APPROVE`         | `LGTM` / `LGTM, just some small comments, nothing blocking`                     |
 | 6   | Nothing blocks, but too few reviewers answered               | `COMMENT`         | `No decision: only <k> of <n> reviewers answered.`                              |
+
+The line on a request for changes follows what the review asks for. One blocking item gets `Just one thing I think we should update before this gets in.` A questionable approach gets `I think we should take another look at the approach before this gets in.`
 
 Rule 4 comes before rule 6 on purpose. A short panel that found nothing has not shown that the PR is clean, so it gets no decision. A verified finding shows that the PR needs a change, however many reviewers answered.
 

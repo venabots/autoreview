@@ -165,7 +165,8 @@ what did not file. Any other verdict stands.
 Hand the `auto-post-panel-review-comments` flow six things: the
 synthesized findings, the PR ref, **the head SHA you captured before the
 review**, the **event** from step 2, the **first line of the review
-body** (see "Review body"), and — with an `APPROVE` or a `REQUEST_CHANGES`
+body** (see "Review body"; a request for changes has none, and the flow
+chooses it), and — with an `APPROVE` or a `REQUEST_CHANGES`
 event — the **head-moved line** from the same table, which it uses when
 the head moves before the submit. Tell it to post against that pinned
 `commit_id` instead of re-resolving the head (it accepts a caller-pinned
@@ -404,7 +405,7 @@ findings that cannot be inline.
 | ----------------------------- | ------------------------------------------------------------------------------- |
 | Approve, no findings at all   | `LGTM`                                                                          |
 | Approve, LOW/polish posted    | `LGTM, just some small comments, nothing blocking`                              |
-| Request changes               | `This PR needs changes. See the comments.`                                      |
+| Request changes               | chosen by `auto-post-panel-review-comments` (see below)                         |
 | Comment: post-only            | `Comments only. No decision.`                                                   |
 | Comment: your own PR          | `No decision: this is my own PR.`                                               |
 | Comment: draft                | `No decision: this PR is a draft.`                                              |
@@ -416,6 +417,13 @@ findings that cannot be inline.
 Use those bodies as-is (don't vary the wording — a stable body keeps the
 review auditable). `<sha7>` is the first seven characters of the reviewed
 SHA; `<k>` and `<n>` are the returned and launched panelist counts.
+
+A request for changes is the one verdict with no line in this table. Hand
+`auto-post-panel-review-comments` the event and no first line. It takes
+one of its three lines from what the review shows the author: one blocking
+item, more than one, or an approach to look at again (see its "The body").
+The count is not known here, because a finding can still go to Linear or
+become a `+1`. Report the line that it used.
 
 A user-supplied explicit approval message is passed through verbatim
 **only when the verdict is Approve** (it's the approval body). It never
@@ -523,7 +531,7 @@ review for real (it's read-only) but submit nothing. Write:
   `null` with no review. `coverage` is the returned/launched count (a
   quorum ≥ 75% passes — e.g. `"3/4"`). Examples:
   `{ "approve": false, "event": "COMMENT", "reason": "coverage 2/4 below 75%", "body": "No decision: only 2 of 4 reviewers answered.", "coverage": "2/4" }`,
-  `{ "approve": false, "event": "REQUEST_CHANGES", "reason": "1 should-fix finding", "body": "This PR needs changes. See the comments.", "coverage": "3/3" }`,
+  `{ "approve": false, "event": "REQUEST_CHANGES", "reason": "1 should-fix finding", "body": "Just one thing I think we should update before this gets in.", "coverage": "3/3" }`,
   and on a pass with one panelist lost:
   `{ "approve": true, "event": "APPROVE", "reason": "clean: LOW/polish only, quorum 3/4", "body": "LGTM, just some small comments, nothing blocking", "coverage": "3/4" }`.
 - `./report.md` — auto-review's **final consolidated** report (review
