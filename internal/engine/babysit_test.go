@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sync"
 	"testing"
@@ -19,6 +20,13 @@ import (
 type mineList struct {
 	mu   sync.Mutex
 	list []mine.PR
+	err  error
+}
+
+func (m *mineList) fail(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.err = err
 }
 
 func (m *mineList) set(list ...mine.PR) {
@@ -33,6 +41,9 @@ func (m *mineList) deps(f *trees) func(*Deps) {
 		d.Mine = func(context.Context) ([]mine.PR, error) {
 			m.mu.Lock()
 			defer m.mu.Unlock()
+			if m.err != nil {
+				return nil, m.err
+			}
 			return slices.Clone(m.list), nil
 		}
 	}
@@ -163,6 +174,26 @@ func TestStoppingBabysittingLeavesARunningFixAlone(t *testing.T) {
 		}
 		if !slices.Contains(b.notes(), "no longer babysitting your PRs") {
 			t.Errorf("notes = %q", b.notes())
+		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
+func TestAFailedReadOfYourPRsIsANoteAndKeepsTheLastList(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m := &mineList{}
+		m.set(threaded(4))
+		b := newBench(t, held(setup{deps: m.deps(&trees{}), edit: watchedEvery}))
+		m.fail(errors.New("gh timed out"))
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		snap := b.eng.Snapshot()
+		if len(snap.Mine) != 1 || snap.MineErr != "gh timed out" {
+			t.Errorf("after a failed read: %d PRs, error %q", len(snap.Mine), snap.MineErr)
+		}
+		if want := "could not read your PRs (gh timed out); the My PRs tab keeps its last list"; !slices.Contains(b.notes(), want) {
+			t.Errorf("notes = %q, want %q", b.notes(), want)
 		}
 		b.eng.Do(Quit{})
 		<-b.results

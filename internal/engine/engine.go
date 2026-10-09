@@ -270,6 +270,11 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		r = e.withListing(r, in)
 	case mineListed:
 		r.pending--
+		if in.err != nil && r.snap.MineLooked {
+			// The first look's failure is in the lists it prints. A later
+			// one would leave a stale list on screen with nothing said.
+			e.journal(Noted{Text: fmt.Sprintf("could not read your PRs (%s); the My PRs tab keeps its last list", in.err)})
+		}
 		r.snap = withMine(r.snap, in)
 		if in.err == nil {
 			return e.babysitLook(w, r)
