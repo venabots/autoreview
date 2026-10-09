@@ -104,6 +104,10 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 		// --no-post promises to leave the PR alone, the reaction too.
 		deps.Marks = marks.New(gh.Exec, rc.Owner, rc.Name)
 	}
+	if held {
+		// Tasks start only from keys, so only the view has them.
+		deps = withTasks(deps, cfg, rc, prepared.run)
+	}
 
 	config := engineConfig(cfg, rc, held)
 	config.Review = true

@@ -51,6 +51,11 @@ func fakeGh(args []string) int {
 	case len(args) == 7 && joined == "pr view "+args[2]+" --repo acme/widgets --json latestReviews":
 		fmt.Println(latestReviews(args[2]))
 		return 0
+	case len(args) == 9 && joined == "pr view "+args[2]+" --repo acme/widgets --json headRefOid --jq .headRefOid":
+		// A task's PR has moved on from the commit its worktree was made
+		// at: the task pushed.
+		fmt.Println("0000000000000000000000000000000000000042")
+		return 0
 	}
 	fmt.Fprintf(os.Stderr, "fake gh: unhandled: %s\n", firstChars(joined, 80))
 	return 1
