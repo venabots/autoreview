@@ -49,8 +49,16 @@ for skill in babysit-pr pr-comment-handler sync-main; do
   echo "# $skill" >"$sandbox/claude/skills/$skill/SKILL.md"
 done
 
+# A variable of yours that names a reviewer would run it in place of the
+# fake one: $AUTOREVIEW_CMD replaces the reviewer and $DASHP_BIN names a real
+# dash-p. Both are set aside here, so the sandbox keeps its promise whatever
+# your shell exports. A run stops when $AUTOREVIEW_AUTO_CMD is set, so that
+# one goes too.
 cd "$sandbox/repo"
 exec env \
+  -u AUTOREVIEW_CMD \
+  -u AUTOREVIEW_AUTO_CMD \
+  DASHP_BIN="$sandbox/bin/dash-p" \
   PATH="$sandbox/bin:$PATH" \
   CLAUDE_CONFIG_DIR="$sandbox/claude" \
   FAKE_GH_DIR="$sandbox/fixtures" \
