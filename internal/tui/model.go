@@ -54,7 +54,6 @@ type side int
 
 const (
 	sideDetail side = iota
-	sideKeys
 	sideLog
 )
 
@@ -95,9 +94,8 @@ type Model struct {
 	mouse    bool
 	flash    flash
 	quitting bool
-	// armed is the costly key that was pressed once and waits for its
-	// second press.
-	armed confirm
+	// modal is the box that is open over the screen, and has the keys.
+	modal modal
 
 	// input is the one-line editor for the focus, and editing says it has
 	// the keys.

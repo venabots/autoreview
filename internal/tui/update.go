@@ -42,8 +42,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resumedMsg:
 		return m.flashed(resumedText(msg)), nil
 	case tea.KeyPressMsg:
-		if m.editing {
+		switch {
+		case m.editing:
 			return m.typed(msg)
+		case m.modal.kind != modalNone:
+			return m.modalPressed(intentFor(msg))
 		}
 		return m.pressed(intentFor(msg))
 	case tea.PasteMsg:
@@ -64,7 +67,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // given back.
 func (m Model) took(snap *engine.Snapshot) (tea.Model, tea.Cmd) {
 	m.snap = snap
-	m = m.synced()
+	m = m.synced().modalChecked()
 	if snap.Phase == engine.Done {
 		return m, tea.Quit
 	}
@@ -90,10 +93,6 @@ func (m Model) spun(msg spinner.TickMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
-	// Any key but the one that was armed puts the arming away.
-	if in != intentStop && in != intentQuit {
-		m.armed = confirm{}
-	}
 	switch in {
 	case intentUp:
 		return m.moved(-1), nil
@@ -117,7 +116,7 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 		m.tab = tabMine
 		return m.synced(), nil
 	case intentKeys:
-		return m.showing(sideKeys), nil
+		return m.asking(modal{kind: modalKeys}), nil
 	case intentLog:
 		return m.showing(sideLog), nil
 	case intentBack:
@@ -155,7 +154,7 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 	case intentWatch:
 		return m.watchToggled(), nil
 	case intentQuit:
-		return m.quitPressed()
+		return m.quitPressed(), nil
 	case intentInterrupt:
 		return m.quit()
 	}
@@ -259,34 +258,26 @@ func (m Model) reviewNow() Model {
 	return m.flashed(fmt.Sprintf("PR #%d is reviewed next", row.pr))
 }
 
-// stopPressed stops the selected review on the second press.
+// stopPressed asks before it stops the selected review.
 func (m Model) stopPressed() Model {
 	row, ok := m.selectedReview()
-	if !ok || row.job == nil || row.job.State != engine.JobRunning {
-		m.armed = confirm{}
-		if !ok {
-			return m.flashed("there is no review to stop here")
-		}
+	switch {
+	case !ok:
+		return m.flashed("there is no review to stop here")
+	case row.job == nil || row.job.State != engine.JobRunning:
 		return m.flashed(fmt.Sprintf("PR #%d has no review running", row.pr))
 	}
-	if !m.armed.holds(confirmStop, row.pr, m.now) {
-		m.armed = confirm{kind: confirmStop, pr: row.pr, at: m.now}
-		return m.flashed(fmt.Sprintf("press x again to stop PR #%d's review", row.pr))
-	}
-	m.armed = confirm{}
-	m.eng.Do(engine.StopJob{PR: row.pr})
-	return m.flashed(fmt.Sprintf("stopping PR #%d's review", row.pr))
+	return m.asking(modal{kind: modalStop, pr: row.pr, what: "review"})
 }
 
-// quitPressed quits at once when nothing is running. With reviews alive it
-// quits on the second press, because quitting stops them.
-func (m Model) quitPressed() (tea.Model, tea.Cmd) {
-	alive := m.alive()
-	if alive == 0 || m.armed.holds(confirmQuit, 0, m.now) {
-		return m.quit()
+// quitPressed asks before it quits, whatever the run is doing: q is next
+// to the keys a person uses all day, and a quit ends a run that watches.
+// A run that is already stopping has been asked.
+func (m Model) quitPressed() Model {
+	if m.quitting {
+		return m
 	}
-	m.armed = confirm{kind: confirmQuit, at: m.now}
-	return m.flashed(fmt.Sprintf("press q again to stop %s and quit", m.aliveWords())), nil
+	return m.asking(modal{kind: modalQuit})
 }
 
 // quit asks the engine to end the run and waits for it to say it has. The
@@ -297,9 +288,7 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	m.quitting = true
-	m.armed = confirm{}
-	// The message about the second press is answered. What the footer
-	// says now is that the run is stopping.
+	// What the footer says now is that the run is stopping.
 	m.flash = flash{}
 	m.eng.Do(engine.Quit{})
 	return m, nil
@@ -308,6 +297,9 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 // wheeled scrolls what is under the pointer: the right pane by a few
 // lines, or the list by one PR.
 func (m Model) wheeled(msg tea.MouseWheelMsg) Model {
+	if m.modal.kind != modalNone {
+		return m
+	}
 	delta := 0
 	switch msg.Button {
 	case tea.MouseWheelUp:
@@ -332,7 +324,7 @@ func (m Model) wheeled(msg tea.MouseWheelMsg) Model {
 // the list is selected.
 func (m Model) clicked(msg tea.MouseClickMsg) Model {
 	switch {
-	case msg.Button != tea.MouseLeft:
+	case msg.Button != tea.MouseLeft || m.modal.kind != modalNone:
 		return m
 	case m.lay.tabs.contains(msg.X, msg.Y):
 		return m.tabClicked(msg.X)

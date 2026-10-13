@@ -102,13 +102,13 @@ var helpLines = []keyHelp{
 	{"c", "My PRs: answer the selected PR's review comments"},
 	{"r", "resume the selected review, or your PR's last task, in a new terminal tab"},
 	{"o", "open the selected PR in the browser"},
-	{"x x", "stop the selected review or task"},
+	{"x x", "stop the selected review or task; the first x asks"},
 	{"w", "start or stop watching for new work"},
 	{"f", "Review: type what the reviewers look at (the focus)"},
-	{"l", "show the run log here; esc puts it away"},
+	{"l", "show the run log in the right pane; esc puts it away"},
 	{"m", "give the mouse back to the terminal, to select text"},
-	{"?", "show these keys; esc puts them away"},
-	{"q", "quit; q again if reviews are running, which stops them"},
+	{"?", "show these keys; esc closes them"},
+	{"q q", "quit, stopping any review or task that is running; the first q asks"},
 	{"ctrl-C", "quit now, stopping any review that is running"},
 }
 

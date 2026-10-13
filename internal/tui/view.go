@@ -43,6 +43,9 @@ func (m Model) frame() string {
 	if m.lay.footer.h > 0 {
 		rows = append(rows, m.footer())
 	}
+	if m.modal.kind != modalNone && len(rows) > 0 {
+		rows = m.overlaid(rows)
+	}
 	return strings.Join(rows, "\n")
 }
 
@@ -135,8 +138,6 @@ func (m Model) status() word {
 func (m Model) paneContent() (string, string) {
 	w := m.lay.detail.w
 	switch {
-	case m.side == sideKeys:
-		return "keys", wrapped(keysPane(), w)
 	case m.side == sideLog:
 		heading := wrapped([]line{{styled("run log · "+logPath(m.snap), headingStyle)}, {}}, w)
 		return "log", heading + "\n" + lipgloss.Wrap(m.log.text, max(w, 1), "")
