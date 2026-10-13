@@ -184,10 +184,37 @@ func TestAWorktreeThatCannotBeMadeIsANoteAndNotAFailure(t *testing.T) {
 		if len(b.reviewer.started()) != 0 {
 			t.Error("a task with no worktree started")
 		}
+		if got := b.eng.Snapshot().NotStarted[4]; got != "not fixing PR #4: PR #4 is from a fork; its branch is not on origin" {
+			t.Errorf("the snapshot says %q about PR #4: the view cannot say why nothing ran", got)
+		}
 		b.eng.Do(Quit{})
 		if result := <-b.results; result.Code != ExitOK {
 			t.Errorf("code %d: a task that never ran fails nothing", result.Code)
 		}
+	})
+}
+
+func TestTheNoteAboutATaskThatDidNotStartGoesWhenOneStarts(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := &trees{prepareErr: errors.New("git fetch failed")}
+		b := newBench(t, held(setup{deps: f.deps}))
+		b.eng.Do(fixOf(4))
+		synctest.Wait()
+		before := b.eng.Snapshot()
+
+		f.mu.Lock()
+		f.prepareErr = nil
+		f.mu.Unlock()
+		b.eng.Do(fixOf(4))
+		synctest.Wait()
+		if got := b.eng.Snapshot().NotStarted[4]; got != "" {
+			t.Errorf("a task runs on PR #4 and the snapshot still says %q", got)
+		}
+		if before.NotStarted[4] == "" {
+			t.Error("a published snapshot was changed: its note is gone")
+		}
+		b.eng.Do(Quit{})
+		<-b.results
 	})
 }
 

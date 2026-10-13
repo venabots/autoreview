@@ -119,6 +119,7 @@ func (e *Engine) requestTask(w workers, r run, req task.Request) run {
 		State: JobPreparing, Orchestrator: e.cfg.Orchestrator,
 	}}}
 	r.tasks = append(slices.Clone(r.tasks), t)
+	r.snap.NotStarted = withoutNote(r.snap.NotStarted, req.PR)
 	w.group.Go(func() {
 		tree, err := e.deps.Prepare(w.ctx, req)
 		e.in.put(taskReady{pr: req.PR, tree: tree, err: err})
@@ -136,7 +137,9 @@ func (e *Engine) taskReady(w workers, r run, in taskReady) run {
 	t := r.tasks[i]
 	switch {
 	case in.err != nil:
-		e.journal(Noted{Text: fmt.Sprintf("not %s PR #%d: %s", t.request.Kind.Doing(), t.view.PR, sanitize.Line(in.err.Error()))})
+		why := fmt.Sprintf("not %s PR #%d: %s", t.request.Kind.Doing(), t.view.PR, sanitize.Line(in.err.Error()))
+		e.journal(Noted{Text: why})
+		r.snap.NotStarted = withNote(r.snap.NotStarted, t.view.PR, why)
 		return fixEnded(withoutTask(r, i), t.request.Kind, t.view.PR)
 	case t.dropped || r.snap.Phase == Stopping:
 		e.release(w, in.tree)

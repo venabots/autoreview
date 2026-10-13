@@ -17,12 +17,15 @@ type mineRow struct {
 	pr mine.PR
 	// task is the newest task on the PR in this run, or nil.
 	task *engine.Job
+	// notStarted is why the last task asked for on the PR never ran, or
+	// empty.
+	notStarted string
 }
 
 func mineRowsOf(s *engine.Snapshot) []mineRow {
 	rows := make([]mineRow, len(s.Mine))
 	for i, pr := range s.Mine {
-		rows[i] = mineRow{pr: pr}
+		rows[i] = mineRow{pr: pr, notStarted: s.NotStarted[pr.Number]}
 		for j := range s.Tasks {
 			if s.Tasks[j].PR == pr.Number {
 				rows[i].task = &s.Tasks[j]
@@ -67,7 +70,8 @@ func mineIcon(row mineRow, spin string) span {
 }
 
 // mineWord is what a task is doing now, or what blocks the PR. A babysat
-// PR says so first: it is the one thing on the row the person chose.
+// PR says so first: it is the one thing on the row the person chose. A task
+// that never ran is said next, so a key that did nothing leaves a mark.
 func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 	if row.live() {
 		style := spinnerStyle
@@ -77,6 +81,9 @@ func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 		return word{report.Progress(*row.task, now), style}
 	}
 	w := blockerWord(row.pr)
+	if row.notStarted != "" {
+		w.text = "did not start · " + w.text
+	}
 	if babysat.Babysat(row.pr.Number) && !row.pr.CrossRepo {
 		w.text = "babysat · " + w.text
 	}
@@ -103,6 +110,9 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 		lines = append(lines, field("from", word{"a fork", plainStyle}))
 	}
 	lines = append(lines, field("babysat", babysatWord(pr, babysat)))
+	if row.notStarted != "" {
+		lines = append(lines, line{}, note(sanitize.Line(row.notStarted), redStyle))
+	}
 	if row.task != nil {
 		lines = append(lines, taskLines(*row.task, row.live(), now)...)
 	}
