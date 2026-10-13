@@ -111,6 +111,8 @@ func TestParseRefuses(t *testing.T) {
 		{"an unknown flag", []string{"--pick"}, "unknown flag: --pick"},
 		{"a watch value after a space", []string{"--watch", "5"}, `--watch takes its value with "=": write --watch=5`},
 		{"a short watch value after a space", []string{"-w", "5"}, `-w takes its value with "="`},
+		{"a watch value after a group of short flags", []string{"-aw", "30"}, `-w takes its value with "=": write -aw=30, or put PR 30 before the flag`},
+		{"a babysit value after a group of short flags", []string{"-nb", "15"}, `-b takes its value with "=": write -nb=15`},
 		{"a zero interval", []string{"--watch=0"}, "invalid watch interval"},
 		{"an interval in seconds", []string{"--watch=30s"}, "invalid watch interval"},
 	}
@@ -149,5 +151,21 @@ func TestTheHelpNamesTheMyPRsKeysAndTheirSkills(t *testing.T) {
 		if !strings.Contains(Help, want) {
 			t.Errorf("the help does not say %q", want)
 		}
+	}
+}
+
+// The check for a spaced value must not refuse what a person may write: a
+// group with its value after "=", a group with no value before a PR that a
+// "--" sets apart, and a value flag whose value is a number.
+func TestAGroupOfShortFlagsStillParses(t *testing.T) {
+	cfg, err := Parse([]string{"-aw=30", "213"}, noEnv)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.All || cfg.Watch.Duration != 30*time.Minute || !slices.Equal(cfg.Only, []int{213}) {
+		t.Errorf("-aw=30 213 gave all %v, watch %v, PRs %v", cfg.All, cfg.Watch.Duration, cfg.Only)
+	}
+	if _, err := Parse([]string{"-aj", "4"}, noEnv); err != nil {
+		t.Errorf("-aj 4 was refused: %v", err)
 	}
 }

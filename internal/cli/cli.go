@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -267,16 +268,32 @@ var optionalValueFlags = map[string]bool{"--watch": true, "-w": true, "--babysit
 
 // refuseSpacedValue catches `--watch 5`. The flag's value is optional, so
 // the 5 would be read as PR #5 and the run would watch one PR at the default
-// interval, with no sign that anything was misread.
+// interval, with no sign that anything was misread. The same goes for a
+// group of short flags that ends in one of them, such as `-aw 5`.
 func refuseSpacedValue(args []string) error {
 	for i, arg := range args {
 		if arg == "--" {
 			return nil
 		}
-		if optionalValueFlags[arg] && i+1 < len(args) && allDigits(args[i+1]) {
+		flag, ok := optionalValueFlag(arg)
+		if ok && i+1 < len(args) && allDigits(args[i+1]) {
 			next := args[i+1]
-			return fmt.Errorf("%s takes its value with \"=\": write %s=%s, or put PR %s before the flag", arg, arg, next, next)
+			return fmt.Errorf("%s takes its value with \"=\": write %s=%s, or put PR %s before the flag", flag, arg, next, next)
 		}
 	}
 	return nil
+}
+
+// optionalValueFlag is the flag with an optional value that arg ends in:
+// arg itself, or the last letter of a group of short flags. A group with -j
+// in it is left alone, because -j takes the rest of the group as its value.
+func optionalValueFlag(arg string) (string, bool) {
+	if optionalValueFlags[arg] {
+		return arg, true
+	}
+	if len(arg) < 3 || arg[0] != '-' || arg[1] == '-' || strings.ContainsAny(arg, "=j") {
+		return "", false
+	}
+	last := "-" + arg[len(arg)-1:]
+	return last, optionalValueFlags[last]
 }
