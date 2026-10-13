@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -245,6 +246,38 @@ func TestOnlyLimitsTheListToTheNamedPRs(t *testing.T) {
 
 		if got := reviewNumbers(result.Final); len(got) != 1 || got[0] != 8 {
 			t.Errorf("Reviews = %v, want [8]", got)
+		}
+	})
+}
+
+// A person who names a PR expects a review of it. A named PR that is a
+// draft, or is not open, would otherwise end the run clean with no review.
+// The other named PRs are still reviewed.
+func TestANamedPRThatIsNotOnTheListIsSaidAndFailsTheRun(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		list := func() (prs.Listing, error) {
+			return prs.Listing{PRs: []prs.PR{
+				{Number: 9, Engagement: prs.New, CI: prs.CIPassing},
+				{Number: 8, Engagement: prs.New, CI: prs.CIPassing, Hidden: prs.HiddenDraft},
+			}}, nil
+		}
+		b := newBench(t, setup{list: list, edit: func(c *Config) { c.Only = []int{9, 8, 77} }})
+		b.reviewer.finish(t, 9, 0, answer(9, "approved"))
+		result := <-b.results
+
+		if result.Code != ExitFailed {
+			t.Errorf("code %d, want %d: two of the three PRs asked for were not reviewed", result.Code, ExitFailed)
+		}
+		for _, want := range []string{
+			"PR #8 was asked for but is not reviewed: it is a draft",
+			"PR #77 was asked for but is not reviewed: it is not an open PR in this repository",
+		} {
+			if !slices.Contains(b.notes(), want) {
+				t.Errorf("notes = %q, want %q", b.notes(), want)
+			}
+		}
+		if got := b.reviewer.started(); !slices.Equal(got, []int{9}) {
+			t.Errorf("started %v, want the one named PR that is on the list", got)
 		}
 	})
 }

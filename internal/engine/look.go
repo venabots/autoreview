@@ -103,6 +103,7 @@ func (e *Engine) afterLook(w workers, r run) run {
 		snap := r.snap
 		e.journal(Looked{Snapshot: &snap})
 	}
+	r = e.noteAbsent(r)
 	return e.schedule(w, e.decide(w, r))
 }
 

@@ -217,6 +217,9 @@ type run struct {
 	// for the pass after it.
 	requested []int
 	code      int
+	// namedChecked says the PRs a person named were checked against the
+	// list, and absent says one of them is not on it.
+	namedChecked, absent bool
 }
 
 // workers is what the loop hands to anything that starts a goroutine: the
@@ -258,7 +261,7 @@ func (e *Engine) Run() Result {
 		e.publish(r)
 	}
 	e.settleMarks()
-	return Result{Code: r.code, Final: e.Snapshot()}
+	return Result{Code: endCode(r), Final: e.Snapshot()}
 }
 
 func (e *Engine) handle(w workers, r run, in input) run {

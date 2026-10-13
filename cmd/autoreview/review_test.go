@@ -286,6 +286,19 @@ func TestNothingReadyIsNotAnError(t *testing.T) {
 	}
 }
 
+// A person who names a PR expects a review of it. A run that found no such
+// open PR must not end like a run with a quiet list.
+func TestANamedPRThatIsNotOpenFailsTheRun(t *testing.T) {
+	fixtures := sandbox(t)
+	_, stderr, code := autoreview(t, "777")
+	if want := "note: PR #777 was asked for but is not reviewed: it is not an open PR in this repository\n"; code != 1 || !strings.Contains(stderr, want) {
+		t.Errorf("exit %d, stderr %q; want exit 1 and %q", code, stderr, want)
+	}
+	if calls := dashpCalls(t, fixtures); len(calls) != 0 {
+		t.Errorf("reviews started: %q", calls)
+	}
+}
+
 func TestAnOverrideReplacesTheReviewer(t *testing.T) {
 	fixtures := sandbox(t)
 	t.Setenv("AUTOREVIEW_CMD", `echo "session=$REVIEW_PRS_SESSION_ID resume=$REVIEW_PRS_SESSION_RESUME reviewed"`)

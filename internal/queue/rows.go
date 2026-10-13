@@ -66,6 +66,33 @@ func Rows(listing prs.Listing, gates prs.Gates, only []int, reviewed Track) []Ro
 	return rows
 }
 
+// Absent is a PR a person named that the review list does not show.
+type Absent struct {
+	Number int
+	// Open is false when the PR is not among the open PRs at all.
+	Open bool
+	// Hidden is why an open PR is left out.
+	Hidden prs.Hidden
+}
+
+// Missing is the named PRs that the run shows nowhere, in the order named.
+// A run that reviewed nothing for one of them must say so: the person asked
+// for that review. The person's own PR is not one of them. It has no row
+// here, but the run shows it in the list of their own PRs.
+func Missing(listing prs.Listing, only []int) []Absent {
+	out := []Absent{}
+	for _, number := range only {
+		i := slices.IndexFunc(listing.PRs, func(pr prs.PR) bool { return pr.Number == number })
+		switch {
+		case i < 0:
+			out = append(out, Absent{Number: number})
+		case !shown(listing.PRs[i]) && listing.PRs[i].Hidden != prs.HiddenOwn:
+			out = append(out, Absent{Number: number, Open: true, Hidden: listing.PRs[i].Hidden})
+		}
+	}
+	return out
+}
+
 func shown(pr prs.PR) bool {
 	return pr.Hidden == prs.NotHidden || pr.Hidden == prs.HiddenApproved
 }

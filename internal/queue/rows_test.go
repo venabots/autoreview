@@ -142,3 +142,23 @@ func TestANamedPRIsHeldLikeAnyOtherOnceTheRunReviewedIt(t *testing.T) {
 		}
 	}
 }
+
+// A person who names a PR expects a review of it. A named PR that the list
+// leaves out would otherwise end the run clean, with no review and no word.
+// Their own PR is the exception: the run shows it in the other list.
+func TestMissingIsTheNamedPRsTheRunShowsNowhere(t *testing.T) {
+	listing := prs.Listing{PRs: []prs.PR{
+		pr(9, nil),
+		pr(5, func(p *prs.PR) { p.Hidden = prs.HiddenApproved }),
+		pr(4, func(p *prs.PR) { p.Hidden = prs.HiddenOwn }),
+		pr(3, func(p *prs.PR) { p.Hidden = prs.HiddenDraft }),
+	}}
+	got := Missing(listing, []int{9, 77, 5, 4, 3})
+	want := []Absent{{Number: 77}, {Number: 3, Open: true, Hidden: prs.HiddenDraft}}
+	if !slices.Equal(got, want) {
+		t.Errorf("Missing = %+v, want %+v", got, want)
+	}
+	if got := Missing(listing, nil); len(got) != 0 {
+		t.Errorf("a sweep names no PR, but Missing = %+v", got)
+	}
+}
