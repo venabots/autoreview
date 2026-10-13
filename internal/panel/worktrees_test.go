@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/venabots/autoreview/internal/worktree"
 )
 
 // recordingGit logs each call and fails the ones fail names.
@@ -94,9 +96,39 @@ func TestRemovePrunesOnlyARegistrationGitStillLists(t *testing.T) {
 		}
 		Worktrees{root: "/repo", Dirs: []string{"/base/worktree-codex"}}.Remove(git.run)
 		pruned := slices.Contains(git.calls, "worktree prune --expire now")
-		if pruned != c.wantPrune || git.calls[0] != "worktree remove --force /base/worktree-codex" {
+		if pruned != c.wantPrune || git.calls[0] != "worktree remove --force --force /base/worktree-codex" {
 			t.Errorf("%s: calls %q", c.name, git.calls)
 		}
+	}
+}
+
+// `git worktree add` locks the worktree while it makes it, and unlocks it
+// at the end. A ctrl-C ends the add with SIGKILL, and the lock stays. One
+// --force does not remove a locked worktree and a prune does not clear it,
+// so the person's repository would keep the registration.
+func TestRemoveTakesOutAWorktreeThatAKilledAddLeftLocked(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := worktree.Exec(ctx, root, args...)
+		if err != nil {
+			t.Fatalf("git %s: %v", strings.Join(args, " "), err)
+		}
+		return string(out)
+	}
+	git("init", "--quiet")
+	git("-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "start")
+	wts, err := CreateWorktrees(ctx, worktree.Exec, root, t.TempDir(), []string{"codex"}, "HEAD", func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	git("worktree", "lock", "--reason", "initializing", wts.Dirs[0])
+
+	wts.Remove(worktree.Exec)
+
+	if list := git("worktree", "list", "--porcelain"); strings.Count(list, "worktree ") != 1 {
+		t.Errorf("git still lists the locked worktree:\n%s", list)
 	}
 }
 

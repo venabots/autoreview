@@ -66,6 +66,9 @@ func CreateWorktrees(ctx context.Context, git worktree.Git, root, base string, i
 // and best effort: the run has said what it had to say, and a worktree that
 // will not go is not worth a second error on top of the first. --force,
 // because a panelist may have left edits: that is what its worktree was for.
+// --force a second time, because an add that a ctrl-C killed leaves its
+// worktree locked, and git removes a locked worktree for nothing less.
+// Every path here is one this run made, so no lock on it is a person's.
 func (w Worktrees) Remove(git worktree.Git) {
 	if len(w.Dirs) == 0 {
 		return
@@ -76,7 +79,7 @@ func (w Worktrees) Remove(git worktree.Git) {
 	for _, dir := range w.Dirs {
 		// A refused remove is not proof of a leak: an add can fail before
 		// it registers anything, and every path is recorded before its add.
-		if _, err := git(ctx, w.root, "worktree", "remove", "--force", dir); err != nil {
+		if _, err := git(ctx, w.root, "worktree", "remove", "--force", "--force", dir); err != nil {
 			leaked = leaked || stillRegistered(ctx, git, w.root, dir)
 		}
 	}
