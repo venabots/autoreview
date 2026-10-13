@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/engine"
+	"github.com/venabots/autoreview/internal/task"
 )
 
 // A task whose worktree cannot be made never runs. The engine keeps it as
@@ -34,4 +36,58 @@ func TestATaskThatDidNotStartSaysWhyInTheFooterTheRowAndTheDetail(t *testing.T) 
 	running.Tasks = []engine.Job{{PR: 4, State: engine.JobPreparing}}
 	m = send(m, snapshotMsg{snap: running})
 	wantNotOnScreen(t, m, "did not start", "git fetch")
+}
+
+func fixOn4(state engine.JobState, verdict string) *engine.Snapshot {
+	s := snapshot()
+	s.Tasks = []engine.Job{{PR: 4, Task: task.Fix, State: state, Verdict: verdict, StartedAt: start}}
+	return s
+}
+
+// A fix is asked for with one key and ends minutes later. The footer says
+// so wherever the person is by then, and the row keeps the result: without
+// it the row reads after the fix as it did before.
+func TestATaskThatEndsSaysSoInTheFooterAndStaysOnItsRow(t *testing.T) {
+	m, hs := newModel(t, 150, 30)
+	hs.eng.snap = fixOn4(engine.JobRunning, "")
+	m = send(m, snapshotMsg{snap: hs.eng.snap})
+	wantNotOnScreen(t, m, "PR #4:")
+
+	done := fixOn4(engine.JobDone, "pushed")
+	hs.eng.snap = done
+	m = send(m, snapshotMsg{snap: done})
+	wantOnScreen(t, m, "PR #4: fix pushed", " Review 4 ")
+
+	m = press(t, m, "tab")
+	wantOnScreen(t, m, "✓ #4 · fix pushed · conflicts")
+
+	m = send(m, tickMsg(start.Add(flashFor+1)))
+	m = send(m, snapshotMsg{snap: done})
+	wantNotOnScreen(t, m, "PR #4: fix pushed")
+	wantOnScreen(t, m, "✓ #4 · fix pushed · conflicts")
+}
+
+func TestTheRowSaysHowTheLastTaskEnded(t *testing.T) {
+	cases := []struct {
+		state   engine.JobState
+		verdict string
+		want    string
+	}{
+		{engine.JobDone, "nothing pushed", "#4 · fix pushed nothing · conflicts"},
+		{engine.JobTimedOut, "nothing pushed", "#4 · fix timed out · conflicts"},
+		{engine.JobFailed, "", "#4 · fix failed (exit 3) · conflicts"},
+	}
+	for _, c := range cases {
+		m, _ := onMine(t, func(s *engine.Snapshot) {
+			s.Tasks = fixOn4(c.state, c.verdict).Tasks
+			s.Tasks[0].Outcome = "exit 3"
+		})
+		wantOnScreen(t, m, c.want)
+	}
+
+	babysat, _ := onMine(t, func(s *engine.Snapshot) {
+		s.Tasks = fixOn4(engine.JobDone, "pushed").Tasks
+		s.Babysit, _ = s.Babysit.Apply(babysit.All(true), s.Mine)
+	})
+	wantOnScreen(t, babysat, "#4 · babysat · fix pushed · conflicts")
 }

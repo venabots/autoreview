@@ -61,6 +61,19 @@ func (k Kind) Doing() string {
 	return "reviewing"
 }
 
+// Noun is the word for the job once it has ended: "fix pushed".
+func (k Kind) Noun() string {
+	switch k {
+	case Fix:
+		return "fix"
+	case Comments:
+		return "comment fix"
+	case Conflicts:
+		return "conflict fix"
+	}
+	return "review"
+}
+
 // Tag names the directory a task's files go in, so they never overwrite a
 // review's. It is empty for a review.
 func (k Kind) Tag() string {

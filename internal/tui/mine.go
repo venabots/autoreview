@@ -70,8 +70,9 @@ func mineIcon(row mineRow, spin string) span {
 }
 
 // mineWord is what a task is doing now, or what blocks the PR. A babysat
-// PR says so first: it is the one thing on the row the person chose. A task
-// that never ran is said next, so a key that did nothing leaves a mark.
+// PR says so first: it is the one thing on the row the person chose. How
+// the last task ended is said next, or that it never ran: without it the
+// row reads after a fix as it did before, and the fix looks like nothing.
 func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 	if row.live() {
 		style := spinnerStyle
@@ -81,8 +82,11 @@ func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 		return word{report.Progress(*row.task, now), style}
 	}
 	w := blockerWord(row.pr)
-	if row.notStarted != "" {
+	switch {
+	case row.notStarted != "":
 		w.text = "did not start · " + w.text
+	case row.task != nil:
+		w.text = report.TaskOutcome(*row.task) + " · " + w.text
 	}
 	if babysat.Babysat(row.pr.Number) && !row.pr.CrossRepo {
 		w.text = "babysat · " + w.text

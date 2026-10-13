@@ -14,17 +14,17 @@ import (
 
 func TestEachKindNamesItsSkillItsVerbAndItsFiles(t *testing.T) {
 	cases := []struct {
-		kind              Kind
-		skill, doing, tag string
+		kind                    Kind
+		skill, doing, tag, noun string
 	}{
-		{Fix, "babysit-pr", "fixing", "fix"},
-		{Comments, "pr-comment-handler", "fixing comments", "comments"},
-		{Conflicts, "sync-main", "fixing conflicts", "conflicts"},
-		{Review, "", "reviewing", ""},
+		{Fix, "babysit-pr", "fixing", "fix", "fix"},
+		{Comments, "pr-comment-handler", "fixing comments", "comments", "comment fix"},
+		{Conflicts, "sync-main", "fixing conflicts", "conflicts", "conflict fix"},
+		{Review, "", "reviewing", "", "review"},
 	}
 	for _, c := range cases {
-		if c.kind.Skill() != c.skill || c.kind.Doing() != c.doing || c.kind.Tag() != c.tag {
-			t.Errorf("kind %d: %q, %q, %q", c.kind, c.kind.Skill(), c.kind.Doing(), c.kind.Tag())
+		if c.kind.Skill() != c.skill || c.kind.Doing() != c.doing || c.kind.Tag() != c.tag || c.kind.Noun() != c.noun {
+			t.Errorf("kind %d: %q, %q, %q, %q", c.kind, c.kind.Skill(), c.kind.Doing(), c.kind.Tag(), c.kind.Noun())
 		}
 	}
 }
