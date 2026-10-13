@@ -3,6 +3,8 @@ package panel
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -150,5 +152,22 @@ func TestAFailedSynthesisFailsTheRunAfterThePanelIsPrinted(t *testing.T) {
 	code := Run(context.Background(), []string{"--panelist", "codex"}, d)
 	if code != ExitFailed || !strings.Contains(out.String(), "## codex / m (exit 0)") || !strings.Contains(errs.String(), "error: the synthesis failed (exit 10): usage limit. The panelist reports above") {
 		t.Errorf("exit %d\nstdout:\n%s\nstderr:\n%s", code, out.String(), errs.String())
+	}
+}
+
+// Git makes each worktree relative to the repo root, and a panelist starts
+// relative to where the person stands. A relative --log-dir would name two
+// places when the person stands in a subdirectory.
+func TestARelativeLogDirectoryBecomesAbsolute(t *testing.T) {
+	t.Chdir(t.TempDir())
+	dir, err := makeOutDir("logs", "")
+	if err != nil {
+		t.Fatalf("makeOutDir: %v", err)
+	}
+	if !filepath.IsAbs(dir) {
+		t.Errorf("the run directory is %s, want an absolute path", dir)
+	}
+	if _, err := os.Stat(filepath.Join("logs", filepath.Base(dir))); err != nil {
+		t.Errorf("the run directory is not under ./logs: %v", err)
 	}
 }

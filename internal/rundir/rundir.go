@@ -35,6 +35,13 @@ func New(logDir, tempDir string) (Run, error) {
 		}
 		parent = made
 	}
+	// Absolute, because the paths under it are used from more than one
+	// directory: git makes a worktree relative to the repo root, and a
+	// reviewer starts relative to where the person stands.
+	parent, err := filepath.Abs(parent)
+	if err != nil {
+		return Run{}, fmt.Errorf("making the log directory: %w", err)
+	}
 	if err := os.MkdirAll(parent, private); err != nil {
 		return Run{}, fmt.Errorf("making the log directory: %w", err)
 	}

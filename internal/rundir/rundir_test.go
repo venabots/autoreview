@@ -51,6 +51,23 @@ func TestALogDirectoryThatDoesNotExistIsMade(t *testing.T) {
 	}
 }
 
+// Git makes a worktree relative to the repo root, and a reviewer starts
+// relative to the directory the person stands in. A run directory that
+// stayed relative would name two places.
+func TestARelativeLogDirectoryBecomesAbsolute(t *testing.T) {
+	t.Chdir(t.TempDir())
+	run, err := New("logs", "")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if !filepath.IsAbs(run.Root) {
+		t.Errorf("the run directory is %s, want an absolute path", run.Root)
+	}
+	if _, err := os.Stat(filepath.Join("logs", filepath.Base(run.Root))); err != nil {
+		t.Errorf("the run directory is not under ./logs: %v", err)
+	}
+}
+
 func TestWithNoLogDirectoryTheRunGoesUnderTheTempDirectory(t *testing.T) {
 	temp := t.TempDir()
 	run, err := New("", temp)

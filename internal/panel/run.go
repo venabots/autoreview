@@ -115,8 +115,15 @@ func (d Deps) repoRoot(ctx context.Context) (string, error) {
 // makeOutDir makes the directory this run keeps its prompts, outputs and
 // synthesis in. One for each run, made and not named: with a fixed
 // --log-dir, two runs at once would otherwise each read the other's results.
+//
+// The directory is absolute. Git makes each worktree relative to the repo
+// root, and a panelist starts relative to where the person stands, so a
+// relative --log-dir would name two places.
 func makeOutDir(logDir, tempDir string) (string, error) {
-	base := orDefault(logDir, tempDir)
+	base, err := filepath.Abs(orDefault(logDir, tempDir))
+	if err != nil {
+		return "", fmt.Errorf("creating %s: %w", orDefault(logDir, tempDir), err)
+	}
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return "", fmt.Errorf("creating %s: %w", base, err)
 	}
