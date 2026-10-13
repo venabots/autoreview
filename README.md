@@ -52,7 +52,7 @@ autoreview
 ```
 
 On a terminal that opens the full-screen view and keeps looking for new PRs
-until you press `q`.
+until you press `q` twice.
 
 ## Upgrade
 
@@ -90,7 +90,7 @@ held under another PR, seen, or approved.
 | Key   | What it does                                            |
 | ----- | ------------------------------------------------------- |
 | `R`   | Review the selected PR now, whatever holds it           |
-| `x x` | Stop the selected review                                |
+| `x x` | Stop the selected review. The first `x` asks            |
 | `r`   | Reopen a finished review in a new terminal tab          |
 | `f`   | Type what the reviewers look at in this run (the focus) |
 | `w`   | Stop or start watching for new work                     |
@@ -106,11 +106,12 @@ CI, requested changes, open threads.
 | `b`   | Babysit the PR: fix it again each time it changes and needs it |
 | `B`   | Babysit all your PRs, and any you open later                   |
 | `r`   | Reopen the last task in its worktree, when it was kept         |
-| `x x` | Stop the running task                                          |
+| `x x` | Stop the running task. The first `x` asks                      |
 
 On both tabs, `o` opens the PR in the browser, `l` shows the run log, `m` gives
-the mouse back to the terminal so you can select text, `?` lists every key, and
-`q` quits.
+the mouse back to the terminal so you can select text, and `?` lists every key.
+`q q` quits: the first `q` asks, because a quit stops every review and task that
+is running. `esc` closes the key list and answers no to a question.
 
 Each task on your own PR runs in `<run dir>/worktrees/pr-N`. The worktree is
 removed after the task, unless it holds uncommitted or unpushed work. Then it is
