@@ -63,7 +63,7 @@ func mineIcon(row mineRow, spin string) span {
 	case row.live():
 		return styled("·", dimStyle)
 	}
-	return reviewIcon(row.pr.Review)
+	return reviewIcon(row.pr)
 }
 
 // mineWord is what a task is doing now, or what blocks the PR. A babysat
@@ -93,7 +93,7 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 		{},
 		field("review", reviewersWord(pr)),
 		field("checks", ciWord(pr.CI)),
-		field("threads", threadsWord(pr.OpenThreads())),
+		field("threads", threadsWord(pr)),
 		field("merge", mergeWord(pr.Merge)),
 	}
 	if pr.Draft {

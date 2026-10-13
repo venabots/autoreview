@@ -50,11 +50,11 @@ func decisionIcon(d prs.Decision) span {
 	return styled("○", dimStyle)
 }
 
-func reviewIcon(r mine.Review) span {
-	switch r {
-	case mine.ReviewApproved:
+func reviewIcon(pr mine.PR) span {
+	switch {
+	case pr.Approved():
 		return styled("✓", greenStyle)
-	case mine.ReviewChangesRequested:
+	case pr.Review == mine.ReviewChangesRequested:
 		return styled("✗", yellowStyle)
 	}
 	return styled("○", dimStyle)

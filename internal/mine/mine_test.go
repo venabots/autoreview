@@ -53,6 +53,18 @@ func TestBlockerNamesWhatBlocksTheMergeFirst(t *testing.T) {
 			p.Merge = MergeConflicts
 			p.CI = prs.CIFailing
 		}), BlockerConflicts},
+		{"an approval outranks open threads", change(func(p *PR) {
+			p.Review = ReviewApproved
+			p.ThreadIDs = []string{"T1"}
+		}), BlockerApproved},
+		{"a conflict outranks an approval", change(func(p *PR) {
+			p.Review = ReviewApproved
+			p.Merge = MergeConflicts
+		}), BlockerConflicts},
+		{"pending checks outrank an approval", change(func(p *PR) {
+			p.Review = ReviewApproved
+			p.CI = prs.CIPending
+		}), BlockerCIPending},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -60,6 +72,33 @@ func TestBlockerNamesWhatBlocksTheMergeFirst(t *testing.T) {
 				t.Errorf("Blocker() = %d, want %d", got, c.want)
 			}
 		})
+	}
+}
+
+// A repo with no review rule reports no decision at all, so an approval
+// there is read from the reviewers.
+func TestApprovedIsTheDecisionOrAnApproverWhereNoRuleAsks(t *testing.T) {
+	alice := Reviewer{Login: "alice", Review: ReviewApproved}
+	bob := Reviewer{Login: "bob", Review: ReviewChangesRequested}
+	cases := []struct {
+		name      string
+		review    Review
+		reviewers []Reviewer
+		want      bool
+	}{
+		{"the decision is approved", ReviewApproved, []Reviewer{alice}, true},
+		{"the decision is approved and nobody is named", ReviewApproved, nil, true},
+		{"the rules want another approval", ReviewRequired, []Reviewer{alice}, false},
+		{"changes are requested", ReviewChangesRequested, []Reviewer{alice, bob}, false},
+		{"no rule, and one approval", ReviewNone, []Reviewer{alice}, true},
+		{"no rule, and one of two asks for changes", ReviewNone, []Reviewer{alice, bob}, false},
+		{"no rule, and nobody decided", ReviewNone, nil, false},
+	}
+	for _, c := range cases {
+		got := change(func(p *PR) { p.Review, p.Reviewers = c.review, c.reviewers }).Approved()
+		if got != c.want {
+			t.Errorf("%s: Approved() = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 

@@ -73,12 +73,35 @@ func (p PR) OpenThreads() int {
 	return len(p.ThreadIDs)
 }
 
+// Approved says the reviewers have approved the PR. A repo with no review
+// rule reports no decision, so there it is one reviewer who approved and
+// none who asks for changes.
+//
+// What is still open on an approved PR is optional: nothing but a conflict
+// or a red build stops its merge.
+func (p PR) Approved() bool {
+	if p.Review != ReviewNone {
+		return p.Review == ReviewApproved
+	}
+	approvals := 0
+	for _, r := range p.Reviewers {
+		switch r.Review {
+		case ReviewChangesRequested:
+			return false
+		case ReviewApproved:
+			approvals++
+		}
+	}
+	return approvals > 0
+}
+
 // Blocker is what most needs doing about one of your PRs.
 type Blocker int
 
 // The blockers, in the order they are checked. A conflict and a red build
 // stop a merge whatever the reviewers say, and a requested change outranks
-// a comment that is merely open.
+// a comment that is merely open. An open thread blocks nothing once the PR
+// is approved.
 const (
 	BlockerConflicts Blocker = iota
 	BlockerCIFailing
@@ -100,13 +123,13 @@ func (p PR) Blocker() Blocker {
 		return BlockerCIFailing
 	case p.Review == ReviewChangesRequested:
 		return BlockerChangesRequested
-	case p.OpenThreads() > 0:
+	case p.OpenThreads() > 0 && !p.Approved():
 		return BlockerThreads
 	case p.Draft:
 		return BlockerDraft
 	case p.CI == prs.CIPending:
 		return BlockerCIPending
-	case p.Review == ReviewApproved:
+	case p.Approved():
 		return BlockerApproved
 	}
 	return BlockerAwaitingReview

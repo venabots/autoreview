@@ -87,6 +87,9 @@ func Blocker(pr mine.PR) string {
 	case mine.BlockerCIPending:
 		return "CI pending"
 	case mine.BlockerApproved:
+		if pr.OpenThreads() > 0 {
+			return "approved · " + Count(pr.OpenThreads(), "thread") + " open"
+		}
 		return "approved"
 	}
 	return "awaiting review"
