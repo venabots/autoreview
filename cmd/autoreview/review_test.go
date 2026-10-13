@@ -86,11 +86,16 @@ func TestEveryReadyPRIsReviewedAndTheLimitIsNamedWhenItBinds(t *testing.T) {
 
 func TestTheReviewerIsStartedWithTheSessionTheSkillsAndTheTrailerRequest(t *testing.T) {
 	fixtures := sandbox(t)
-	autoreview(t, "9", "--budget", "2.50", "--timeout", "600", "--focus", "the ledger migration")
+	_, stderr, _ := autoreview(t, "9", "--budget", "2.50", "--timeout", "600", "--focus", "the ledger migration")
 
 	calls := dashpCalls(t, fixtures)
 	if len(calls) != 1 {
 		t.Fatalf("reviews started: %q", calls)
+	}
+	// The fallback is codex, and dash-p forwards no cap to it. A review it
+	// takes over runs with no limit, so the run says so up front.
+	if want := "note: --budget is not enforced on a review codex takes over; dash-p forwards the cap to claude alone\n"; !strings.Contains(stderr, want) {
+		t.Errorf("stderr lacks %q:\n%s", want, stderr)
 	}
 	root := repoRoot(t)
 	for _, want := range []string{

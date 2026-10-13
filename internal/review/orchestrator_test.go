@@ -139,6 +139,37 @@ func TestWhatDashpForwardsIsStatedForEachBackend(t *testing.T) {
 	}
 }
 
+// A cap that quietly does not apply is worse than no cap. The run says so
+// once, before the first review, for the orchestrator and for the fallback
+// that can take a review over.
+func TestACapThatIsNotEnforcedIsSaidBeforeTheFirstReview(t *testing.T) {
+	gpt := Orchestrator{Backend: "codex", Model: "gpt-5.5"}
+	fallback := codex()
+	cases := []struct {
+		name     string
+		budget   string
+		o        Orchestrator
+		fallback *Orchestrator
+		want     []string
+	}{
+		{"no cap", "", gpt, &fallback, nil},
+		{"claude alone", "2.50", Claude(), nil, nil},
+		{"under codex", "2.50", gpt, nil, []string{
+			"--budget is not enforced under codex:gpt-5.5; dash-p forwards the cap to claude alone",
+		}},
+		{"codex takes over", "2.50", Claude(), &fallback, []string{
+			"--budget is not enforced on a review codex takes over; dash-p forwards the cap to claude alone",
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := BudgetNotes(c.budget, c.o, c.fallback); !slices.Equal(got, c.want) {
+				t.Errorf("BudgetNotes = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestTheWordsForAFallback(t *testing.T) {
 	cases := []struct {
 		raw  string

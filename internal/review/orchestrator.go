@@ -81,6 +81,25 @@ func (o Orchestrator) SupportsBudget() bool {
 	return o.Backend == "claude"
 }
 
+// BudgetNotes says where a cost cap does not apply: under an orchestrator
+// that is not claude, and on a review that such a fallback takes over. A
+// cap that quietly does not apply is worse than no cap, so the run prints
+// these before its first review.
+func BudgetNotes(budget string, o Orchestrator, fallback *Orchestrator) []string {
+	if budget == "" {
+		return nil
+	}
+	const why = "; dash-p forwards the cap to claude alone"
+	notes := []string{}
+	if !o.SupportsBudget() {
+		notes = append(notes, "--budget is not enforced under "+o.Label()+why)
+	}
+	if fallback != nil && !fallback.SupportsBudget() {
+		notes = append(notes, "--budget is not enforced on a review "+fallback.Label()+" takes over"+why)
+	}
+	return notes
+}
+
 // SupportsSystemPrompt says `--append-system-prompt` reaches this backend.
 // For any other backend, what the reviewer must be told goes in the prompt.
 func (o Orchestrator) SupportsSystemPrompt() bool {

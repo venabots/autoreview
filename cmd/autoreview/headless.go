@@ -167,6 +167,7 @@ func prepare(cfg cli.Config, rc repo.Context) (prepared, error) {
 			return prepared{}, err
 		}
 		p.fallback, p.fallbackLine = fallback, line
+		p.notes = review.BudgetNotes(cfg.Budget, cfg.Orchestrator, fallback)
 	}
 	source, err := skills.Parse(cfg.Skills)
 	if err != nil {
