@@ -289,8 +289,9 @@ func (e *Engine) taskGuard(r run, in taskGuard) run {
 }
 
 // taskSettled gives a task its end state. Its result is GitHub's word on
-// whether the branch moved, as a review's verdict is GitHub's word.
-func (e *Engine) taskSettled(r run, in taskSettled) run {
+// whether the branch moved, as a review's verdict is GitHub's word. Your
+// PRs are read again, so the row shows what the task left.
+func (e *Engine) taskSettled(w workers, r run, in taskSettled) run {
 	i := slices.IndexFunc(r.tasks, func(t taskJob) bool { return t.view.PR == in.pr && t.view.State == JobFinishing })
 	if i < 0 {
 		return r
@@ -317,7 +318,7 @@ func (e *Engine) taskSettled(r run, in taskSettled) run {
 		e.journal(Noted{Text: fmt.Sprintf("PR #%d's worktree has %s: %s", t.view.PR, in.kept, t.tree.Path)})
 	}
 	e.journal(JobFinished{Job: t.view})
-	return fixEnded(withTask(r, i, t), t.request.Kind, t.view.PR)
+	return e.refreshMine(w, fixEnded(withTask(r, i, t), t.request.Kind, t.view.PR))
 }
 
 // stopTask stops one task a person pointed at.

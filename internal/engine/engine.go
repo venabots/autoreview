@@ -208,6 +208,12 @@ type run struct {
 	// ciUntil is when a run that waits for pending checks stops waiting.
 	// It is zero when the run does not wait.
 	ciUntil time.Time
+	// mineAsked numbers each read of your PRs as it starts, and mineTaken
+	// is the newest one whose answer was taken.
+	mineAsked, mineTaken int
+	// looked is your PRs as the last look found them. snap.Mine can be
+	// newer: it also takes the read that follows a task.
+	looked []mine.PR
 	// jobs is the reviews of the newest pass, with what the engine alone
 	// knows about each.
 	jobs []job
@@ -274,15 +280,9 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		r = e.withListing(r, in)
 	case mineListed:
 		r.pending--
-		if in.err != nil && r.snap.MineLooked {
-			// The first look's failure is in the lists it prints. A later
-			// one would leave a stale list on screen with nothing said.
-			e.journal(Noted{Text: fmt.Sprintf("could not read your PRs (%s); the My PRs tab keeps its last list", in.err)})
-		}
-		r.snap = withMine(r.snap, in)
-		if in.err == nil {
-			return e.babysitLook(w, r)
-		}
+		return e.mineListed(w, r, in)
+	case mineRefreshed:
+		return mineRefreshedInto(r, in)
 	case jobReaped:
 		return e.reaped(w, r, in)
 	case guardFired:
@@ -306,7 +306,7 @@ func (e *Engine) handle(w workers, r run, in input) run {
 	case taskReaped:
 		return e.taskReaped(w, r, in)
 	case taskSettled:
-		return e.taskSettled(r, in)
+		return e.taskSettled(w, r, in)
 	case taskGuard:
 		return e.taskGuard(r, in)
 	}
