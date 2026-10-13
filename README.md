@@ -96,7 +96,8 @@ held under another PR, seen, or approved.
 | `w`   | Stop or start watching for new work                     |
 
 **My PRs** lists your own open PRs and what blocks each one: conflicts, failing
-CI, requested changes, open threads.
+CI, requested changes, open threads. An approved PR reads `approved`, with the
+number of threads that are still open.
 
 | Key   | What it does                                                   |
 | ----- | -------------------------------------------------------------- |
@@ -116,8 +117,23 @@ Each task on your own PR runs in `<run dir>/worktrees/pr-N`. The worktree is
 removed after the task, unless it holds uncommitted or unpushed work. Then it is
 kept, and the view and the log name it.
 
-Babysitting has two limits. A fix runs only after the PR changed, and at most 3
-fixes run in a row while nobody else acts on the PR.
+`f` runs once. It merges the base in, answers the review comments and fixes
+failing CI, in that order. `u` and `c` each do one part of that. `b` and `B` are
+the loop: at each look, a babysat PR that needs work and has changed gets the
+same fix as `f`.
+
+While a task runs, its row says so. When it ends, the footer says how, and the
+row keeps the result: `fix pushed`, `fix pushed nothing` or `fix failed`. Your
+PRs are read again at once, so the row also shows what the task left. A task
+that could not start says why in the footer and in the right pane.
+
+Babysitting has three limits:
+
+- A fix runs only after the PR changed.
+- At most 3 fixes run in a row while nobody else acts on the PR.
+- An approved PR gets no fix, because a push can dismiss the approval. `f`, `c`
+  and `u` still work by hand, for example to answer the threads that are still
+  open.
 
 ## Which agents?
 

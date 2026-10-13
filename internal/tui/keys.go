@@ -96,7 +96,7 @@ var helpLines = []keyHelp{
 	{"tab", "switch between Review and My PRs (or ←/→, or click one)"},
 	{"R", "review the selected PR now, whatever holds it"},
 	{"f", "My PRs: fix the selected PR once (conflicts, comments, CI)"},
-	{"b", "My PRs: babysit the selected PR: fix it again when it changes"},
+	{"b", "My PRs: babysit the selected PR: fix it again when it changes, until it is approved"},
 	{"B", "My PRs: babysit all your PRs, and any you open later"},
 	{"u", "My PRs: merge the base in and fix the conflicts"},
 	{"c", "My PRs: answer the selected PR's review comments"},
