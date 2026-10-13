@@ -71,7 +71,7 @@ func (e *Engine) regate(r run) run {
 	if !r.snap.Looked {
 		return r
 	}
-	rows := queue.Rows(r.listing, e.cfg.Gates, e.cfg.Only)
+	rows := queue.Rows(r.listing, e.cfg.Gates, e.cfg.Only, r.track)
 	r.snap.Reviews = queue.Gated(rows, r.track, e.policy(), time.Now())
 	return r
 }

@@ -49,7 +49,7 @@ func TestWaitSaysWhyAPRIsNotReviewedNow(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rows := Rows(prs.Listing{PRs: []prs.PR{c.pr}}, c.gates, nil)
+			rows := Rows(prs.Listing{PRs: []prs.PR{c.pr}}, c.gates, nil, nil)
 			if len(rows) != 1 || rows[0].Wait != c.want {
 				t.Errorf("Rows = %+v, want one row with wait %d", rows, c.want)
 			}
@@ -73,7 +73,7 @@ func TestRowsLeaveOutWhatTheSweepNeverReviews(t *testing.T) {
 		pr(3, func(p *prs.PR) { p.Hidden = prs.HiddenBot }),
 		pr(2, func(p *prs.PR) { p.Hidden = prs.HiddenDraft }),
 	}}
-	if got, want := numbers(Rows(listing, bothGates, nil)), []int{9, 5}; !slices.Equal(got, want) {
+	if got, want := numbers(Rows(listing, bothGates, nil, nil)), []int{9, 5}; !slices.Equal(got, want) {
 		t.Errorf("Rows = %v, want %v: approved PRs are shown, drafts, your own and bots are not", got, want)
 	}
 }
@@ -87,7 +87,7 @@ func TestRowsPutWhatTheRunActsOnFirst(t *testing.T) {
 		pr(5, nil),
 		pr(6, nil),
 	}}
-	before := numbers(Rows(listing, bothGates, nil))
+	before := numbers(Rows(listing, bothGates, nil, nil))
 	if want := []int{5, 6, 4, 3, 2, 1}; !slices.Equal(before, want) {
 		t.Errorf("Rows = %v, want %v: ready, held by checks, stacked, seen, approved", before, want)
 	}
@@ -98,7 +98,7 @@ func TestRowsPutWhatTheRunActsOnFirst(t *testing.T) {
 
 func TestRowsKeepTheSweepOrderWithinOneState(t *testing.T) {
 	listing := prs.Listing{PRs: []prs.PR{pr(7, nil), pr(9, nil), pr(8, nil)}}
-	if got, want := numbers(Rows(listing, bothGates, nil)), []int{7, 9, 8}; !slices.Equal(got, want) {
+	if got, want := numbers(Rows(listing, bothGates, nil, nil)), []int{7, 9, 8}; !slices.Equal(got, want) {
 		t.Errorf("Rows = %v, want %v", got, want)
 	}
 }
@@ -111,7 +111,7 @@ func TestANamedPRIsReviewedWhateverItsState(t *testing.T) {
 		pr(5, func(p *prs.PR) { p.Hidden = prs.HiddenApproved }),
 		pr(4, func(p *prs.PR) { p.Hidden = prs.HiddenOwn }),
 	}}
-	rows := Rows(listing, bothGates, []int{8, 7, 5, 4})
+	rows := Rows(listing, bothGates, []int{8, 7, 5, 4}, nil)
 
 	if got, want := numbers(rows), []int{8, 7, 5}; !slices.Equal(got, want) {
 		t.Fatalf("Rows = %v, want %v: only the named PRs, and never your own", got, want)
@@ -119,6 +119,26 @@ func TestANamedPRIsReviewedWhateverItsState(t *testing.T) {
 	for _, row := range rows {
 		if row.Wait != WaitNext {
 			t.Errorf("PR #%d has wait %d, want WaitNext: a person asked for it", row.PR.Number, row.Wait)
+		}
+	}
+}
+
+// A named PR skips the gates so that the review a person asked for runs.
+// After that review, a run that watches would review it again at the end of
+// each rest, with nothing new on it, and post each time.
+func TestANamedPRIsHeldLikeAnyOtherOnceTheRunReviewedIt(t *testing.T) {
+	listing := prs.Listing{PRs: []prs.PR{
+		pr(8, func(p *prs.PR) { p.Engagement = prs.Seen }),
+		pr(7, func(p *prs.PR) { p.Engagement = prs.Updated }),
+		pr(6, func(p *prs.PR) { p.Engagement = prs.Seen }),
+	}}
+	reviewed := Track{}.Reviewed(8, "", t0, false, Policy{}).Reviewed(7, "", t0, false, Policy{})
+	rows := Rows(listing, bothGates, []int{8, 7, 6}, reviewed)
+
+	want := map[int]Wait{8: WaitSeen, 7: WaitNext, 6: WaitNext}
+	for _, row := range rows {
+		if row.Wait != want[row.PR.Number] {
+			t.Errorf("PR #%d has wait %d, want %d", row.PR.Number, row.Wait, want[row.PR.Number])
 		}
 	}
 }

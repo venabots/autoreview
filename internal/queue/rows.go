@@ -49,14 +49,18 @@ type Row struct {
 //
 // only limits the list to the PRs a person named. A named PR is reviewed
 // whatever its state: the person asked for it, so a gate that would hold it
-// in a sweep does not apply.
-func Rows(listing prs.Listing, gates prs.Gates, only []int) []Row {
+// in a sweep does not apply. That holds for its first review in the run
+// only. Once reviewed has a record of it, the PR is held like any other: a
+// run that watches would otherwise review it again after each rest, with
+// nothing new on it, and post each time.
+func Rows(listing prs.Listing, gates prs.Gates, only []int, reviewed Track) []Row {
 	rows := make([]Row, 0, len(listing.PRs))
 	for _, pr := range listing.PRs {
 		if !shown(pr) || !named(pr, only) {
 			continue
 		}
-		rows = append(rows, Row{PR: pr, Wait: waitFor(pr, gates, len(only) > 0)})
+		_, done := reviewed[pr.Number]
+		rows = append(rows, Row{PR: pr, Wait: waitFor(pr, gates, len(only) > 0 && !done)})
 	}
 	slices.SortStableFunc(rows, func(a, b Row) int { return cmp.Compare(a.Wait, b.Wait) })
 	return rows

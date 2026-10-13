@@ -156,6 +156,34 @@ func TestAReviewedPRRestsAndIsThenRecheckedInItsSession(t *testing.T) {
 	})
 }
 
+// A person who names a PR asks for one review of it. A run under the view
+// watches, and it must not review the PR again at the end of each rest when
+// nothing on the PR changed: each review posts.
+func TestANamedPRIsNotReviewedAgainWhenNothingChanged(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		g := newGithub(9)
+		b := newBench(t, watchRun(g, func(c *Config) { c.Only = []int{9} }))
+		g.set(9, seen)
+		b.reviewer.finish(t, 9, 0, answer(9, "commented"))
+		synctest.Wait()
+
+		time.Sleep(2 * time.Hour)
+		synctest.Wait()
+		if got := len(b.reviewer.commandsFor(9)); got != 1 {
+			t.Errorf("PR #9 was reviewed %d times in two hours with nothing new on it, want 1", got)
+		}
+
+		g.set(9, updated)
+		time.Sleep(2 * time.Minute)
+		synctest.Wait()
+		if got := len(b.reviewer.commandsFor(9)); got != 2 {
+			t.Errorf("after its author answered PR #9 was reviewed %d times, want 2", got)
+		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
 func TestAPRIsReviewedAtMostItsCapUntilItsAuthorPushes(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		g := newGithub(9)
