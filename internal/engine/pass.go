@@ -227,7 +227,9 @@ func (e *Engine) start(w workers, r run, i int) run {
 //
 // A PR this run reviewed before is re-checked in the session that review
 // ran in, which already holds the findings. A review that failed leaves
-// nothing to re-check, so the next one starts fresh.
+// nothing to re-check, so the next one starts fresh. So does a review that
+// the fallback ran: a codex thread id has the shape of a session id, and
+// sent to claude it would fail and fall back again at every rest.
 func (e *Engine) planFor(r run, j job) session.Plan {
 	pr := j.view.PR
 	// A retry under the fallback is always a fresh review. It runs where
@@ -241,7 +243,7 @@ func (e *Engine) planFor(r run, j job) session.Plan {
 	switch {
 	case !ok:
 		return session.PlanFor(id, pr, e.cfg.Continue, e.deps.Sessions)
-	case prior.State != JobDone || !session.UUIDShaped(prior.Session):
+	case prior.State != JobDone || !session.UUIDShaped(prior.Session) || !prior.Orchestrator.SupportsSessions():
 		return session.PlanFor(id, pr, false, e.deps.Sessions)
 	case e.deps.Sessions.InUse(prior.Session):
 		return session.Plan{

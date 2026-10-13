@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/venabots/autoreview/internal/proc"
 	"github.com/venabots/autoreview/internal/review"
@@ -61,6 +62,33 @@ func TestExit10IsRetriedOnceUnderTheFallback(t *testing.T) {
 		if !slices.Contains(got, "retry 9") || slices.Index(got, "retry 9") > slices.Index(got, "finish 9") {
 			t.Errorf("journal = %v, want the retry before the result", got)
 		}
+	})
+}
+
+// A codex review runs in a thread that only codex can open. Its id has the
+// shape of a session id, so the next pass under claude would send it with
+// --resume, fail, and fall back again at every rest.
+func TestAReviewTheFallbackRanIsNotResumedUnderTheOrchestrator(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		g := newGithub(9)
+		b := newBench(t, withFallback(watchRun(g, nil)))
+		b.reviewer.finish(t, 9, 10, "You've hit your session limit")
+		synctest.Wait()
+		b.reviewer.finish(t, 9, 0, answer(9, "commented"))
+		synctest.Wait()
+
+		g.set(9, updated)
+		time.Sleep(31 * time.Minute)
+		synctest.Wait()
+		calls := b.reviewer.commandsFor(9)
+		if len(calls) != 3 {
+			t.Fatalf("PR #9 was started %d times, want the review, its retry and a re-check", len(calls))
+		}
+		if !strings.HasPrefix(calls[2], "-H claude ") || strings.Contains(calls[2], "--resume") {
+			t.Errorf("the re-check is %q, want a claude review that resumes nothing", calls[2][:min(len(calls[2]), 200)])
+		}
+		b.eng.Do(Quit{})
+		<-b.results
 	})
 }
 
