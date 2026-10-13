@@ -117,6 +117,26 @@ func TestALocalBranchThatTracksSomewhereElseIsRefused(t *testing.T) {
 	}
 }
 
+// Some people set status.showUntrackedFiles=no in a large repo. A plain
+// `git status` then lists no new file, and `git worktree remove` asks the
+// same question the same way. A file the task made and did not commit would
+// go with the worktree.
+func TestANewFileKeepsTheWorktreeWhenGitIsToldToHideUntrackedFiles(t *testing.T) {
+	f := setup(t)
+	mustGit(t, f.clone, "config", "status.showUntrackedFiles", "no")
+	p := prepareOK(t, f.request("me/work"))
+	if err := os.WriteFile(filepath.Join(p.Path, "half.txt"), []byte("edit"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := Kept{Path: p.Path, Why: "uncommitted changes"}
+	if kept, isKept, err := Finish(context.Background(), Exec, f.clone, p); kept != want || !isKept || err != nil {
+		t.Errorf("Finish = %+v, %v, %v; want %+v kept", kept, isKept, err, want)
+	}
+	if _, err := os.Stat(filepath.Join(p.Path, "half.txt")); err != nil {
+		t.Errorf("the new file is gone: %v", err)
+	}
+}
+
 func TestWorkLeftBehindKeepsTheWorktree(t *testing.T) {
 	f := setup(t)
 	p := prepareOK(t, f.request("me/work"))

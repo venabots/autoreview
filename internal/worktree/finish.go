@@ -18,7 +18,10 @@ import (
 // -d, not -D: -d refuses a branch that is not fully pushed, which the
 // checks before it already ruled out, so a refusal there loses nothing.
 func Finish(ctx context.Context, git Git, root string, p Prepared) (Kept, bool, error) {
-	changes, err := run(ctx, git, p.Path, "status", "--porcelain")
+	// --untracked-files is spelled out. With status.showUntrackedFiles=no
+	// in the person's config, a plain status lists no new file, and a file
+	// the task made and did not commit would go with the worktree.
+	changes, err := run(ctx, git, p.Path, "status", "--porcelain", "--untracked-files=normal")
 	if err != nil {
 		return keptOnError(p, "git could not read it", err)
 	}
