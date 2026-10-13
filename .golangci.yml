@@ -1,0 +1,56 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - depguard
+    - errorlint
+    - forbidigo
+    - misspell
+    - unconvert
+    - unparam
+  settings:
+    # The view owns the terminal while it is up. v1 kept stray prints off the
+    # screen by pointing fds 1 and 2 at a log; here nothing prints at all
+    # except the two packages whose job it is.
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: only cmd/ and internal/plain write to the terminal; return a value or publish it in the snapshot
+        - pattern: ^(print|println)$
+          msg: only cmd/ and internal/plain write to the terminal
+    depguard:
+      rules:
+        engine-does-not-draw:
+          files:
+            - "**/internal/engine/**"
+          deny:
+            - pkg: charm.land
+              desc: the engine publishes snapshots and never draws
+            - pkg: github.com/charmbracelet
+              desc: the engine publishes snapshots and never draws
+        view-runs-nothing:
+          files:
+            - "**/internal/tui/**"
+          deny:
+            - pkg: os/exec
+              desc: the view sends commands to the engine and runs no process
+            - pkg: github.com/venabots/autoreview/internal/gh
+              desc: the view reads snapshots and never calls gh
+  exclusions:
+    rules:
+      - path: ^cmd/
+        linters:
+          - forbidigo
+      - path: _test\.go$
+        linters:
+          - unparam
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/venabots/autoreview

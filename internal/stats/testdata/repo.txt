@@ -1,0 +1,17 @@
+18 reviews from 2026-06-01 to 2026-08-08 across 1 repo
+
+MODEL                                     BACKEND   RUNS  AVAIL          RAW/RUN  KEPT  UNIQUE  HIGH+  DROPPED  KEEP RATE    SAMPLE
+gpt-5.5                                   codex     18    100% (82-100)  3.0      32    16      8      0        68% (54-80)  emerging
+claude-opus-4.7                           claude    18    100% (82-100)  1.0      16    0       0      0        50% (28-72)  emerging
+grok-4.6                                  opencode  18    67% (44-84)    1.0      1     0       0      0        10% (2-40)   emerging
+glm-5.3                                   opencode  18    11% (3-33)     1.0      0     0       0      0        0% (0-66)    thin
+gpt-5.6-sol                               codex     6     100% (61-100)  1.0      0     0       0      0        0% (0-39)    thin
+unknown                                   gemini    3     -              -        0     0       0      0        -            thin
+an-extremely-long-model-name-that-goes-…  claude    1     100% (21-100)  2.0      0     0       0      0        0% (0-66)    thin
+[31mred-model                             evil      1     0% (0-79)      -        0     0       0      0        -            thin
+
+decisions: 12 commented, 6 changes-requested
+risk: 8 LOW, 3 HIGH, 3 unknown, 2 CRITICAL, 2 MEDIUM
+needs attention: glm-5.3 on opencode answered 2 of 18 launches
+not scored: 5 findings credited to a name not on its panel (ci-sdk x1, coderabbitai x1, copilot x1, deepsource x1, x<y>&z x1)
+ledger: testdata/ledger.jsonl

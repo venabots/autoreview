@@ -10,27 +10,34 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS is the primary target; Linux catches anything that quietly
-        # depended on it. The test harness is bash 3.2 compatible because that
-        # is what macOS ships.
+        # macOS is the primary target. Linux catches what quietly depended
+        # on it: the two differ in how a terminal's input is flushed.
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+      # The end-to-end tests start the test binary itself as gh and dash-p,
+      # dozens of times. With the race detector each start takes a second,
+      # so that package runs without it. The engine it drives is raced below.
+      - name: Test
+        run: go test -race $(go list ./... | grep -v /cmd/)
+      - name: Test end to end
+        run: go test ./cmd/...
+      - name: Build
+        run: go build -o autoreview ./cmd/autoreview
 
-      # Rust is preinstalled on both runner images; the cache keeps the cargo
-      # build from dominating the run.
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install shellcheck and jq
-        run: |
-          set -euo pipefail
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install shellcheck jq
-          else
-            sudo apt-get update
-            sudo apt-get install -y shellcheck jq
-          fi
-
-      - name: Run tests
-        run: bash tests/run.sh
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0

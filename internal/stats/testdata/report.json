@@ -1,0 +1,405 @@
+{
+  "generated_at": 1791488230,
+  "since": null,
+  "ledger": "testdata/ledger.jsonl",
+  "overview": {
+    "runs": 42,
+    "repos": 3,
+    "first_at": 1745712000,
+    "last_at": 1786320000,
+    "decisions": {
+      "approved": 12,
+      "changes-requested": 6,
+      "commented": 12,
+      "unknown": 12
+    },
+    "risks": {
+      "CRITICAL": 5,
+      "HIGH": 5,
+      "LOW": 16,
+      "MEDIUM": 7,
+      "unknown": 9
+    },
+    "sources": {
+      "autoreview": 36,
+      "panel": 5,
+      "transcript": 1
+    }
+  },
+  "attention": [
+    "glm-5.3 on opencode answered 4 of 36 launches"
+  ],
+  "unresolved": {
+    "a human": 1,
+    "ci-sdk": 1,
+    "claude": 3,
+    "coderabbitai": 2,
+    "copilot": 2,
+    "deepsource": 2,
+    "opencode": 3,
+    "sonar": 1,
+    "x<y>&z": 2
+  },
+  "cohorts": [
+    {
+      "key": {
+        "backend": "codex",
+        "model": "gpt-5.5"
+      },
+      "runs": 42,
+      "answered": 41,
+      "failed": 1,
+      "raw_findings": 116,
+      "raw_runs": 41,
+      "kept": 53,
+      "kept_unique": 37,
+      "kept_high": 21,
+      "dropped": 0,
+      "keep_num": 53,
+      "keep_den": 107,
+      "first_at": 1745712000,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 41,
+        "denominator": 42,
+        "value": 0.9761904761904762,
+        "low": 0.8767851883475175,
+        "high": 0.9957847045008998
+      },
+      "keep_rate": {
+        "numerator": 53,
+        "denominator": 107,
+        "value": 0.4953271028037383,
+        "low": 0.40240905867272797,
+        "high": 0.5885690578467014
+      },
+      "raw_per_run": 2.8292682926829267,
+      "sample": "proven",
+      "median_secs": 59
+    },
+    {
+      "key": {
+        "backend": "claude",
+        "model": "claude-opus-4.7"
+      },
+      "runs": 36,
+      "answered": 36,
+      "failed": 0,
+      "raw_findings": 54,
+      "raw_runs": 36,
+      "kept": 16,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 8,
+      "keep_num": 8,
+      "keep_den": 51,
+      "first_at": 1780272000,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 36,
+        "denominator": 36,
+        "value": 1.0,
+        "low": 0.9035781695514236,
+        "high": 1.0
+      },
+      "keep_rate": {
+        "numerator": 8,
+        "denominator": 51,
+        "value": 0.1568627450980392,
+        "low": 0.08169125888021325,
+        "high": 0.2801070839835981
+      },
+      "raw_per_run": 1.5,
+      "sample": "proven",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "opencode",
+        "model": "grok-4.6"
+      },
+      "runs": 36,
+      "answered": 24,
+      "failed": 12,
+      "raw_findings": 36,
+      "raw_runs": 24,
+      "kept": 16,
+      "kept_unique": 12,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 16,
+      "keep_den": 34,
+      "first_at": 1780272000,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 24,
+        "denominator": 36,
+        "value": 0.6666666666666666,
+        "low": 0.5033369709296683,
+        "high": 0.7978557522541395
+      },
+      "keep_rate": {
+        "numerator": 16,
+        "denominator": 34,
+        "value": 0.47058823529411764,
+        "low": 0.31451251633111366,
+        "high": 0.6326355957994516
+      },
+      "raw_per_run": 1.5,
+      "sample": "emerging",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "opencode",
+        "model": "glm-5.3"
+      },
+      "runs": 36,
+      "answered": 4,
+      "failed": 32,
+      "raw_findings": 4,
+      "raw_runs": 4,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 4,
+      "first_at": 1780272000,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 4,
+        "denominator": 36,
+        "value": 0.1111111111111111,
+        "low": 0.044065689087418335,
+        "high": 0.25315129015036325
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 4,
+        "value": 0.0,
+        "low": 0.0,
+        "high": 0.48990002040399916
+      },
+      "raw_per_run": 1.0,
+      "sample": "thin",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "codex",
+        "model": "gpt-5.6-sol"
+      },
+      "runs": 6,
+      "answered": 6,
+      "failed": 0,
+      "raw_findings": 6,
+      "raw_runs": 6,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 6,
+      "first_at": 1780272000,
+      "last_at": 1785456000,
+      "availability": {
+        "numerator": 6,
+        "denominator": 6,
+        "value": 1.0,
+        "low": 0.6096569663469354,
+        "high": 1.0
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 6,
+        "value": 0.0,
+        "low": 0.0,
+        "high": 0.3903430336530645
+      },
+      "raw_per_run": 1.0,
+      "sample": "thin",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "gemini",
+        "model": "unknown"
+      },
+      "runs": 6,
+      "answered": 0,
+      "failed": 0,
+      "raw_findings": 0,
+      "raw_runs": 0,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 0,
+      "first_at": 1780272000,
+      "last_at": 1786320000,
+      "availability": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "low": null,
+        "high": null
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "low": null,
+        "high": null
+      },
+      "raw_per_run": null,
+      "sample": "thin",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "claude",
+        "model": "unknown"
+      },
+      "runs": 5,
+      "answered": 3,
+      "failed": 2,
+      "raw_findings": 3,
+      "raw_runs": 3,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 2,
+      "first_at": 1780531320,
+      "last_at": 1784332920,
+      "availability": {
+        "numerator": 3,
+        "denominator": 5,
+        "value": 0.6,
+        "low": 0.23071993220883702,
+        "high": 0.8823817688407467
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 2,
+        "value": 0.0,
+        "low": 0.0,
+        "high": 0.6576280471103807
+      },
+      "raw_per_run": 1.0,
+      "sample": "thin",
+      "median_secs": 12
+    },
+    {
+      "key": {
+        "backend": "claude",
+        "model": "an-extremely-long-model-name-that-goes-on-and-on-5.1"
+      },
+      "runs": 1,
+      "answered": 1,
+      "failed": 0,
+      "raw_findings": 2,
+      "raw_runs": 1,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 2,
+      "first_at": 1780977600,
+      "last_at": 1780977600,
+      "availability": {
+        "numerator": 1,
+        "denominator": 1,
+        "value": 1.0,
+        "low": 0.20654329147389294,
+        "high": 1.0
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 2,
+        "value": 0.0,
+        "low": 0.0,
+        "high": 0.6576280471103807
+      },
+      "raw_per_run": 2.0,
+      "sample": "thin",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "evil",
+        "model": "\u001b[31mred-model\u0007"
+      },
+      "runs": 1,
+      "answered": 0,
+      "failed": 1,
+      "raw_findings": 0,
+      "raw_runs": 0,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 0,
+      "first_at": 1781312400,
+      "last_at": 1781312400,
+      "availability": {
+        "numerator": 0,
+        "denominator": 1,
+        "value": 0.0,
+        "low": 0.0,
+        "high": 0.7934567085261071
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null,
+        "low": null,
+        "high": null
+      },
+      "raw_per_run": null,
+      "sample": "thin",
+      "median_secs": null
+    },
+    {
+      "key": {
+        "backend": "kimi",
+        "model": "月之暗面-k2"
+      },
+      "runs": 1,
+      "answered": 1,
+      "failed": 0,
+      "raw_findings": 1,
+      "raw_runs": 1,
+      "kept": 0,
+      "kept_unique": 0,
+      "kept_high": 0,
+      "dropped": 0,
+      "keep_num": 0,
+      "keep_den": 1,
+      "first_at": 1781136000,
+      "last_at": 1781136000,
+      "availability": {
+        "numerator": 1,
+        "denominator": 1,
+        "value": 1.0,
+        "low": 0.20654329147389294,
+        "high": 1.0
+      },
+      "keep_rate": {
+        "numerator": 0,
+        "denominator": 1,
+        "value": 0.0,
+        "low": 0.0,
+        "high": 0.7934567085261071
+      },
+      "raw_per_run": 1.0,
+      "sample": "thin",
+      "median_secs": null
+    }
+  ]
+}
