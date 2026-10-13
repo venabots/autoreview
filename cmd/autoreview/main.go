@@ -100,8 +100,6 @@ func wantsScreen(view cli.View, stderr io.Writer) bool {
 	return onTerminal
 }
 
-// engineConfig watches only under the view. A run off a terminal looks
-// once: nobody is there to press q.
 // engineConfig is how the run loops.
 //
 //   - The view watches: it looks every --watch minutes, reviews what has
