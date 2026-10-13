@@ -61,6 +61,9 @@ Status is `done` with the test that pins it, or the milestone that brings it.
 | A task's result is read back from GitHub: pushed, nothing pushed, or unknown when GitHub could not be asked                 | done: `internal/task` `TestReadbackSaysWhetherTheHeadMoved` |
 | Babysitting follows v1 decision 0030 (`src/babysit.rs`)                                                                      | done: `internal/babysit`, `internal/engine` `TestBabysittingFixesAPRThatNeedsWorkAtOnceAndNotAgainUntilItChanges` |
 | Babysitting does not depend on `w`: the view looks at your PRs at every look either way                                      | v2 change: v1 turned babysitting off with the looks. `internal/engine` `Babysit` |
+| A babysat PR that is approved gets no fix until the approval goes: a push can dismiss it | v2 change: v1 fixed an approved PR that had an open thread. `internal/babysit` `TestAnApprovedPRGetsNoFix`, `TestAPRThatLosesItsApprovalIsFixedAgain`, `internal/engine` `TestBabysittingLeavesAnApprovedPRAloneAndSaysSoOnce` |
+| When a task ends, your PRs are read again, and the row and the footer say how it ended | v2 change. `internal/engine` `TestATaskThatEndsReadsYourPRsAgain`, `TestAnOlderAnswerDoesNotReplaceANewerOne`, `internal/tui` `TestATaskThatEndsSaysSoInTheFooterAndStaysOnItsRow` |
+| A task whose worktree cannot be made is a note and not a failure, and the view says why | done: `internal/engine` `TestAWorktreeThatCannotBeMadeIsANoteAndNotAFailure`, `internal/tui` `TestATaskThatDidNotStartSaysWhyInTheFooterTheRowAndTheDetail` |
 
 ## Go safeguards that v1 did not need
 

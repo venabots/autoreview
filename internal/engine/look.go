@@ -26,9 +26,10 @@ func (e *Engine) look(w workers, r run) run {
 		listing, err := guarded(func() (prs.Listing, error) { return e.deps.List(w.ctx) })
 		e.in.put(listed{listing: listing, err: err})
 	})
+	r, asked := mineAsked(r)
 	w.group.Go(func() {
 		list, err := guarded(func() ([]mine.PR, error) { return e.deps.Mine(w.ctx) })
-		e.in.put(mineListed{list: list, err: err})
+		e.in.put(mineListed{seq: asked, list: list, err: err})
 	})
 	r.snap.Looking = true
 	r.snap.NextLookAt = time.Time{}
@@ -74,17 +75,6 @@ func (e *Engine) regate(r run) run {
 	rows := queue.Rows(r.listing, e.cfg.Gates, e.cfg.Only, r.track)
 	r.snap.Reviews = queue.Gated(rows, r.track, e.policy(), time.Now())
 	return r
-}
-
-func withMine(s Snapshot, in mineListed) Snapshot {
-	if in.err != nil {
-		s.MineErr = in.err.Error()
-		return s
-	}
-	s.MineLooked = true
-	s.MineErr = ""
-	s.Mine = in.list
-	return s
 }
 
 // afterLook takes a look that has fully answered, decides what the run

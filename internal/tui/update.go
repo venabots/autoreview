@@ -66,6 +66,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // summary is printed by whoever started the program, after the screen is
 // given back.
 func (m Model) took(snap *engine.Snapshot) (tea.Model, tea.Cmd) {
+	m = m.noticing(snap)
 	m.snap = snap
 	m = m.synced().modalChecked()
 	if snap.Phase == engine.Done {

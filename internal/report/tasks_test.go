@@ -42,3 +42,20 @@ func TestProgressNamesWhatATaskDoes(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskOutcomeSaysWhatATaskLeftInAFewWords(t *testing.T) {
+	cases := map[string]engine.Job{
+		"fix pushed":                   {Task: task.Fix, State: engine.JobDone, Verdict: "pushed"},
+		"fix pushed nothing":           {Task: task.Fix, State: engine.JobDone, Verdict: "nothing pushed"},
+		"fix done":                     {Task: task.Fix, State: engine.JobDone, Verdict: "unknown"},
+		"comment fix pushed":           {Task: task.Comments, State: engine.JobDone, Verdict: "pushed"},
+		"conflict fix timed out":       {Task: task.Conflicts, State: engine.JobTimedOut, Verdict: "nothing pushed"},
+		"fix stopped":                  {Task: task.Fix, State: engine.JobFailed, Outcome: "stopped", Verdict: "pushed"},
+		"conflict fix failed (exit 3)": {Task: task.Conflicts, State: engine.JobFailed, Outcome: "exit 3"},
+	}
+	for want, job := range cases {
+		if got := TaskOutcome(job); got != want {
+			t.Errorf("TaskOutcome = %q, want %q", got, want)
+		}
+	}
+}

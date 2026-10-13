@@ -301,9 +301,16 @@ func mineReviewWord(r mine.Review) word {
 	return word{text, plainStyle}
 }
 
-func threadsWord(open int) word {
-	if open == 0 {
+// threadsWord counts the open threads. Yellow is a reviewer waiting on
+// you. On an approved PR nobody waits: the threads are yours to answer or
+// to leave.
+func threadsWord(pr mine.PR) word {
+	open := pr.OpenThreads()
+	switch {
+	case open == 0:
 		return word{"none open", plainStyle}
+	case pr.Approved():
+		return word{fmt.Sprintf("%d unresolved, optional now: c answers them", open), plainStyle}
 	}
 	return word{fmt.Sprintf("%d unresolved", open), yellowStyle}
 }

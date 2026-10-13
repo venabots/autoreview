@@ -36,6 +36,26 @@ func Tasks(tasks []engine.Job) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// TaskOutcome is a task that has ended, in the few words a list row has
+// room for: whether it pushed, or how it failed. A task that ran to its end
+// and whose branch could not be read back says only that it is done.
+func TaskOutcome(t engine.Job) string {
+	noun := t.Task.Noun()
+	switch {
+	case t.State == engine.JobTimedOut:
+		return noun + " timed out"
+	case t.State == engine.JobFailed && t.Outcome == "stopped":
+		return noun + " stopped"
+	case t.State == engine.JobFailed:
+		return noun + " " + Result(t)
+	case t.Verdict == "pushed":
+		return noun + " pushed"
+	case t.Verdict == "nothing pushed":
+		return noun + " pushed nothing"
+	}
+	return noun + " done"
+}
+
 // KeptLine names a worktree a task left behind and why. Removing it would
 // have lost work, so the person must find it.
 func KeptLine(t engine.Job) string {

@@ -119,6 +119,7 @@ func (e *Engine) requestTask(w workers, r run, req task.Request) run {
 		State: JobPreparing, Orchestrator: e.cfg.Orchestrator,
 	}}}
 	r.tasks = append(slices.Clone(r.tasks), t)
+	r.snap.NotStarted = withoutNote(r.snap.NotStarted, req.PR)
 	w.group.Go(func() {
 		tree, err := e.deps.Prepare(w.ctx, req)
 		e.in.put(taskReady{pr: req.PR, tree: tree, err: err})
@@ -136,7 +137,9 @@ func (e *Engine) taskReady(w workers, r run, in taskReady) run {
 	t := r.tasks[i]
 	switch {
 	case in.err != nil:
-		e.journal(Noted{Text: fmt.Sprintf("not %s PR #%d: %s", t.request.Kind.Doing(), t.view.PR, sanitize.Line(in.err.Error()))})
+		why := fmt.Sprintf("not %s PR #%d: %s", t.request.Kind.Doing(), t.view.PR, sanitize.Line(in.err.Error()))
+		e.journal(Noted{Text: why})
+		r.snap.NotStarted = withNote(r.snap.NotStarted, t.view.PR, why)
 		return fixEnded(withoutTask(r, i), t.request.Kind, t.view.PR)
 	case t.dropped || r.snap.Phase == Stopping:
 		e.release(w, in.tree)
@@ -286,8 +289,9 @@ func (e *Engine) taskGuard(r run, in taskGuard) run {
 }
 
 // taskSettled gives a task its end state. Its result is GitHub's word on
-// whether the branch moved, as a review's verdict is GitHub's word.
-func (e *Engine) taskSettled(r run, in taskSettled) run {
+// whether the branch moved, as a review's verdict is GitHub's word. Your
+// PRs are read again, so the row shows what the task left.
+func (e *Engine) taskSettled(w workers, r run, in taskSettled) run {
 	i := slices.IndexFunc(r.tasks, func(t taskJob) bool { return t.view.PR == in.pr && t.view.State == JobFinishing })
 	if i < 0 {
 		return r
@@ -314,7 +318,7 @@ func (e *Engine) taskSettled(r run, in taskSettled) run {
 		e.journal(Noted{Text: fmt.Sprintf("PR #%d's worktree has %s: %s", t.view.PR, in.kept, t.tree.Path)})
 	}
 	e.journal(JobFinished{Job: t.view})
-	return fixEnded(withTask(r, i, t), t.request.Kind, t.view.PR)
+	return e.refreshMine(w, fixEnded(withTask(r, i, t), t.request.Kind, t.view.PR))
 }
 
 // stopTask stops one task a person pointed at.

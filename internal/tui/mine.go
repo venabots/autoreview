@@ -17,12 +17,15 @@ type mineRow struct {
 	pr mine.PR
 	// task is the newest task on the PR in this run, or nil.
 	task *engine.Job
+	// notStarted is why the last task asked for on the PR never ran, or
+	// empty.
+	notStarted string
 }
 
 func mineRowsOf(s *engine.Snapshot) []mineRow {
 	rows := make([]mineRow, len(s.Mine))
 	for i, pr := range s.Mine {
-		rows[i] = mineRow{pr: pr}
+		rows[i] = mineRow{pr: pr, notStarted: s.NotStarted[pr.Number]}
 		for j := range s.Tasks {
 			if s.Tasks[j].PR == pr.Number {
 				rows[i].task = &s.Tasks[j]
@@ -63,11 +66,13 @@ func mineIcon(row mineRow, spin string) span {
 	case row.live():
 		return styled("·", dimStyle)
 	}
-	return reviewIcon(row.pr.Review)
+	return reviewIcon(row.pr)
 }
 
 // mineWord is what a task is doing now, or what blocks the PR. A babysat
-// PR says so first: it is the one thing on the row the person chose.
+// PR says so first: it is the one thing on the row the person chose. How
+// the last task ended is said next, or that it never ran: without it the
+// row reads after a fix as it did before, and the fix looks like nothing.
 func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 	if row.live() {
 		style := spinnerStyle
@@ -77,6 +82,12 @@ func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 		return word{report.Progress(*row.task, now), style}
 	}
 	w := blockerWord(row.pr)
+	switch {
+	case row.notStarted != "":
+		w.text = "did not start · " + w.text
+	case row.task != nil:
+		w.text = report.TaskOutcome(*row.task) + " · " + w.text
+	}
 	if babysat.Babysat(row.pr.Number) && !row.pr.CrossRepo {
 		w.text = "babysat · " + w.text
 	}
@@ -93,7 +104,7 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 		{},
 		field("review", reviewersWord(pr)),
 		field("checks", ciWord(pr.CI)),
-		field("threads", threadsWord(pr.OpenThreads())),
+		field("threads", threadsWord(pr)),
 		field("merge", mergeWord(pr.Merge)),
 	}
 	if pr.Draft {
@@ -103,6 +114,9 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 		lines = append(lines, field("from", word{"a fork", plainStyle}))
 	}
 	lines = append(lines, field("babysat", babysatWord(pr, babysat)))
+	if row.notStarted != "" {
+		lines = append(lines, line{}, note(sanitize.Line(row.notStarted), redStyle))
+	}
 	if row.task != nil {
 		lines = append(lines, taskLines(*row.task, row.live(), now)...)
 	}
@@ -113,6 +127,9 @@ func babysatWord(pr mine.PR, s babysit.State) word {
 	switch n := s.Fixes(pr.Number); {
 	case !s.Babysat(pr.Number) || pr.CrossRepo:
 		return word{"no", dimStyle}
+	case pr.Approved():
+		// A push can dismiss the approval, so nothing pushes by itself.
+		return word{"yes · on hold while approved", plainStyle}
 	case n == 1:
 		return word{"yes · 1 fix so far", plainStyle}
 	case n > 1:

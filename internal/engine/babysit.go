@@ -42,14 +42,16 @@ func (e *Engine) refusal(k task.Kind) string {
 // reason a fix would be: every look would otherwise start a fix that is
 // refused, and say so.
 //
-// A PR turned on is looked at straight away, from the last list, so a PR
+// A PR turned on is looked at straight away, from the last look, so a PR
 // that needs work now does not wait a whole interval for its first fix.
+// It is the last look and not the read that follows a task: that read is
+// seconds after a push, before the checks and the merge state are known.
 func (e *Engine) setBabysit(w workers, r run, c babysit.Change) run {
 	if why := e.refusal(task.Fix); c.On && why != "" {
 		e.journal(Noted{Text: fmt.Sprintf("not babysitting %s: %s", babysatWhat(c), why)})
 		return r
 	}
-	next, err := r.snap.Babysit.Apply(c, r.snap.Mine)
+	next, err := r.snap.Babysit.Apply(c, r.looked)
 	if err != nil {
 		e.journal(Noted{Text: sanitize.Line(err.Error())})
 		return r
@@ -70,6 +72,8 @@ func babysatWhat(c babysit.Change) string {
 }
 
 // babysitLook starts a fix on each babysat PR that changed and needs work.
+// A PR that is approved gets none, and the log says so once: a babysat PR
+// with a red build that nothing fixes would otherwise look forgotten.
 // It runs only after a look at your PRs that worked: after a failed one,
 // the list is the last good one, and a fix that just ended would take its
 // state from before the fix.
@@ -78,11 +82,17 @@ func (e *Engine) babysitLook(w workers, r run) run {
 		return r
 	}
 	busy := func(pr int) bool { return liveTask(r.tasks, pr) >= 0 }
-	next, due := r.snap.Babysit.Look(r.snap.Mine, busy)
+	before := r.snap.Babysit
+	next, due := before.Look(r.looked, busy)
 	r.snap.Babysit = next
+	for _, pr := range r.looked {
+		if next.OnHold(pr.Number) && !before.OnHold(pr.Number) {
+			e.journal(Noted{Text: fmt.Sprintf("babysitting: PR #%d is approved, so it gets no fix until that changes", pr.Number)})
+		}
+	}
 	for _, pr := range due {
-		i := slices.IndexFunc(r.snap.Mine, func(p mine.PR) bool { return p.Number == pr })
-		found := r.snap.Mine[i]
+		i := slices.IndexFunc(r.looked, func(p mine.PR) bool { return p.Number == pr })
+		found := r.looked[i]
 		e.journal(Noted{Text: fmt.Sprintf("babysitting: fixing PR #%d, which changed and needs work", pr)})
 		r = e.requestTask(w, r, task.Request{PR: pr, Kind: task.Fix, Title: found.Title, Branch: found.Branch, CrossRepo: found.CrossRepo})
 	}

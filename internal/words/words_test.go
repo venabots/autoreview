@@ -93,6 +93,8 @@ func TestBlocker(t *testing.T) {
 	}{
 		{"waiting for a reviewer", mine.PR{}, "awaiting review"},
 		{"approved", mine.PR{Review: mine.ReviewApproved}, "approved"},
+		{"approved with a thread open", mine.PR{Review: mine.ReviewApproved, ThreadIDs: []string{"a"}}, "approved · 1 thread open"},
+		{"approved with threads open", mine.PR{Review: mine.ReviewApproved, ThreadIDs: []string{"a", "b"}}, "approved · 2 threads open"},
 		{"a draft", mine.PR{Draft: true}, "draft"},
 		{"checks running", mine.PR{CI: prs.CIPending}, "CI pending"},
 		{"one thread", mine.PR{ThreadIDs: []string{"a"}}, "1 thread"},

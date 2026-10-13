@@ -57,10 +57,22 @@ type listed struct {
 	err     error
 }
 
+// mineListed is a look's answer about your PRs, and mineRefreshed is the
+// answer of the read that follows a task. seq is the number the read got
+// when it started.
 type mineListed struct {
+	seq  int
 	list []mine.PR
 	err  error
 }
+
+type mineRefreshed struct {
+	seq  int
+	list []mine.PR
+	err  error
+}
+
+func (mineRefreshed) input() {}
 
 // jobReaped says a review's process has ended. It is sent before anything
 // the process left behind is read, so the slot is free at once and the
