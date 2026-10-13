@@ -113,6 +113,9 @@ func babysatWord(pr mine.PR, s babysit.State) word {
 	switch n := s.Fixes(pr.Number); {
 	case !s.Babysat(pr.Number) || pr.CrossRepo:
 		return word{"no", dimStyle}
+	case pr.Approved():
+		// A push can dismiss the approval, so nothing pushes by itself.
+		return word{"yes · on hold while approved", plainStyle}
 	case n == 1:
 		return word{"yes · 1 fix so far", plainStyle}
 	case n > 1:

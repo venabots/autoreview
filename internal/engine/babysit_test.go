@@ -105,6 +105,42 @@ func TestBabysittingFixesAPRThatNeedsWorkAtOnceAndNotAgainUntilItChanges(t *test
 	})
 }
 
+func TestBabysittingLeavesAnApprovedPRAloneAndSaysSoOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f, m := &trees{}, &mineList{}
+		approved := threaded(4)
+		approved.Review = mine.ReviewApproved
+		m.set(approved)
+		b := newBench(t, held(setup{deps: m.deps(f), edit: watchedEvery}))
+		b.eng.Do(Babysit{Change: babysit.One(4, true)})
+		synctest.Wait()
+		time.Sleep(3 * time.Minute)
+		synctest.Wait()
+
+		if got := b.reviewer.started(); len(got) != 0 {
+			t.Fatalf("started %v: an approved PR was fixed", got)
+		}
+		if !b.eng.Snapshot().Babysit.OnHold(4) {
+			t.Error("the snapshot does not say PR #4 is on hold")
+		}
+		const said = "babysitting: PR #4 is approved, so it gets no fix until that changes"
+		if n := len(slices.DeleteFunc(b.notes(), func(note string) bool { return note != said })); n != 1 {
+			t.Errorf("the hold was noted %d times in %q, want once", n, b.notes())
+		}
+
+		asked := threaded(4)
+		asked.Review = mine.ReviewChangesRequested
+		m.set(asked)
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		if got := b.reviewer.started(); !slices.Equal(got, []int{4}) {
+			t.Errorf("started %v: a PR that lost its approval was not fixed", got)
+		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
 func TestBabysittingIsRefusedWhereAFixWouldBe(t *testing.T) {
 	fork := threaded(4)
 	fork.CrossRepo = true

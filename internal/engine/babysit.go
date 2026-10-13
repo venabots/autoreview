@@ -70,6 +70,8 @@ func babysatWhat(c babysit.Change) string {
 }
 
 // babysitLook starts a fix on each babysat PR that changed and needs work.
+// A PR that is approved gets none, and the log says so once: a babysat PR
+// with a red build that nothing fixes would otherwise look forgotten.
 // It runs only after a look at your PRs that worked: after a failed one,
 // the list is the last good one, and a fix that just ended would take its
 // state from before the fix.
@@ -78,8 +80,14 @@ func (e *Engine) babysitLook(w workers, r run) run {
 		return r
 	}
 	busy := func(pr int) bool { return liveTask(r.tasks, pr) >= 0 }
-	next, due := r.snap.Babysit.Look(r.snap.Mine, busy)
+	before := r.snap.Babysit
+	next, due := before.Look(r.snap.Mine, busy)
 	r.snap.Babysit = next
+	for _, pr := range r.snap.Mine {
+		if next.OnHold(pr.Number) && !before.OnHold(pr.Number) {
+			e.journal(Noted{Text: fmt.Sprintf("babysitting: PR #%d is approved, so it gets no fix until that changes", pr.Number)})
+		}
+	}
 	for _, pr := range due {
 		i := slices.IndexFunc(r.snap.Mine, func(p mine.PR) bool { return p.Number == pr })
 		found := r.snap.Mine[i]

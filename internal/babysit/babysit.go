@@ -1,8 +1,8 @@
 // Package babysit decides when one of your babysat PRs gets another fix.
 //
 // A fix runs the babysit-pr skill once. Babysitting decides, at each look at
-// your PRs, which babysat PR gets another one. Two rules keep that from
-// becoming a loop that spends for nothing:
+// your PRs, which babysat PR gets another one. Three rules keep that from
+// becoming a loop that spends for nothing, or that undoes a reviewer's work:
 //
 //   - A fix only follows a change. A PR that needs work and has not changed
 //     since its last fix is left alone: a second fix of the same state would
@@ -11,6 +11,8 @@
 //     known takes the PR's new state as the one to compare with. A build or
 //     a conflict the fix itself caused is the exception, because that is
 //     work.
+//   - An approved PR gets no fix. The fix pushes, and a push can dismiss the
+//     approval. What is open on an approved PR is for a person to decide.
 //   - A cap. At most MaxStreak fixes run in a row while nobody else acts. A
 //     new review thread, or a review decision that changed other than a stale
 //     approval the push dismissed, is somebody else acting and starts the
@@ -90,6 +92,13 @@ func (s State) Fixes(pr int) int {
 // At MaxStreak it gets no more until somebody acts or it comes clean.
 func (s State) Streak(pr int) int {
 	return s.watches[pr].streak
+}
+
+// OnHold says the last look found the PR approved, so it gets no fix until
+// that changes. A push can dismiss an approval, and nothing that blocks an
+// approved PR is worth losing it: a person starts that fix.
+func (s State) OnHold(pr int) bool {
+	return s.Babysat(pr) && s.watches[pr].approved
 }
 
 // Listed is the babysat PRs among list, in its order, for the view. A PR from

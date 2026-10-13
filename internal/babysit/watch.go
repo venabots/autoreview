@@ -30,18 +30,23 @@ type watch struct {
 	waited int
 	streak int
 	fixes  int
-	// seen says threads and review hold what others last left on the PR.
-	// The set is replaced at each look and never written to after.
+	// seen says threads, review and approved hold what others last left
+	// on the PR. The set is replaced at each look and never written to
+	// after.
 	seen    bool
 	threads map[string]bool
 	review  mine.Review
+	// approved is kept beside review because a repo with no review rule
+	// reports no decision: an approval there shows only in the reviewers.
+	approved bool
 }
 
 // step is one look at one babysat PR that has no job running: the PR's next
 // watch, and whether it gets a fix now.
 func step(w watch, pr mine.PR) (watch, bool) {
 	threads := idSet(pr.ThreadIDs)
-	acted := w.seen && (hasNew(threads, w.threads) || reviewedAgain(w.review, pr.Review))
+	approved := pr.Approved()
+	acted := w.seen && (hasNew(threads, w.threads) || decidedAgain(w, pr.Review, approved))
 	// A push makes the checks and the merge look clean for a minute, so only
 	// a settled look that finds the PR clean starts the count again.
 	settled := pr.CI != prs.CIPending && pr.Merge != mine.MergeUnknown
@@ -49,7 +54,7 @@ func step(w watch, pr mine.PR) (watch, bool) {
 	if acted || (settled && !NeedsWork(pr)) {
 		next.streak = 0
 	}
-	next.seen, next.threads, next.review = true, threads, pr.Review
+	next.seen, next.threads, next.review, next.approved = true, threads, pr.Review, approved
 	now := fingerprintOf(pr)
 	// Somebody acting during the fix is new work, and is not swallowed by
 	// the look that records what the fix left.
@@ -58,7 +63,9 @@ func step(w watch, pr mine.PR) (watch, bool) {
 	}
 	next.settle, next.waited = false, 0
 	changed := !next.hasBaseline || next.baseline != now
-	if NeedsWork(pr) && (changed || acted) && next.streak < MaxStreak {
+	// An approved PR keeps its baseline, so what changed under the
+	// approval is still a change on the day the approval goes.
+	if NeedsWork(pr) && (changed || acted) && next.streak < MaxStreak && !approved {
 		next.baseline, next.hasBaseline = now, true
 		return started(next), true
 	}
@@ -78,7 +85,7 @@ func settle(w watch, now fingerprint, settled bool) (watch, bool) {
 	next.settle, next.waited = false, 0
 	broke := next.hasBaseline && fixBroke(next.baseline, now)
 	next.baseline, next.hasBaseline = now, true
-	if broke && next.streak < MaxStreak {
+	if broke && next.streak < MaxStreak && !next.approved {
 		return started(next), true
 	}
 	return next, false
@@ -96,6 +103,17 @@ func started(w watch) watch {
 	next.streak++
 	next.fixes++
 	return next
+}
+
+// decidedAgain says a reviewer decided something since the last look. Where
+// GitHub reports a decision, that is the decision changing. Where no rule
+// asks for a review it reports none, and an approval that came or went is
+// all there is to see.
+func decidedAgain(before watch, review mine.Review, approved bool) bool {
+	if before.review != review {
+		return reviewedAgain(before.review, review)
+	}
+	return before.approved != approved
 }
 
 // reviewedAgain says the review decision changed because somebody decided.
