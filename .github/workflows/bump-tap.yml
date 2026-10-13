@@ -5,8 +5,9 @@ name: Bump Homebrew tap
 # is built ships with the change that needs it.
 #
 # HOMEBREW_TAP_TOKEN is a secret of the organization, so a tag pushed in any
-# copy of this repo replaces the formula. Tag only the repo the formula's
-# url names.
+# copy of this repo could replace the formula. The job runs only in the repo
+# the formula's url names: a tag in a copy would point the public formula at
+# that copy's tarball.
 
 on:
   push:
@@ -15,6 +16,7 @@ on:
 
 jobs:
   bump:
+    if: github.repository == 'venabots/autoreview'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
