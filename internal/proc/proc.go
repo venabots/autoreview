@@ -47,7 +47,8 @@ type Exit struct {
 
 // Proc is a running process and the group it leads.
 type Proc interface {
-	// Wait blocks until the process ends. Call it once.
+	// Wait blocks until the process ends and a stop of it, when there was
+	// one, has sent its last signal. Call it once.
 	Wait() Exit
 	// Stop ends the whole group. It returns at once and is safe to call
 	// more than once, and after the process has ended.
@@ -164,13 +165,25 @@ type osProc struct {
 	reaped bool
 	// stopping is true once a stop has begun.
 	stopping bool
+	// stopped is closed when a stop has sent its last signal. It is nil
+	// until a stop begins.
+	stopped chan struct{}
 }
 
+// Wait returns when the process has ended and, after a stop, when the stop
+// has sent its last signal. The process that leads the group can exit on
+// the first TERM while a child that ignores TERM lives on. A caller ends
+// the program when its last Wait returns, and a KILL that was still due
+// then would never be sent.
 func (p *osProc) Wait() Exit {
 	err := p.cmd.Wait()
 	p.mu.Lock()
 	p.reaped = true
+	stopped := p.stopped
 	p.mu.Unlock()
+	if stopped != nil {
+		<-stopped
+	}
 	for _, f := range p.files {
 		_ = f.Close()
 	}
@@ -200,7 +213,8 @@ func exitFrom(err error) Exit {
 //
 // The later signals are sent whatever the first one did. The process that
 // leads the group can exit on TERM while a child that ignores TERM lives
-// on, and that child is still a reviewer spending money.
+// on, and that child is still a reviewer spending money. Wait does not
+// return before the last of them.
 //
 // A stop that begins after the process was collected does nothing: its
 // group id is no longer this job's to signal.
@@ -211,10 +225,13 @@ func (p *osProc) Stop() {
 		return
 	}
 	p.stopping = true
+	stopped := make(chan struct{})
+	p.stopped = stopped
 	p.signal(syscall.SIGTERM)
 	p.mu.Unlock()
 
 	go func() {
+		defer close(stopped)
 		time.Sleep(p.grace)
 		p.signal(syscall.SIGTERM)
 		time.Sleep(p.grace)

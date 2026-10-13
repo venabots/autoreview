@@ -174,6 +174,23 @@ func TestStopEndsAGrandchildThatIgnoresTERM(t *testing.T) {
 	}
 }
 
+// The program can end as soon as Wait returns. A stop that still owed its
+// KILL then would never send it, and a child that ignores TERM would live
+// on after the run.
+func TestWaitReturnsOnlyAfterAStopHasSentItsLastSignal(t *testing.T) {
+	c := script(t, `(trap '' TERM; touch ready; sleep 30) & wait`)
+	p := start(t, c)
+	waitFor(t, filepath.Join(c.Dir, "ready"))
+
+	began := time.Now()
+	p.Stop()
+	p.Wait()
+
+	if took := time.Since(began); took < 2*p.grace {
+		t.Errorf("Wait returned %v after the stop began, before the KILL was due at %v", took, 2*p.grace)
+	}
+}
+
 func TestStopEndsALeaderThatIgnoresTERM(t *testing.T) {
 	c := script(t, `trap '' TERM; touch ready; sleep 30; sleep 30`)
 	p := start(t, c)
