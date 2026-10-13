@@ -490,9 +490,7 @@ The line says which review you submitted, one of four fixed strings:
 
 Put no reason on the line; the **Review** line and the ledger above are
 the reason. A reader who scrolls to the end gets the answer. A caller that
-reads only the last line gets the same one. When `pr-review-tab` drives
-this skill, the tab's one-line outcome goes above the line, and the line
-stays last.
+reads only the last line gets the same one.
 
 ## The approval gate
 
