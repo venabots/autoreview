@@ -4,8 +4,9 @@ name: Bump Homebrew tap
 # the tag's tarball. The formula lives here, so a change to how the binary
 # is built ships with the change that needs it.
 #
-# It needs the HOMEBREW_TAP_TOKEN secret. Without it the job fails and the
-# tap is left alone.
+# HOMEBREW_TAP_TOKEN is a secret of the organization, so a tag pushed in any
+# copy of this repo replaces the formula. Tag only the repo the formula's
+# url names.
 
 on:
   push:

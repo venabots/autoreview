@@ -5,9 +5,9 @@
   and calls no `gh`. The linter enforces both.
 - Run `go test -race $(go list ./... | grep -v /cmd/)`, `go test ./cmd/...`
   and `golangci-lint run` before you call work done.
-- v1 is the specification for behavior. It is the Rust repo
-  `venabots/autoreview`. `docs/rules.md` lists the rules that carry over.
-  Each rule has a test.
+- v1 is the specification for behavior. It is the Rust version of this
+  tool, at the tag `v0.24.0` in this repo. `docs/rules.md` lists the rules
+  that carry over. Each rule has a test.
 - The binary reviews and posts to GitHub, in the view and off a terminal.
   Never run it in a real checkout to try something: run
   `scripts/sandbox.sh`. `docs/plan.md` has the milestones.
@@ -40,7 +40,7 @@ golangci-lint fmt                         # gofmt and goimports
   whose reviews end when the test says so.
 - A review's monitor goroutine reads files and asks GitHub. The engine's own
   goroutine does neither, except for the ledger append.
-- The ledger is shared with v1, which still appends to it. `internal/ledger`
+- The ledger holds records that v1 wrote, and a machine may still run v1. `internal/ledger`
   writes v1's bytes exactly: call `Record.MarshalJSON()`, never
   `json.Marshal`, which escapes `<`, `>` and `&`.
 - Four tests check v2 against v1 on a real ledger. They are skipped unless

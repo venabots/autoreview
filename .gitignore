@@ -1,4 +1,6 @@
 /autoreview
+# The build directory v1 left in a checkout that predates the Go rewrite.
+/target/
 /dist
 *.test
 *.out

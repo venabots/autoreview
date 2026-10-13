@@ -1,7 +1,7 @@
 # Rules that carry over from v1
 
-v1 is the Rust repo `venabots/autoreview`. It has 30 decision files. v2 does
-not copy them. It keeps the contracts and rules below, and each one gets a
+v1 is the Rust version of this tool, at the tag `v0.24.0` in this repo. Its
+decision files are in `docs/decisions/` at that tag. v2 does not copy them. It keeps the contracts and rules below, and each one gets a
 test when its milestone lands.
 
 Status is `done` with the test that pins it, or the milestone that brings it.
