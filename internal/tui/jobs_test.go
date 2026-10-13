@@ -253,6 +253,28 @@ func TestFOpensAnEditorForTheFocus(t *testing.T) {
 	wantOnScreen(t, m, "the reviewers are now told: be strict, q", "q quit")
 }
 
+// A terminal sends a paste as one message, not as key presses. A focus is
+// often a sentence copied from a ticket, and an editor that takes only keys
+// would drop it with no sign.
+func TestTextPastedIntoTheFocusEditorIsKept(t *testing.T) {
+	m, hs := reviewingModel(t, 150, 30)
+	m = press(t, m, "f")
+	m = send(m, tea.PasteMsg{Content: "the ledger migration"})
+	if footer := lastLine(m); !strings.HasPrefix(footer, "focus the ledger migration") {
+		t.Fatalf("the footer is %q, want the pasted words", footer)
+	}
+	m = press(t, m, "enter")
+	if got := commands(hs); len(got) != 1 || got[0] != (engine.SetFocus{Text: "the ledger migration"}) {
+		t.Errorf("the engine was sent %v, want the pasted focus", got)
+	}
+
+	// With no editor open, a paste is not a key and does nothing.
+	before := screen(m)
+	if after := screen(send(m, tea.PasteMsg{Content: "q"})); after != before || len(commands(hs)) != 1 {
+		t.Errorf("a paste outside the editor changed the view or reached the engine: %v", commands(hs))
+	}
+}
+
 func lastLine(m Model) string {
 	lines := strings.Split(screen(m), "\n")
 	return lines[len(lines)-1]

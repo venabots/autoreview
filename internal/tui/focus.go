@@ -29,6 +29,15 @@ func (m Model) typed(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// pasted puts pasted text in the editor. A terminal sends a paste as one
+// message of its own, so an editor that took only key presses would drop a
+// sentence copied from a ticket with no sign.
+func (m Model) pasted(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
 func (m Model) focusClosed() Model {
 	m.editing = false
 	m.input.Blur()

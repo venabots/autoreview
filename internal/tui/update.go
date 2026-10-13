@@ -46,6 +46,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.typed(msg)
 		}
 		return m.pressed(intentFor(msg))
+	case tea.PasteMsg:
+		if m.editing {
+			return m.pasted(msg)
+		}
+		return m, nil
 	case tea.MouseWheelMsg:
 		return m.wheeled(msg), nil
 	case tea.MouseClickMsg:
