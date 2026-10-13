@@ -85,9 +85,12 @@ golangci-lint fmt                         # gofmt and goimports
 
 ## Working here
 
-- CI runs the Go version in `go.mod`, which is older than the one on this
-  machine. Run `GOTOOLCHAIN=go1.26.0 go test ./...` before a push. A test
-  must not pin what the standard library does where releases differ.
+- `mise.toml` pins the Go and the golangci-lint this machine runs. Run
+  `mise install` after it changes. Dependabot does not update it, and a
+  test keeps its linter the same as the one CI runs.
+- CI runs the Go version in `go.mod`, which is older than the one in
+  `mise.toml`. Run `GOTOOLCHAIN=go1.26.0 go test ./...` before a push. A
+  test must not pin what the standard library does where releases differ.
 - To try the binary without a real review, run `scripts/sandbox.sh`. It
   serves a repo of seven PRs from a fake `gh` and reviews them with a fake
   `dash-p`: the test binary under those names. Nothing reaches GitHub. To
