@@ -90,6 +90,10 @@ func TestReviewFlagsRefuse(t *testing.T) {
 		{"an unknown orchestrator", []string{"--orchestrator", "gemini"}, nil, `"gemini"`},
 		{"an orchestrator with no model after the colon", []string{"--orchestrator=codex:"}, nil, "no model"},
 		{"no-post with an override", []string{"--no-post"}, map[string]string{EnvOverride: "my-review"}, "--no-post cannot be used with $AUTOREVIEW_CMD"},
+		// 0.24 read this variable for unattended runs. A machine that still
+		// sets it would otherwise run the built-in reviewer, which posts.
+		{"the variable 0.24 read for unattended runs", nil, map[string]string{EnvRetiredOverride: "my-review"}, "$AUTOREVIEW_AUTO_CMD is no longer read"},
+		{"that variable beside the new one", nil, map[string]string{EnvRetiredOverride: "my-review", EnvOverride: "my-review"}, "$AUTOREVIEW_AUTO_CMD is no longer read"},
 		{"a flag with no value", []string{"--focus"}, nil, "flag needs an argument: --focus"},
 	}
 	for _, c := range cases {

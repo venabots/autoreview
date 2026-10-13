@@ -211,6 +211,12 @@ func withReviewFlags(cfg Config, raw map[string]*string, given func(string) bool
 	cfg.LogDir = chosen(*raw["log-dir"], given("log-dir"), env(EnvLogDir), "")
 	cfg.Skills = chosen(*raw["skills"], given("skills"), env(EnvSkills), "")
 	cfg.Override = env(EnvOverride)
+	// A machine that ran 0.24 from cron set this variable to replace the
+	// reviewer. Read as nothing, it would leave the built-in reviewer to
+	// run, and that one posts.
+	if env(EnvRetiredOverride) != "" {
+		return Config{}, fmt.Errorf("$%s is no longer read, and the run would not use it: move the command to $%s, or unset it", EnvRetiredOverride, EnvOverride)
+	}
 	if cfg.NoPost && cfg.Override != "" {
 		return Config{}, fmt.Errorf("--no-post cannot be used with $%s: that command decides for itself what it posts", EnvOverride)
 	}

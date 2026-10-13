@@ -70,7 +70,9 @@ upgrade those too (see [Review skills](#review-skills)).
 - `panel` is now `autoreview panel`. Its flags are the same.
 - `review-prs` is gone, with `--pick`, `--auto` and the `gum` dependency. To
   review only some PRs, name them: `autoreview 213 240`.
-- One variable replaces the reviewer: `$AUTOREVIEW_CMD`.
+- One variable replaces the reviewer: `$AUTOREVIEW_CMD`. A run stops when
+  `$AUTOREVIEW_AUTO_CMD` is still set, because it would not use that command.
+  Move the command to `$AUTOREVIEW_CMD`, or unset the variable.
 - In the view, `w` no longer stops babysitting of your own PRs. `b` and `B` do
   that.
 - The ledger and the review sessions carry over. `autoreview stats` reads the

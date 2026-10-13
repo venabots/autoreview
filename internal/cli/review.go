@@ -22,6 +22,9 @@ const (
 	// EnvOverride names a shell command that replaces the built-in
 	// reviewer. The PR number replaces each {} in it.
 	EnvOverride = "AUTOREVIEW_CMD"
+	// EnvRetiredOverride is the variable 0.24 read in place of EnvOverride
+	// for a run with nobody at the terminal. Nothing reads its value now.
+	EnvRetiredOverride = "AUTOREVIEW_AUTO_CMD"
 )
 
 const (
