@@ -47,3 +47,32 @@ func TestBlock(t *testing.T) {
 		})
 	}
 }
+
+func TestStyled(t *testing.T) {
+	link := "\x1b]8;id=7;https://example.com/x\x07here\x1b]8;;\x07"
+	cases := []struct {
+		name, in, want string
+	}{
+		{"a color sequence is kept", "\x1b[1;38;5;212mbold\x1b[0m", "\x1b[1;38;5;212mbold\x1b[0m"},
+		{"a hyperlink is kept", link, link},
+		{"a hyperlink that ends in ST is kept", "\x1b]8;;https://example.com\x1b\\x", "\x1b]8;;https://example.com\x1b\\x"},
+		{"newlines and tabs are kept", "a\n\tb", "a\n\tb"},
+		{"a sequence that clears the screen loses its escape", "a\x1b[2Jb", "a[2Jb"},
+		{"a sequence that moves the cursor loses its escape", "a\x1b[10;1Hb", "a[10;1Hb"},
+		{"a sequence that sets the title loses its escape and its bell", "\x1b]0;mine\x07a", "]0;minea"},
+		{"a hyperlink with no end loses its escape", "\x1b]8;;https://example.com", "]8;;https://example.com"},
+		{"a hyperlink with a control inside loses its escapes", "\x1b]8;;a\x1b[2Jb\x07", "]8;;a[2Jb"},
+		{"a lone escape is dropped", "a\x1bb", "ab"},
+		{"a bidi override is dropped", "a\u202Eb", "ab"},
+		{"a zero-width character is dropped", "a\u200Bb", "ab"},
+		{"a carriage return is dropped", "a\r\nb", "a\nb"},
+		{"wide and accented characters are kept", "日本語 café", "日本語 café"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := Styled(c.in); got != c.want {
+				t.Errorf("Styled(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}

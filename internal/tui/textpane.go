@@ -60,7 +60,10 @@ func markdown(text string, width int, dark bool) string {
 	if err != nil {
 		return text
 	}
-	return strings.Trim(out, "\n")
+	// Filtered again after the render: Glamour decodes an entity such as
+	// `&#x1b;` into the character itself, so clean text can come out with
+	// an escape or a bidi override in it.
+	return strings.Trim(sanitize.Styled(out), "\n")
 }
 
 // reviewStyle is Glamour's own style without its page margin. The pane

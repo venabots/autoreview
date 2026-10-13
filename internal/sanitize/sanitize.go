@@ -7,6 +7,7 @@ package sanitize
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Line drops every character that can rewrite or reorder terminal output:
@@ -26,6 +27,73 @@ func Block(s string) string {
 		clean[i] = strings.Map(dropRiskyKeepTab, line)
 	}
 	return strings.Join(clean, "\n")
+}
+
+// Styled is the same filter over text that a renderer has already styled.
+// It keeps the color sequences and the hyperlinks the renderer wrote, and
+// drops every other risky character.
+//
+// Filter the text before it is rendered too, but that is not enough. A
+// Markdown renderer decodes `&#x1b;` into a real escape and `&#x202e;` into
+// a real bidi override, so text that was clean going in can come out able
+// to repaint the screen.
+func Styled(s string) string {
+	var b strings.Builder
+	for len(s) > 0 {
+		if n := styleLen(s); n > 0 {
+			b.WriteString(s[:n])
+			s = s[n:]
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s)
+		if r == '\n' || r == '\t' || !risky(r) {
+			b.WriteRune(r)
+		}
+		s = s[size:]
+	}
+	return b.String()
+}
+
+const (
+	sgrStart  = "\x1b["
+	linkStart = "\x1b]8;"
+	bell      = "\x07"
+	st        = "\x1b\\"
+)
+
+// styleLen is the length of the color sequence or the hyperlink that s
+// starts with, or zero. Only those two change nothing but how text looks
+// and where a click leads.
+func styleLen(s string) int {
+	switch {
+	case strings.HasPrefix(s, sgrStart):
+		rest := s[len(sgrStart):]
+		params := len(rest) - len(strings.TrimLeft(rest, "0123456789;:"))
+		if params < len(rest) && rest[params] == 'm' {
+			return len(sgrStart) + params + 1
+		}
+	case strings.HasPrefix(s, linkStart):
+		return linkLen(s)
+	}
+	return 0
+}
+
+// linkLen is the length of the hyperlink sequence that s starts with. A
+// sequence with no end, or with a risky character before its end, is not
+// one: what follows would be read as part of it.
+func linkLen(s string) int {
+	for i, r := range s[len(linkStart):] {
+		at := len(linkStart) + i
+		switch {
+		case strings.HasPrefix(s[at:], bell):
+			return at + len(bell)
+		case strings.HasPrefix(s[at:], st):
+			return at + len(st)
+		case risky(r):
+			return 0
+		}
+	}
+	return 0
 }
 
 func dropRisky(r rune) rune {

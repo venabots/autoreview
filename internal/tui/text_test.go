@@ -68,3 +68,21 @@ func TestRenderKeepsTheTextAndItsWidth(t *testing.T) {
 		}
 	}
 }
+
+// A review is other people's text. It is filtered before the render, but
+// Markdown decodes an entity into the character itself, so the rendered
+// text must be filtered again: an escape would repaint the screen, and a
+// bidi override would reorder the line around it.
+func TestARenderedReviewHasNoCharacterThatAnEntityHid(t *testing.T) {
+	review := "clear: &#x1b;[2J bidi: &#x202e; bell: &#7; and a [link](https://example.com/x).\n"
+	got := markdown(review, 80, true)
+
+	for name, bad := range map[string]string{"a clear-screen sequence": "\x1b[2J", "a bidi override": "\u202E", "a bell outside a hyperlink": "bell: \x07"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("the rendered review holds %s: %q", name, got)
+		}
+	}
+	if !strings.Contains(got, "\x1b]8;") || !strings.Contains(ansi.Strip(got), "clear: [2J bidi:") {
+		t.Errorf("the rendered review lost its hyperlink or its words: %q", got)
+	}
+}
