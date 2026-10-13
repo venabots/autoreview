@@ -179,7 +179,7 @@ func TestOnATerminalTheViewOpensAndQGivesTheTerminalBack(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	time.Sleep(700 * time.Millisecond)
-	term.press("q")
+	term.press("qq")
 	drawn := term.finish()
 
 	if !strings.Contains(drawn, leaveAltScreen) {
@@ -248,6 +248,30 @@ func TestQTwiceStopsARunningReviewAndExits130(t *testing.T) {
 	wantCooked(t, drawn)
 }
 
+// The first q only asks, whatever the run is doing, and esc answers no.
+func TestOneQNeverQuitsAndEscStaysInTheView(t *testing.T) {
+	sandbox(t)
+	term := inTerminal(t, "--once", "4")
+	term.waitFor(enterAltScreen)
+	time.Sleep(1500 * time.Millisecond)
+
+	term.press("q")
+	time.Sleep(300 * time.Millisecond)
+	term.press("\x1b")
+	time.Sleep(300 * time.Millisecond)
+	if strings.Contains(term.output(), "exit=") {
+		t.Fatal("one press of q quit a run with nothing running")
+	}
+	term.press("qq")
+	drawn := term.finish()
+
+	after := drawn[strings.LastIndex(drawn, leaveAltScreen):]
+	if !strings.Contains(after, "exit=0") || !strings.Contains(after, "leftover=0") {
+		t.Errorf("after q q:\n%s\nwant exit 0 and no input left for the shell", after)
+	}
+	wantCooked(t, drawn)
+}
+
 func TestCtrlCQuitsAtOnceAndLeavesNoInputForTheShell(t *testing.T) {
 	fixtures := sandbox(t)
 	pidFile := filepath.Join(fixtures, "review.pid")
@@ -281,7 +305,7 @@ func TestWithOnceTheViewMakesOnePassAndQEndsWithItsStatus(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	time.Sleep(700 * time.Millisecond)
-	term.press("q")
+	term.press("qq")
 	drawn := term.finish()
 	after := drawn[strings.LastIndex(drawn, leaveAltScreen):]
 	if !strings.Contains(after, "1 review: 1 commented") || !strings.Contains(after, "exit=0") {
@@ -295,7 +319,7 @@ func TestTheViewOpensOnARepoWithNothingToReview(t *testing.T) {
 	term := inTerminal(t, "--once", "4")
 	term.waitFor(enterAltScreen)
 	time.Sleep(1500 * time.Millisecond)
-	term.press("q")
+	term.press("qq")
 	drawn := term.finish()
 	after := drawn[strings.LastIndex(drawn, leaveAltScreen):]
 	if !strings.Contains(after, "exit=0") || strings.Contains(after, "review") {

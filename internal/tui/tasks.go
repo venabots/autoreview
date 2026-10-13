@@ -128,22 +128,14 @@ func (m Model) openTab(pr int, what, command string) tea.Cmd {
 	}
 }
 
-// stopTaskPressed stops the selected PR's task on the second press.
+// stopTaskPressed asks before it stops the selected PR's task.
 func (m Model) stopTaskPressed() Model {
 	row, ok := m.selectedMine()
-	if !ok || row.task == nil || row.task.State != engine.JobRunning {
-		m.armed = confirm{}
-		if !ok {
-			return m.flashed("there is no task to stop here")
-		}
+	switch {
+	case !ok:
+		return m.flashed("there is no task to stop here")
+	case row.task == nil || row.task.State != engine.JobRunning:
 		return m.flashed(fmt.Sprintf("PR #%d has no task running", row.pr.Number))
 	}
-	pr := row.pr.Number
-	if !m.armed.holds(confirmStop, pr, m.now) {
-		m.armed = confirm{kind: confirmStop, pr: pr, at: m.now}
-		return m.flashed(fmt.Sprintf("press x again to stop PR #%d's task", pr))
-	}
-	m.armed = confirm{}
-	m.eng.Do(engine.StopJob{PR: pr})
-	return m.flashed(fmt.Sprintf("stopping PR #%d's task", pr))
+	return m.asking(modal{kind: modalStop, pr: row.pr.Number, what: "task"})
 }

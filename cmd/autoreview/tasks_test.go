@@ -64,7 +64,7 @@ func TestFOnMyPRsFixesThePRInAWorktreeAndReportsWhatItPushed(t *testing.T) {
 	term.press("\tf")
 	waitForCall(t, fixtures, "/babysit-pr 4")
 	time.Sleep(1500 * time.Millisecond)
-	term.press("q")
+	term.press("qq")
 	drawn := term.finish()
 
 	after := drawn[strings.LastIndex(drawn, leaveAltScreen):]
@@ -97,7 +97,7 @@ func TestATaskWhoseSkillIsMissingIsRefusedInTheView(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 	term.press("\tf")
 	time.Sleep(500 * time.Millisecond)
-	term.press("q")
+	term.press("qq")
 	drawn := term.finish()
 	if calls := dashpCalls(t, fixtures); len(calls) != 0 {
 		t.Errorf("a task with no skill ran: %q", calls)

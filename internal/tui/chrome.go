@@ -150,16 +150,3 @@ func hintLine(hints []hint) line {
 	}
 	return out
 }
-
-// keysPane is the key help, drawn in the right pane.
-func keysPane() []line {
-	lines := []line{{styled("KEYS", headingStyle)}, {}}
-	for _, k := range helpLines {
-		lines = append(lines, line{
-			styled(fmt.Sprintf("%-6s", k.keys), numberStyle),
-			text("  "),
-			text(k.what),
-		})
-	}
-	return lines
-}

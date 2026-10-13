@@ -13,6 +13,7 @@ func (r rect) contains(x, y int) bool {
 // are side by side on a wide terminal and stacked on a narrow one.
 type layout struct {
 	width  int
+	height int
 	header rect
 	tabs   rect
 	// body is the list, the detail and the divider between them.
@@ -41,7 +42,7 @@ const (
 // layoutFor divides a screen of w by h cells. Every region has a size that
 // is zero or more, so a tiny terminal draws less but never panics.
 func layoutFor(w, h int) layout {
-	l := layout{width: w, wide: w >= wideFrom}
+	l := layout{width: w, height: h, wide: w >= wideFrom}
 	l.header = rect{0, 0, w, min(h, 1)}
 	l.footer = rect{0, max(h-1, 0), w, btoi(h >= 2)}
 	l.tabs = rect{0, 1, w, btoi(h >= 3)}

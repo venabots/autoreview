@@ -198,27 +198,6 @@ func TestRSaysWhyATaskCannotBeResumed(t *testing.T) {
 	}
 }
 
-func TestXStopsARunningTaskOnTheSecondPress(t *testing.T) {
-	m, hs := onMine(t, func(s *engine.Snapshot) {
-		s.Tasks = []engine.Job{{PR: 4, Task: task.Fix, State: engine.JobRunning, StartedAt: start}}
-	})
-	m = press(t, m, "x")
-	wantOnScreen(t, m, "press x again to stop PR #4's task")
-	m = press(t, m, "x")
-	if want := []engine.Command{engine.StopJob{PR: 4}}; !reflect.DeepEqual(commands(hs), want) {
-		t.Errorf("sent %+v, want %+v", commands(hs), want)
-	}
-	wantOnScreen(t, m, "stopping PR #4's task")
-}
-
-func TestQuitCountsTheTasksItWouldStop(t *testing.T) {
-	m, _ := onMine(t, func(s *engine.Snapshot) {
-		s.Tasks = []engine.Job{{PR: 4, Task: task.Fix, State: engine.JobRunning, StartedAt: start}}
-	})
-	m = press(t, m, "q")
-	wantOnScreen(t, m, "press q again to stop 1 task and quit")
-}
-
 func TestTheMyPRsFooterNamesItsOwnKeys(t *testing.T) {
 	m, _ := onMine(t, nil)
 	wantOnScreen(t, m, "f fix", "b babysit")

@@ -159,57 +159,6 @@ func TestRAsksForAReviewOfTheSelectedPR(t *testing.T) {
 	}
 }
 
-func TestXStopsARunningReviewOnTheSecondPress(t *testing.T) {
-	m, hs := reviewingModel(t, 150, 30)
-
-	m = press(t, m, "x")
-	wantOnScreen(t, m, "press x again to stop PR #9's review")
-	if len(commands(hs)) != 0 {
-		t.Fatal("one press of x stopped a review")
-	}
-	m = press(t, m, "x")
-	wantOnScreen(t, m, "stopping PR #9's review")
-	if got := commands(hs); len(got) != 1 || got[0] != (engine.StopJob{PR: 9}) {
-		t.Errorf("the engine was sent %v, want StopJob for PR #9", got)
-	}
-}
-
-func TestASecondXOnAnotherRowOrTooLateStopsNothing(t *testing.T) {
-	m, hs := reviewingModel(t, 150, 30)
-
-	moved := press(t, m, "x", "j", "x")
-	wantOnScreen(t, moved, "PR #8 has no review running")
-	back := press(t, moved, "k", "x")
-	wantOnScreen(t, back, "press x again to stop PR #9's review")
-
-	late := press(t, m, "x")
-	late = send(late, tickMsg(start.Add(4*time.Second)))
-	late = press(t, late, "x")
-	wantOnScreen(t, late, "press x again to stop PR #9's review")
-
-	if len(commands(hs)) != 0 {
-		t.Errorf("the engine was sent %v, want nothing", commands(hs))
-	}
-}
-
-func TestQStopsRunningReviewsOnlyOnTheSecondPress(t *testing.T) {
-	m, hs := reviewingModel(t, 150, 30)
-
-	m = press(t, m, "q")
-	wantOnScreen(t, m, "press q again to stop 2 reviews and quit")
-	if len(commands(hs)) != 0 {
-		t.Fatal("one press of q quit a run with reviews alive")
-	}
-	other := press(t, m, "j", "q")
-	wantOnScreen(t, other, "press q again to stop 2 reviews and quit")
-
-	m = press(t, m, "q")
-	if got := commands(hs); len(got) != 1 || got[0] != (engine.Quit{}) {
-		t.Errorf("the engine was sent %v, want one Quit", got)
-	}
-	wantOnScreen(t, m, "stopping…")
-}
-
 func TestCtrlCQuitsAtOnceEvenWithReviewsRunning(t *testing.T) {
 	m, hs := reviewingModel(t, 150, 30)
 	press(t, m, "ctrl+c")
@@ -400,6 +349,7 @@ func TestEveryFrameWithReviewsFillsTheScreenExactly(t *testing.T) {
 		for name, state := range map[string]Model{
 			"the list": m, "a finished review": press(t, m, "j", "j"), "the log": press(t, m, "l"),
 			"the focus editor": typeText(t, press(t, m, "f"), "be strict about the migration"), "the keys": press(t, m, "?"),
+			"the quit question": press(t, m, "q"), "the stop question": press(t, m, "x"),
 		} {
 			lines := strings.Split(state.View().Content, "\n")
 			if len(lines) != size[1] {

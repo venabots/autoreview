@@ -189,7 +189,7 @@ func TestTheTabBarDoesNotExplainTheTabKey(t *testing.T) {
 func TestEveryFrameFillsTheScreenExactly(t *testing.T) {
 	for _, size := range [][2]int{{120, 30}, {90, 10}, {89, 24}, {80, 24}, {40, 12}, {20, 5}, {10, 3}, {10, 2}, {10, 1}, {200, 60}} {
 		m, _ := newModel(t, size[0], size[1])
-		for _, state := range []Model{m, press(t, m, "tab"), press(t, m, "?")} {
+		for _, state := range []Model{m, press(t, m, "tab"), press(t, m, "?"), press(t, m, "q")} {
 			lines := strings.Split(state.View().Content, "\n")
 			if len(lines) != size[1] {
 				t.Errorf("%dx%d: the frame has %d lines", size[0], size[1], len(lines))
@@ -246,17 +246,6 @@ func TestTabShowsYourPRsAndEachTabKeepsItsSelection(t *testing.T) {
 	wantOnScreen(t, m, "#3 Second thing")
 }
 
-func TestQuestionMarkShowsTheKeysAndEscPutsThemAway(t *testing.T) {
-	m, _ := newModel(t, 120, 30)
-
-	m = press(t, m, "?")
-	wantOnScreen(t, m, "KEYS", "open the selected PR in the browser", "○ #9 · ready")
-	wantNotOnScreen(t, m, "#9 Add retry logic")
-
-	wantOnScreen(t, press(t, m, "esc"), "#9 Add retry logic")
-	wantOnScreen(t, press(t, m, "?"), "#9 Add retry logic")
-}
-
 func TestTheSelectionStaysOnItsPRWhenTheRowsMove(t *testing.T) {
 	m, hs := newModel(t, 120, 30)
 	m = press(t, m, "j")
@@ -277,6 +266,10 @@ func TestQuitAsksTheEngineAndClosesWhenTheRunHasEnded(t *testing.T) {
 	for _, key := range []string{"q", "ctrl+c"} {
 		t.Run(key, func(t *testing.T) {
 			m, hs := newModel(t, 120, 30)
+			if key == "q" {
+				// The first q only asks.
+				m = press(t, m, "q")
+			}
 
 			next, cmd := m.Update(keys[key])
 			m = next.(Model)
