@@ -463,15 +463,20 @@ func (e *Engine) endPassIfSettled(w workers, r run) run {
 // signalled before anything is recorded or said: a write to a terminal
 // that has hung up can fail, and the reviewers must be stopping by then.
 //
-// A review that had not started never starts. A review whose process has
-// already ended keeps its result. The run ends when the last of them has
-// been collected (stoppedIfQuiet).
+// A review that had not started never starts. A retry among them still
+// has the reaction of its first attempt, and loses it here: nothing else
+// would take it off. A review whose process has already ended keeps its
+// result. The run ends when the last of them has been collected
+// (stoppedIfQuiet).
 func (e *Engine) stopAll(w workers, r run) run {
 	e.quitting.Store(true)
 	kept := []job{}
 	for _, j := range r.jobs {
 		switch j.view.State {
 		case JobQueued:
+			if j.view.First != nil {
+				e.clearMark(j.view.PR)
+			}
 			continue
 		case JobRunning:
 			j.stopped = true

@@ -226,6 +226,28 @@ func TestARetryKeepsTheMarkUntilItEnds(t *testing.T) {
 	})
 }
 
+// A retry that waits for a slot keeps the reaction of its first attempt: it
+// is the same review. A quit drops it from the queue, and nothing else
+// would take the reaction off the PR.
+func TestQuitTakesTheMarkOffARetryThatNeverStarted(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m := &reactions{}
+		rev := &reviewer{onStop: proc.Exit{Signaled: true}}
+		b := newBench(t, withFallback(setup{prs: []int{9, 8}, jobs: 1, marks: m, reviewer: rev}))
+		b.reviewer.finish(t, 9, 10, "You've hit your session limit")
+		synctest.Wait()
+		if job := b.job(t, 9); job.State != JobQueued || job.First == nil {
+			t.Fatalf("PR #9 is %+v, want a retry that waits for the slot PR #8 took", job)
+		}
+
+		b.eng.Do(Quit{})
+		<-b.results
+		if got := m.log(); !slices.Contains(got, "clear 9") || !slices.Contains(got, "clear 8") {
+			t.Errorf("reactions = %v, want both marks off: PR #9 would keep saying a review is running", got)
+		}
+	})
+}
+
 func TestQuitStopsTheReviewsThenTakesTheMarksOff(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		m := &reactions{failed: []int{8}}
