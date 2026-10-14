@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -26,26 +28,39 @@ func Prepare(ctx context.Context, git Git, r Request) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, err
 	}
-	if at != "" {
-		return Prepared{}, fmt.Errorf("PR #%d's branch %s is checked out at %s; switch it away first", r.PR, r.Branch, at)
-	}
 	remote := "origin/" + r.Branch
 	local := "refs/heads/" + r.Branch
 	_, verifyErr := run(ctx, git, r.Root, "rev-parse", "--verify", "--quiet", local)
 	exists := verifyErr == nil
+	// Commits of yours that origin lacks are refused wherever the branch is
+	// checked out: the task pushes from origin, and your branch would then
+	// part from the PR.
 	if exists {
 		if _, err := run(ctx, git, r.Root, "merge-base", "--is-ancestor", local, remote); err != nil {
 			return Prepared{}, fmt.Errorf("your local branch %s has commits that are not on origin; push or move them first", r.Branch)
 		}
+	}
+	if at != "" {
+		return create(ctx, git, r, ownBranch(r), remote, false, false)
 	}
 	// A branch of yours that tracks somewhere else would push the task's
 	// work there, and changing what it tracks is not this run's to do.
 	upstream, trackErr := run(ctx, git, r.Root, "rev-parse", "--abbrev-ref", r.Branch+"@{upstream}")
 	tracked := trackErr == nil
 	if tracked && upstream != remote {
-		return Prepared{}, fmt.Errorf("your local branch %s tracks %s, not %s", r.Branch, upstream, remote)
+		return create(ctx, git, r, ownBranch(r), remote, false, false)
 	}
-	return create(ctx, git, r, remote, exists, !tracked)
+	return create(ctx, git, r, r.Branch, remote, exists, !tracked)
+}
+
+// ownBranch is the branch a task gets when your branch of the PR's name is
+// checked out in another worktree or tracks somewhere else. On your branch,
+// the task would move a checkout under you, or push to the wrong place.
+// The name holds the run, so it never meets a branch that is there
+// already, and it says where it came from if it is ever left behind.
+func ownBranch(r Request) string {
+	run := filepath.Base(filepath.Dir(filepath.Dir(r.Path)))
+	return "autoreview/" + run + "/pr-" + strconv.Itoa(r.PR)
 }
 
 // refuseBeforeGit turns away what no git command can help with. A branch
@@ -122,24 +137,24 @@ func judgeRecord(ctx context.Context, git Git, root, branch, path string) (strin
 	}
 }
 
-// create adds the worktree and finishes it. A hook can fail after the
-// worktree is made; either way, nothing is left behind that would refuse
-// the next task on this PR.
-func create(ctx context.Context, git Git, r Request, remote string, existed, untracked bool) (Prepared, error) {
+// create adds the worktree on the local branch named local, and finishes
+// it. A hook can fail after the worktree is made; either way, nothing is
+// left behind that would refuse the next task on this PR.
+func create(ctx context.Context, git Git, r Request, local, remote string, existed, untracked bool) (Prepared, error) {
 	var err error
 	if existed {
-		_, err = run(ctx, git, r.Root, "worktree", "add", "--quiet", r.Path, r.Branch)
+		_, err = run(ctx, git, r.Root, "worktree", "add", "--quiet", r.Path, local)
 	} else {
-		_, err = run(ctx, git, r.Root, "worktree", "add", "--quiet", "--track", "-b", r.Branch, r.Path, remote)
+		_, err = run(ctx, git, r.Root, "worktree", "add", "--quiet", "--track", "-b", local, r.Path, remote)
 	}
 	if err == nil {
 		var head string
 		head, err = finishSetup(ctx, git, r, remote, existed, untracked)
 		if err == nil {
-			return Prepared{Path: r.Path, Branch: r.Branch, Head: head, CreatedBranch: !existed}, nil
+			return Prepared{Path: r.Path, Branch: local, Head: head, CreatedBranch: !existed, OwnBranch: local != r.Branch}, nil
 		}
 	}
-	undo(ctx, git, r, !existed)
+	undo(ctx, git, r, local, !existed)
 	return Prepared{}, fmt.Errorf("could not make a worktree for PR #%d: %w", r.PR, err)
 }
 
@@ -168,10 +183,10 @@ func finishSetup(ctx context.Context, git Git, r Request, remote string, existed
 // the branch with it when Prepare made that too. Lowercase -d: a branch
 // that appeared between the check and the add is not ours, and -d refuses
 // one that holds anything origin lacks.
-func undo(ctx context.Context, git Git, r Request, createdBranch bool) {
+func undo(ctx context.Context, git Git, r Request, local string, createdBranch bool) {
 	_, _ = git(ctx, r.Root, "worktree", "remove", "--force", r.Path)
 	if createdBranch {
-		_, _ = git(ctx, r.Root, "branch", "--quiet", "-d", r.Branch)
+		_, _ = git(ctx, r.Root, "branch", "--quiet", "-d", local)
 	}
 }
 

@@ -50,17 +50,6 @@ func TestATaskGetsThePRBranchTrackingOriginInAWorktreeOfItsOwn(t *testing.T) {
 	}
 }
 
-func TestABranchCheckedOutElsewhereIsRefused(t *testing.T) {
-	f := setup(t)
-	mustGit(t, f.clone, "switch", "--quiet", "me/work")
-	e := prepareErr(t, f.request("me/work"))
-	want := "PR #4's branch me/work is checked out at " + f.clone + "; switch it away first"
-	if e != want {
-		t.Errorf("error = %q, want %q", e, want)
-	}
-	gone(t, PathFor(f.runRoot, 4))
-}
-
 func TestALocalBranchWithUnpushedCommitsIsRefused(t *testing.T) {
 	f := setup(t)
 	mustGit(t, f.clone, "branch", "--quiet", "me/work", "origin/me/work")
@@ -105,15 +94,6 @@ func TestAMissingWorktreeThatIsNotOursIsRefused(t *testing.T) {
 	e := prepareErr(t, f.request("me/work"))
 	if !strings.HasSuffix(e, "which is not there; if it is gone for good, run git worktree prune") {
 		t.Errorf("error = %q, want the prune advice: it may be on a disk that is not mounted", e)
-	}
-}
-
-func TestALocalBranchThatTracksSomewhereElseIsRefused(t *testing.T) {
-	f := setup(t)
-	mustGit(t, f.clone, "branch", "--quiet", "--track", "me/work", "origin/main")
-	e := prepareErr(t, f.request("me/work"))
-	if want := "your local branch me/work tracks origin/main, not origin/me/work"; e != want {
-		t.Errorf("error = %q, want %q", e, want)
 	}
 }
 

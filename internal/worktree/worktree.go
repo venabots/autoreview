@@ -4,10 +4,12 @@
 //
 // The local branch has the PR's own name and tracks it on origin, so the
 // plain `git push` the skills run pushes to the PR. Two things would make
-// that unsafe, and both are refused rather than worked around: the branch
-// checked out in another worktree (it would move under that checkout), and
-// a local branch of that name holding commits origin does not have
-// (starting the task from origin would throw them away).
+// your branch unsafe to use: it is checked out in another worktree (it would
+// move under that checkout), or it tracks somewhere else (the push would go
+// there). Then the task gets a branch of its own that tracks the PR's, and
+// an environment that makes a plain push go to the PR. A local branch that
+// holds commits origin does not have is refused: the task starts from
+// origin, and your branch would part from the PR.
 package worktree
 
 import (
@@ -54,6 +56,22 @@ type Prepared struct {
 	// is it deleted with the worktree: a branch that was there before is
 	// yours.
 	CreatedBranch bool
+	// OwnBranch is true when Branch is a branch of the run's own, because
+	// your branch of the PR's name could not be used. Its name differs
+	// from the PR's.
+	OwnBranch bool
+}
+
+// Env is what the task's process adds to its environment so that a plain
+// `git push` lands on the PR. Git's default push refuses a branch whose
+// name differs from the one it tracks, so on a branch of the run's own the
+// skill's push would fail. The setting reaches only the task's process;
+// your git config is not changed. Env is nil on the PR's own branch.
+func (p Prepared) Env() []string {
+	if !p.OwnBranch {
+		return nil
+	}
+	return []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=push.default", "GIT_CONFIG_VALUE_0=upstream"}
 }
 
 // Kept is a worktree that Finish left in place, because removing it would
