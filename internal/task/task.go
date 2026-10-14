@@ -1,5 +1,5 @@
-// Package task is work on one of your own PRs: fix it, fix its conflicts,
-// or answer its review comments.
+// Package task is work on one of your own PRs: fix it, or fix only its
+// conflicts.
 //
 // A task is not a review, and the difference reaches every part of a run:
 // it runs a skill the person installed, in a worktree of its own, writes no
@@ -26,12 +26,11 @@ const (
 	// task.
 	Review Kind = iota
 	// Fix gets one of your PRs mergeable once: conflicts, review comments
-	// and CI. Babysitting is running it again as the PR changes.
+	// and CI. Autofix is running it again as the PR changes.
 	Fix
-	// Comments answers the review comments on one of your PRs.
-	Comments
 	// Conflicts merges the base branch into one of your PRs and resolves
-	// the conflicts.
+	// the conflicts. Autofix runs it on an approved PR, where a fix of the
+	// threads or the build stays for a person.
 	Conflicts
 )
 
@@ -40,8 +39,6 @@ func (k Kind) Skill() string {
 	switch k {
 	case Fix:
 		return "babysit-pr"
-	case Comments:
-		return "pr-comment-handler"
 	case Conflicts:
 		return "sync-main"
 	}
@@ -53,8 +50,6 @@ func (k Kind) Doing() string {
 	switch k {
 	case Fix:
 		return "fixing"
-	case Comments:
-		return "fixing comments"
 	case Conflicts:
 		return "fixing conflicts"
 	}
@@ -66,8 +61,6 @@ func (k Kind) Noun() string {
 	switch k {
 	case Fix:
 		return "fix"
-	case Comments:
-		return "comment fix"
 	case Conflicts:
 		return "conflict fix"
 	}
@@ -80,8 +73,6 @@ func (k Kind) Tag() string {
 	switch k {
 	case Fix:
 		return "fix"
-	case Comments:
-		return "comments"
 	case Conflicts:
 		return "conflicts"
 	}

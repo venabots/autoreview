@@ -60,6 +60,8 @@ type harness struct {
 	openEr error
 	tabs   []string
 	tabErr error
+	copied []string
+	cpErr  error
 }
 
 func newModel(t *testing.T, w, h int) (Model, *harness) {
@@ -75,6 +77,10 @@ func newModel(t *testing.T, w, h int) (Model, *harness) {
 			return "cmux", hs.tabErr
 		},
 		ResumeCommand: func(dir, reopen string) string { return "cd " + dir + " && " + reopen },
+		Copy: func(_ context.Context, text string) error {
+			hs.copied = append(hs.copied, text)
+			return hs.cpErr
+		},
 	}
 	m := New(hs.eng, act)
 	m.now = start

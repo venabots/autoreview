@@ -58,6 +58,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.wheeled(msg), nil
 	case tea.MouseClickMsg:
 		return m.clicked(msg), nil
+	case tea.MouseMotionMsg:
+		return m.dragged(msg), nil
+	case tea.MouseReleaseMsg:
+		return m.released()
+	case copiedMsg:
+		return m.copied(msg), nil
 	}
 	return m, nil
 }
@@ -144,14 +150,12 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 			return m.taskPressed(task.Fix), nil
 		}
 		return m.focusOpened()
-	case intentComments:
-		return m.taskPressed(task.Comments), nil
-	case intentConflicts:
-		return m.taskPressed(task.Conflicts), nil
-	case intentBabysit:
-		return m.babysitPressed(), nil
-	case intentBabysitAll:
-		return m.babysitAllPressed(), nil
+	case intentAutofix:
+		return m.autofixPressed(), nil
+	case intentAutofixAll:
+		return m.autofixAllPressed(), nil
+	case intentFixAll:
+		return m.fixAllPressed(), nil
 	case intentWatch:
 		return m.watchToggled(), nil
 	case intentQuit:
@@ -295,61 +299,6 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// wheeled scrolls what is under the pointer: the right pane by a few
-// lines, or the list by one PR.
-func (m Model) wheeled(msg tea.MouseWheelMsg) Model {
-	if m.modal.kind != modalNone {
-		return m
-	}
-	delta := 0
-	switch msg.Button {
-	case tea.MouseWheelUp:
-		delta = -1
-	case tea.MouseWheelDown:
-		delta = 1
-	}
-	switch {
-	case delta == 0:
-		return m
-	case m.lay.list.contains(msg.X, msg.Y):
-		return m.moved(delta)
-	case m.lay.detail.contains(msg.X, msg.Y) && delta > 0:
-		m.pane.ScrollDown(wheelLines)
-	case m.lay.detail.contains(msg.X, msg.Y):
-		m.pane.ScrollUp(wheelLines)
-	}
-	return m
-}
-
-// clicked acts on a left click: a tab in the tab bar is shown, and a PR in
-// the list is selected.
-func (m Model) clicked(msg tea.MouseClickMsg) Model {
-	switch {
-	case msg.Button != tea.MouseLeft || m.modal.kind != modalNone:
-		return m
-	case m.lay.tabs.contains(msg.X, msg.Y):
-		return m.tabClicked(msg.X)
-	case !m.lay.list.contains(msg.X, msg.Y):
-		return m
-	}
-	rows := m.rows(m.tab)
-	index, ok := rowAt(msg.Y-m.lay.list.y, m.cursors[m.tab].offset, len(rows))
-	if !ok {
-		return m
-	}
-	return m.movedTo(index)
-}
-
-func (m Model) tabClicked(x int) Model {
-	review, mine := tabLabels(m.snap)
-	clicked, ok := tabAt(x, review, mine)
-	if !ok {
-		return m
-	}
-	m.tab = clicked
-	return m.synced()
-}
-
 // synced brings the view in line with the snapshot and the screen size:
 // each cursor stays on its PR and on screen, and the right pane shows what
 // is selected.
@@ -379,6 +328,9 @@ func (m Model) synced() Model {
 	case key == "log" && atEnd:
 		// A log that was read at its end keeps showing its end.
 		m.pane.GotoBottom()
+	}
+	if key != m.paneKey {
+		m.sel = selection{}
 	}
 	m.paneKey = key
 	return m

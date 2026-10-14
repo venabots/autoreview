@@ -3,16 +3,18 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/task"
+	"github.com/venabots/autoreview/internal/words"
 )
 
 // notMine is what a key for your own PRs says on the Review tab.
-const notMine = "f, c, u, b and B work on your own PRs: tab shows them"
+const notMine = "F, a and A work on your own PRs: tab shows them"
 
 // selectedMine is the row under the cursor on the My PRs tab.
 func (m Model) selectedMine() (mineRow, bool) {
@@ -61,8 +63,31 @@ func (m Model) taskPressed(k task.Kind) Model {
 	return m.flashed(fmt.Sprintf("%s PR #%d", k.Doing(), pr))
 }
 
-// babysitPressed turns babysitting on or off for the selected PR.
-func (m Model) babysitPressed() Model {
+// fixAllPressed asks for one fix on each of your PRs that needs one. The
+// view counts them by the engine's own rule, so the footer says at once
+// how many start, or why none does.
+func (m Model) fixAllPressed() Model {
+	if m.tab != tabMine {
+		return m.flashed(notMine)
+	}
+	if why := m.snap.Refusals[task.Fix]; why != "" {
+		return m.flashed("not fixing your PRs: " + why)
+	}
+	n := len(babysit.ToFix(m.snap.Mine, m.taskLive))
+	if n == 0 {
+		return m.flashed("none of your PRs needs a fix now")
+	}
+	m.eng.Do(engine.FixAll{})
+	return m.flashed("fixing " + words.Count(n, "PR") + " of yours")
+}
+
+// taskLive says the PR has a task that has not ended.
+func (m Model) taskLive(pr int) bool {
+	return slices.ContainsFunc(m.snap.Tasks, func(j engine.Job) bool { return j.PR == pr && !j.State.Settled() })
+}
+
+// autofixPressed turns autofix on or off for the selected PR.
+func (m Model) autofixPressed() Model {
 	row, m, ok := m.minePicked()
 	if !ok {
 		return m
@@ -74,19 +99,19 @@ func (m Model) babysitPressed() Model {
 	return m.babysat(c, fmt.Sprintf("PR #%d", row.pr.Number))
 }
 
-// babysitAllPressed turns babysitting on or off for every PR of yours.
-func (m Model) babysitAllPressed() Model {
+// autofixAllPressed turns autofix on or off for every PR of yours.
+func (m Model) autofixAllPressed() Model {
 	if m.tab != tabMine {
 		return m.flashed(notMine)
 	}
 	return m.babysat(m.snap.Babysit.ToggleAll(), "your PRs")
 }
 
-// babysat sends a change. Babysitting runs the fix, so a fix that is
-// refused refuses babysitting too.
+// babysat sends a change. Autofix runs the fix, so a fix that is refused
+// refuses autofix too.
 func (m Model) babysat(c babysit.Change, what string) Model {
 	if why := m.snap.Refusals[task.Fix]; c.On && why != "" {
-		return m.flashed(fmt.Sprintf("not babysitting %s: %s", what, why))
+		return m.flashed(fmt.Sprintf("not autofixing %s: %s", what, why))
 	}
 	m.eng.Do(engine.Babysit{Change: c})
 	return m.flashed(c.Said())

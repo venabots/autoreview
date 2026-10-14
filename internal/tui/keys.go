@@ -24,12 +24,11 @@ const (
 	intentReviewNow
 	intentStop
 	intentFocus
-	// intentComments, intentConflicts, intentBabysit and intentBabysitAll
+	// intentAutofix, intentAutofixAll and intentFixAll
 	// act on your own PRs. f is the fix there, and the focus on Review.
-	intentComments
-	intentConflicts
-	intentBabysit
-	intentBabysitAll
+	intentAutofix
+	intentAutofixAll
+	intentFixAll
 	intentWatch
 	intentLog
 	intentMouse
@@ -65,10 +64,9 @@ var keyNames = map[string]intent{
 	"R":         intentReviewNow,
 	"x":         intentStop,
 	"f":         intentFocus,
-	"c":         intentComments,
-	"u":         intentConflicts,
-	"b":         intentBabysit,
-	"B":         intentBabysitAll,
+	"a":         intentAutofix,
+	"A":         intentAutofixAll,
+	"F":         intentFixAll,
 	"w":         intentWatch,
 	"l":         intentLog,
 	"m":         intentMouse,
@@ -95,18 +93,18 @@ var helpLines = []keyHelp{
 	{"^d/^u", "scroll the right pane (or space and the page keys)"},
 	{"tab", "switch between Review and My PRs (or ←/→, or click one)"},
 	{"R", "review the selected PR now, whatever holds it"},
-	{"f", "My PRs: fix the selected PR once (conflicts, comments, CI)"},
-	{"b", "My PRs: babysit the selected PR: fix it again when it changes, until it is approved"},
-	{"B", "My PRs: babysit all your PRs, and any you open later"},
-	{"u", "My PRs: merge the base in and fix the conflicts"},
-	{"c", "My PRs: answer the selected PR's review comments"},
+	{"f", "My PRs: fix the selected PR once: its conflicts, review comments and CI, as it needs"},
+	{"F", "My PRs: fix each of your PRs that needs it, once"},
+	{"a", "My PRs: autofix the selected PR: fix it again each time it changes; an approved PR gets only its conflicts fixed"},
+	{"A", "My PRs: autofix all your PRs, and any you open later"},
 	{"r", "resume the selected review, or your PR's last task, in a new terminal tab"},
 	{"o", "open the selected PR in the browser"},
 	{"x x", "stop the selected review or task; the first x asks"},
 	{"w", "start or stop watching for new work"},
 	{"f", "Review: type what the reviewers look at (the focus)"},
 	{"l", "show the run log in the right pane; esc puts it away"},
-	{"m", "give the mouse back to the terminal, to select text"},
+	{"drag", "select text in the right pane and copy it"},
+	{"m", "give the mouse back to the terminal, to select anywhere"},
 	{"?", "show these keys; esc closes them"},
 	{"q q", "quit, stopping any review or task that is running; the first q asks"},
 	{"ctrl-C", "quit now, stopping any review that is running"},
@@ -123,8 +121,7 @@ type hint struct {
 func footerHints(shown tab) []hint {
 	if shown == tabMine {
 		return []hint{
-			{"q", "quit"}, {"f", "fix"}, {"b", "babysit"}, {"u", "conflicts"}, {"c", "comments"}, {"tab", "review"},
-			{"B", "babysit all"}, {"o", "open"}, {"j/k", "move"}, {"r", "resume"}, {"x", "stop"},
+			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "review"}, {"o", "open"}, {"j/k", "move"}, {"r", "resume"}, {"x", "stop"},
 			{"m", "mouse"}, {"l", "log"}, {"^d/^u", "scroll"},
 		}
 	}

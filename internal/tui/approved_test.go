@@ -28,12 +28,12 @@ func TestAnApprovedPRWithOpenThreadsReadsAsApproved(t *testing.T) {
 	)
 }
 
-func TestABabysatPRThatIsApprovedSaysItIsOnHold(t *testing.T) {
+func TestABabysatPRThatIsApprovedSaysOnlyConflictsGetAFix(t *testing.T) {
 	m, _ := onMine(t, func(s *engine.Snapshot) {
 		approvedWithThreads(s)
 		s.Babysit, _ = s.Babysit.Apply(babysit.All(true), s.Mine)
 	})
-	wantOnScreen(t, m, "✓ #4 · babysat · approved · 2 threads open", "babysat   yes · on hold while approved")
+	wantOnScreen(t, m, "✓ #4 · autofix · approved · 2 threads open", "autofix   on · approved, so only conflicts get a fix")
 }
 
 func TestAnApprovalWhereNoRuleAsksForOneHasTheApprovedMark(t *testing.T) {

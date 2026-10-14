@@ -162,8 +162,8 @@ func TestAThreadOpenedWhileTheFixRunsIsNewWorkAfterIt(t *testing.T) {
 	s, due := look(babysitting(4), pr(4))
 	wantDue(t, due, []int{4}, "the first look")
 	two := with(pr(4), func(p *mine.PR) { p.ThreadIDs = []string{"t1", "t2"} })
-	s, due = s.Look([]mine.PR{two}, func(int) bool { return true })
-	wantDue(t, due, nil, "the fix is running")
+	s, busy := s.Look([]mine.PR{two}, func(int) bool { return true })
+	wantKinds(t, busy, nil, "the fix is running")
 	s = s.Finished(4)
 	_, due = look(s, head(two, "sha-fix"))
 	wantDue(t, due, []int{4}, "t2 arrived during the fix and is new")
@@ -234,87 +234,6 @@ func TestACheckThatNeverFinishesDoesNotStopBabysitting(t *testing.T) {
 	wantDue(t, due, []int{4}, "a later conflict still gets a fix")
 }
 
-// A push can dismiss an approval, so nothing pushes to an approved PR
-// unless a person asks for it: not for a thread, and not for what blocks
-// the merge either.
-func TestAnApprovedPRGetsNoFix(t *testing.T) {
-	cases := []struct {
-		name string
-		edit func(*mine.PR)
-	}{
-		{"an open thread", func(*mine.PR) {}},
-		{"conflicts", func(p *mine.PR) { p.Merge = mine.MergeConflicts }},
-		{"failing checks", func(p *mine.PR) { p.CI = prs.CIFailing }},
-		{"an approver where no rule asks for one", func(p *mine.PR) {
-			p.Review, p.Reviewers = mine.ReviewNone, []mine.Reviewer{{Login: "alice", Review: mine.ReviewApproved}}
-		}},
-	}
-	for _, c := range cases {
-		approved := with(pr(4), func(p *mine.PR) {
-			p.Review = mine.ReviewApproved
-			c.edit(p)
-		})
-		s, due := look(babysitting(4), approved)
-		wantDue(t, due, nil, "approved, with "+c.name)
-		if !s.OnHold(4) {
-			t.Errorf("approved, with %s: the PR is not on hold", c.name)
-		}
-		_, due = look(s, head(approved, "sha2"))
-		wantDue(t, due, nil, "approved and changed, with "+c.name)
-	}
-	if s, _ := look(babysitting(4), pr(4)); s.OnHold(4) {
-		t.Error("a PR nobody approved is on hold")
-	}
-}
-
-func TestAnApprovalStopsTheFixesThatWereRunning(t *testing.T) {
-	s, due := look(babysitting(4), pr(4))
-	wantDue(t, due, []int{4}, "the first look")
-	s = s.Finished(4)
-	approved := with(pr(4), func(p *mine.PR) { p.Head, p.Review, p.CI = "sha-fix", mine.ReviewApproved, prs.CIFailing })
-	s, due = look(s, approved)
-	wantDue(t, due, nil, "a build the fix broke, on a PR approved since")
-	_, due = look(s, with(approved, func(p *mine.PR) { p.ThreadIDs = []string{"t1", "t2"} }))
-	wantDue(t, due, nil, "a new thread on an approved PR")
-}
-
-func TestAPRThatLosesItsApprovalIsFixedAgain(t *testing.T) {
-	approved := with(pr(4), func(p *mine.PR) { p.Review = mine.ReviewApproved })
-	s, _ := look(babysitting(4), approved)
-	asked := with(pr(4), func(p *mine.PR) { p.Review = mine.ReviewChangesRequested })
-	s, due := look(s, asked)
-	wantDue(t, due, []int{4}, "a reviewer asked for changes after the approval")
-	if s.OnHold(4) {
-		t.Error("the PR is still on hold")
-	}
-
-	alice := mine.Reviewer{Login: "alice", Review: mine.ReviewApproved}
-	noRule := with(pr(4), func(p *mine.PR) { p.Review, p.Reviewers = mine.ReviewNone, []mine.Reviewer{alice} })
-	s, _ = look(babysitting(4), noRule)
-	bob := mine.Reviewer{Login: "bob", Review: mine.ReviewChangesRequested}
-	_, due = look(s, with(noRule, func(p *mine.PR) { p.Reviewers = []mine.Reviewer{alice, bob} }))
-	wantDue(t, due, []int{4}, "a second reviewer asked for changes where no rule reports it")
-
-	s, _ = look(babysitting(4), approved)
-	_, due = look(s, with(pr(4), func(p *mine.PR) { p.Head = "sha-yours" }))
-	wantDue(t, due, []int{4}, "your own push dismissed the approval")
-}
-
-// A fix a person starts on an approved PR pushes, and the push dismisses
-// the approval on some repos. That is the fix's own doing: it must not read
-// as a reviewer who acted, or a second fix would follow the first at once.
-func TestAnApprovalTheFixsOwnPushDismissedIsNotAReviewer(t *testing.T) {
-	approved := with(pr(4), func(p *mine.PR) { p.Review = mine.ReviewApproved })
-	s, due := look(babysitting(4), approved)
-	wantDue(t, due, nil, "an approved PR")
-	s = s.Finished(4)
-	dismissed := with(pr(4), func(p *mine.PR) { p.Head, p.Review = "sha-fix", mine.ReviewRequired })
-	s, due = look(s, dismissed)
-	wantDue(t, due, nil, "the look after the fix only records it")
-	_, due = look(s, dismissed)
-	wantDue(t, due, nil, "the same state again is not a change")
-}
-
 func TestAPRFromAForkIsNeverScheduled(t *testing.T) {
 	fork := with(pr(4), func(p *mine.PR) { p.CrossRepo = true })
 	all, due := look(everything(), fork)
@@ -329,9 +248,9 @@ func TestAPRFromAForkIsNeverScheduled(t *testing.T) {
 
 func TestABusyPRWaitsAndAClosedOneLeaves(t *testing.T) {
 	s := babysitting(4)
-	s, due := s.Look([]mine.PR{pr(4)}, func(n int) bool { return n == 4 })
-	wantDue(t, due, nil, "a job on it is running")
-	s, due = look(s, pr(4))
+	s, busy := s.Look([]mine.PR{pr(4)}, func(n int) bool { return n == 4 })
+	wantKinds(t, busy, nil, "a job on it is running")
+	s, due := look(s, pr(4))
 	wantDue(t, due, []int{4}, "it is fixed at the next look")
 	s, _ = look(s)
 	if s.Babysat(4) || s.Any() {

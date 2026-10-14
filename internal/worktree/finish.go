@@ -10,6 +10,9 @@ import (
 // worktree is never removed on a guess, so when git cannot say, it is kept
 // too.
 //
+// A borrowed worktree is yours, so it always stays, and so does its branch.
+// What the task left in it is still named, so you learn of it.
+//
 // The bool is true when the worktree is kept. An error means git failed;
 // the worktree is then kept, and Kept.Why holds the same sentence, so a
 // caller that only prints the note still says why.
@@ -34,6 +37,9 @@ func Finish(ctx context.Context, git Git, root string, p Prepared) (Kept, bool, 
 	}
 	if ahead != "0" {
 		return Kept{Path: p.Path, Why: WhyUnpushed}, true, nil
+	}
+	if p.Borrowed {
+		return Kept{}, false, nil
 	}
 	if _, err := run(ctx, git, root, "worktree", "remove", p.Path); err != nil {
 		return keptOnError(p, "git could not remove it", err)

@@ -22,7 +22,8 @@ green again.
 - **It keeps watching.** New PRs and new pushes are reviewed as they arrive. It
   waits for CI to pass first.
 - **It handles your PRs too.** The My PRs tab says what blocks each one. A key
-  runs the fix in a worktree of its own, so your checkout is not touched.
+  runs the fix in a worktree of its own, or in your clean worktree of that PR's
+  branch. A checkout with changes of yours is not touched.
 - **It says when it is looking.** A PR carries an eyes reaction while its review
   runs.
 - **It survives an outage.** If claude fails, codex retries the review, and the
@@ -73,8 +74,9 @@ upgrade those too (see [Review skills](#review-skills)).
 - One variable replaces the reviewer: `$AUTOREVIEW_CMD`. A run stops when
   `$AUTOREVIEW_AUTO_CMD` is still set, because it would not use that command.
   Move the command to `$AUTOREVIEW_CMD`, or unset the variable.
-- In the view, `w` no longer stops babysitting of your own PRs. `b` and `B` do
-  that.
+- In the view, `w` no longer stops the autofix of your own PRs. `a` and `A` do
+  that. Babysitting is now called autofix, on `a` and `A` in place of `b` and
+  `B`. `F` fixes all your PRs once. `c` and `u` are gone: `f` does both.
 - The ledger and the review sessions carry over. `autoreview stats` reads the
   same file, and `--continue` finds the sessions 0.24 made.
 
@@ -102,39 +104,46 @@ number of threads that are still open.
 | Key   | What it does                                                   |
 | ----- | -------------------------------------------------------------- |
 | `f`   | Fix the selected PR once: conflicts, comments and CI           |
-| `u`   | Merge the base in and fix the conflicts                        |
-| `c`   | Answer the review comments                                     |
-| `b`   | Babysit the PR: fix it again each time it changes and needs it |
-| `B`   | Babysit all your PRs, and any you open later                   |
+| `F`   | Fix each of your PRs that needs it, once                       |
+| `a`   | Autofix the PR: fix it again each time it changes and needs it |
+| `A`   | Autofix all your PRs, and any you open later                   |
 | `r`   | Reopen the last task in its worktree, when it was kept         |
 | `x x` | Stop the running task. The first `x` asks                      |
 
-On both tabs, `o` opens the PR in the browser, `l` shows the run log, `m` gives
-the mouse back to the terminal so you can select text, and `?` lists every key.
+On both tabs, `o` opens the PR in the browser, `l` shows the run log, and `?`
+lists every key. A drag in the right pane selects its text and copies it. `m`
+gives the mouse back to the terminal, to select text anywhere on the screen.
 `q q` quits: the first `q` asks, because a quit stops every review and task that
 is running. `esc` closes the key list and answers no to a question.
 
 Each task on your own PR runs in `<run dir>/worktrees/pr-N`. The worktree is
 removed after the task, unless it holds uncommitted or unpushed work. Then it is
-kept, and the view and the log name it.
+kept, and the view and the log name it. When you have the PR's branch checked
+out somewhere else with no changes, the task runs there instead. It brings the
+branch up to `origin` first, and the worktree stays after the task. When that
+checkout has changes of yours, or the branch tracks somewhere else, the task
+works on a branch of its own, `autoreview/<run>/pr-N`, and pushes to the PR from
+it. A local branch with commits that are not on `origin` is refused: push them
+first.
 
 `f` runs once. It merges the base in, answers the review comments and fixes
-failing CI, in that order. `u` and `c` each do one part of that. `b` and `B` are
-the loop: at each look, a babysat PR that needs work and has changed gets the
-same fix as `f`.
+failing CI, in that order, and skips each step that has nothing to do. `F` does
+the same for each of your PRs that needs it. `a` and `A` are the loop: at each
+look, an autofixed PR that needs work and has changed gets the same fix as `f`.
 
 While a task runs, its row says so. When it ends, the footer says how, and the
 row keeps the result: `fix pushed`, `fix pushed nothing` or `fix failed`. Your
 PRs are read again at once, so the row also shows what the task left. A task
 that could not start says why in the footer and in the right pane.
 
-Babysitting has three limits:
+Autofix has three limits, and `F` keeps to the last one too:
 
 - A fix runs only after the PR changed.
 - At most 3 fixes run in a row while nobody else acts on the PR.
-- An approved PR gets no fix, because a push can dismiss the approval. `f`, `c`
-  and `u` still work by hand, for example to answer the threads that are still
-  open.
+- An approved PR gets only a fix of its conflicts, because a push can dismiss
+  the approval. A PR with conflicts cannot merge, so that push loses nothing.
+  Open threads and a failing build on an approved PR stay for you: `f` still
+  fixes them by hand.
 
 ## Which agents?
 
@@ -174,10 +183,10 @@ Use the skills yourself, outside a run:
 npx skills add venabots/autoreview --skill '*' --global
 ```
 
-The keys on the My PRs tab run three skills that are not in this repo:
-`babysit-pr`, `sync-main` and `pr-comment-handler`. They carry your own setup,
-so you install your own. A key whose skill is missing says so and starts
-nothing.
+The keys on the My PRs tab run two skills that are not in this repo:
+`babysit-pr` and `sync-main`. `babysit-pr` calls `pr-comment-handler` and
+`fix-ci` in turn. They carry your own setup, so you install your own. A key
+whose skill is missing says so and starts nothing.
 
 ## Without a terminal
 
@@ -247,9 +256,9 @@ autoreview stats --since 7d
 | VERDICT says `commented`                  | No decision: fewer than 75% of the panel answered (often one provider is down), or the head moved during the review. The first line of the review on the PR says why. |
 | VERDICT says `nothing posted`             | The review finished with nothing to submit, or GitHub has no record of a submission. It is not a rejection.                                                           |
 | A codex run refuses to start              | The skills are not in `~/.agents/skills/`. See [Review skills](#review-skills).                                                                                       |
-| A My PRs key says a skill is missing      | `babysit-pr`, `sync-main` or `pr-comment-handler` is not installed where your orchestrator looks. See [Review skills](#review-skills).                                |
+| A My PRs key says a skill is missing      | `babysit-pr` or `sync-main` is not installed where your orchestrator looks. See [Review skills](#review-skills).                                                      |
 | A task says the PR is from a fork         | Its branch is not on `origin`, so no worktree can be made for it here.                                                                                                |
-| You cannot select text in the view        | The view has the mouse. Press `m` to give it back to the terminal.                                                                                                    |
+| You cannot select text in the view        | Drag in the right pane to copy its text. For any other text, press `m` to give the mouse back to the terminal.                                                        |
 | `--continue` reviews fresh                | Another process still holds that session.                                                                                                                             |
 | You need to know why a review failed      | Read `pr-N.log` in the logs directory the run prints. In the view, press `l`.                                                                                         |
 

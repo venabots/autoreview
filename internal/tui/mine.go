@@ -89,7 +89,7 @@ func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 		w.text = report.TaskOutcome(*row.task) + " · " + w.text
 	}
 	if babysat.Babysat(row.pr.Number) && !row.pr.CrossRepo {
-		w.text = "babysat · " + w.text
+		w.text = "autofix · " + w.text
 	}
 	return w
 }
@@ -113,7 +113,7 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 	if pr.CrossRepo {
 		lines = append(lines, field("from", word{"a fork", plainStyle}))
 	}
-	lines = append(lines, field("babysat", babysatWord(pr, babysat)))
+	lines = append(lines, field("autofix", babysatWord(pr, babysat)))
 	if row.notStarted != "" {
 		lines = append(lines, line{}, note(sanitize.Line(row.notStarted), redStyle))
 	}
@@ -126,16 +126,17 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 func babysatWord(pr mine.PR, s babysit.State) word {
 	switch n := s.Fixes(pr.Number); {
 	case !s.Babysat(pr.Number) || pr.CrossRepo:
-		return word{"no", dimStyle}
+		return word{"off", dimStyle}
 	case pr.Approved():
-		// A push can dismiss the approval, so nothing pushes by itself.
-		return word{"yes · on hold while approved", plainStyle}
+		// A push can dismiss the approval, so only a conflict, which stops
+		// the merge anyway, gets a fix by itself.
+		return word{"on · approved, so only conflicts get a fix", plainStyle}
 	case n == 1:
-		return word{"yes · 1 fix so far", plainStyle}
+		return word{"on · 1 fix so far", plainStyle}
 	case n > 1:
-		return word{fmt.Sprintf("yes · %d fixes so far", n), plainStyle}
+		return word{fmt.Sprintf("on · %d fixes so far", n), plainStyle}
 	}
-	return word{"yes", plainStyle}
+	return word{"on", plainStyle}
 }
 
 // taskLines is the TASK section: what the task is or was doing, and where

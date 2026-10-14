@@ -75,8 +75,8 @@ func TestBabysittingFixesAPRThatNeedsWorkAtOnceAndNotAgainUntilItChanges(t *test
 		}
 		notes := b.notes()
 		for _, want := range []string{
-			"babysitting PR #4: it is fixed when it changes and needs work",
-			"babysitting: fixing PR #4, which changed and needs work",
+			"autofixing PR #4: it is fixed when it changes and needs work",
+			"autofix: fixing PR #4, which changed and needs work",
 		} {
 			if !slices.Contains(notes, want) {
 				t.Errorf("notes = %q, want %q", notes, want)
@@ -123,7 +123,7 @@ func TestBabysittingLeavesAnApprovedPRAloneAndSaysSoOnce(t *testing.T) {
 		if !b.eng.Snapshot().Babysit.OnHold(4) {
 			t.Error("the snapshot does not say PR #4 is on hold")
 		}
-		const said = "babysitting: PR #4 is approved, so it gets no fix until that changes"
+		const said = "autofix: PR #4 is approved, so only a conflict on it gets a fix until that changes"
 		if n := len(slices.DeleteFunc(b.notes(), func(note string) bool { return note != said })); n != 1 {
 			t.Errorf("the hold was noted %d times in %q, want once", n, b.notes())
 		}
@@ -141,6 +141,70 @@ func TestBabysittingLeavesAnApprovedPRAloneAndSaysSoOnce(t *testing.T) {
 	})
 }
 
+func TestBabysittingFixesOnlyTheConflictsOfAnApprovedPR(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f, m := &trees{}, &mineList{}
+		approved := threaded(4)
+		approved.Review, approved.Merge = mine.ReviewApproved, mine.MergeConflicts
+		m.set(approved)
+		b := newBench(t, held(setup{deps: m.deps(f), edit: watchedEvery}))
+		b.eng.Do(Babysit{Change: babysit.One(4, true)})
+		synctest.Wait()
+
+		if job := taskOf(t, b, 4); job.Task != task.Conflicts || job.State != JobRunning {
+			t.Fatalf("the task on an approved PR with conflicts: %+v, want a conflict fix", job)
+		}
+		const said = "autofix: fixing the conflicts on PR #4, which is approved"
+		if !slices.Contains(b.notes(), said) {
+			t.Errorf("notes = %q, want %q", b.notes(), said)
+		}
+
+		b.reviewer.finish(t, 4, 0, "done")
+		synctest.Wait()
+		merged := approved
+		merged.Head, merged.Merge = "sha-merge", mine.MergeClean
+		m.set(merged)
+		time.Sleep(3 * time.Minute)
+		synctest.Wait()
+		if got := b.reviewer.started(); !slices.Equal(got, []int{4}) {
+			t.Errorf("started %v: the conflict fix's own push was fixed again", got)
+		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
+func TestThePushOfAConflictFixByHandIsNotAChangeOnABabysatPR(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f, m := &trees{}, &mineList{}
+		m.set(threaded(4))
+		b := newBench(t, held(setup{deps: m.deps(f), edit: watchedEvery}))
+		b.eng.Do(Babysit{Change: babysit.One(4, true)})
+		synctest.Wait()
+		b.reviewer.finish(t, 4, 0, "done")
+		synctest.Wait()
+
+		b.eng.Do(RunTask{Request: task.Request{PR: 4, Kind: task.Conflicts, Branch: "me/work"}})
+		synctest.Wait()
+		tasks := b.eng.Snapshot().Tasks
+		if job := tasks[len(tasks)-1]; job.Task != task.Conflicts || job.State != JobRunning {
+			t.Fatalf("the conflict fix: %+v", job)
+		}
+		b.reviewer.finish(t, 4, 0, "done")
+		synctest.Wait()
+		answered := threaded(4)
+		answered.Head = "sha-comments"
+		m.set(answered)
+		time.Sleep(3 * time.Minute)
+		synctest.Wait()
+		if got := b.reviewer.started(); !slices.Equal(got, []int{4, 4}) {
+			t.Errorf("started %v: the conflict fix's own push was fixed again", got)
+		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
 func TestBabysittingIsRefusedWhereAFixWouldBe(t *testing.T) {
 	fork := threaded(4)
 	fork.CrossRepo = true
@@ -152,9 +216,9 @@ func TestBabysittingIsRefusedWhereAFixWouldBe(t *testing.T) {
 		want string
 	}{
 		{"under --no-post", func(c *Config) { c.NoPost = true }, &trees{}, []mine.PR{threaded(4)},
-			"not babysitting PR #4: --no-post leaves every PR alone"},
+			"not autofixing PR #4: --no-post leaves every PR alone"},
 		{"when the skill is missing", nil, &trees{missing: "babysit-pr is not installed where claude looks (~/.claude/skills)"}, []mine.PR{threaded(4)},
-			"not babysitting PR #4: babysit-pr is not installed where claude looks (~/.claude/skills)"},
+			"not autofixing PR #4: babysit-pr is not installed where claude looks (~/.claude/skills)"},
 		{"for a fork", nil, &trees{}, []mine.PR{fork},
 			"PR #4 is from a fork; its branch is not on origin, so nothing can fix it here"},
 	}
@@ -185,7 +249,7 @@ func TestBabysittingAllRefusedNamesNoPR(t *testing.T) {
 		b := newBench(t, held(setup{deps: m.deps(&trees{}), edit: func(c *Config) { c.NoPost = true }}))
 		b.eng.Do(Babysit{Change: babysit.All(true)})
 		synctest.Wait()
-		if !slices.Contains(b.notes(), "not babysitting your PRs: --no-post leaves every PR alone") {
+		if !slices.Contains(b.notes(), "not autofixing your PRs: --no-post leaves every PR alone") {
 			t.Errorf("notes = %q", b.notes())
 		}
 		b.eng.Do(Quit{})
@@ -208,7 +272,7 @@ func TestStoppingBabysittingLeavesARunningFixAlone(t *testing.T) {
 		if job := taskOf(t, b, 4); job.State != JobRunning {
 			t.Errorf("the fix is in state %d; stopping babysitting stopped it", job.State)
 		}
-		if !slices.Contains(b.notes(), "no longer babysitting your PRs") {
+		if !slices.Contains(b.notes(), "autofix is off for your PRs") {
 			t.Errorf("notes = %q", b.notes())
 		}
 		b.eng.Do(Quit{})

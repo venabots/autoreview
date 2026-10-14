@@ -22,7 +22,7 @@ func (Babysit) command() {}
 // worked out once: the skills are looked for on disk.
 func (e *Engine) refusals() map[task.Kind]string {
 	out := map[task.Kind]string{}
-	for _, k := range []task.Kind{task.Fix, task.Comments, task.Conflicts} {
+	for _, k := range []task.Kind{task.Fix, task.Conflicts} {
 		switch {
 		case e.cfg.NoPost:
 			out[k] = "--no-post leaves every PR alone"
@@ -48,7 +48,7 @@ func (e *Engine) refusal(k task.Kind) string {
 // seconds after a push, before the checks and the merge state are known.
 func (e *Engine) setBabysit(w workers, r run, c babysit.Change) run {
 	if why := e.refusal(task.Fix); c.On && why != "" {
-		e.journal(Noted{Text: fmt.Sprintf("not babysitting %s: %s", babysatWhat(c), why)})
+		e.journal(Noted{Text: fmt.Sprintf("not autofixing %s: %s", babysatWhat(c), why)})
 		return r
 	}
 	next, err := r.snap.Babysit.Apply(c, r.looked)
@@ -72,11 +72,11 @@ func babysatWhat(c babysit.Change) string {
 }
 
 // babysitLook starts a fix on each babysat PR that changed and needs work.
-// A PR that is approved gets none, and the log says so once: a babysat PR
-// with a red build that nothing fixes would otherwise look forgotten.
-// It runs only after a look at your PRs that worked: after a failed one,
-// the list is the last good one, and a fix that just ended would take its
-// state from before the fix.
+// A PR that is approved gets only a fix of its conflicts, and the log says
+// so once: a babysat PR with a red build that nothing fixes would otherwise
+// look forgotten. It runs only after a look at your PRs that worked: after
+// a failed one, the list is the last good one, and a fix that just ended
+// would take its state from before the fix.
 func (e *Engine) babysitLook(w workers, r run) run {
 	if !r.snap.Babysit.Any() || r.snap.Phase == Stopping || r.snap.Phase == Done {
 		return r
@@ -87,23 +87,31 @@ func (e *Engine) babysitLook(w workers, r run) run {
 	r.snap.Babysit = next
 	for _, pr := range r.looked {
 		if next.OnHold(pr.Number) && !before.OnHold(pr.Number) {
-			e.journal(Noted{Text: fmt.Sprintf("babysitting: PR #%d is approved, so it gets no fix until that changes", pr.Number)})
+			e.journal(Noted{Text: fmt.Sprintf("autofix: PR #%d is approved, so only a conflict on it gets a fix until that changes", pr.Number)})
 		}
 	}
-	for _, pr := range due {
-		i := slices.IndexFunc(r.looked, func(p mine.PR) bool { return p.Number == pr })
+	for _, d := range due {
+		i := slices.IndexFunc(r.looked, func(p mine.PR) bool { return p.Number == d.PR })
 		found := r.looked[i]
-		e.journal(Noted{Text: fmt.Sprintf("babysitting: fixing PR #%d, which changed and needs work", pr)})
-		r = e.requestTask(w, r, task.Request{PR: pr, Kind: task.Fix, Title: found.Title, Branch: found.Branch, CrossRepo: found.CrossRepo})
+		e.journal(Noted{Text: babysitFixing(d)})
+		r = e.requestTask(w, r, task.Request{PR: d.PR, Kind: d.Kind, Title: found.Title, Branch: found.Branch, CrossRepo: found.CrossRepo})
 	}
 	return r
 }
 
-// fixEnded tells babysitting a fix on pr is over, so its own push does not
-// read as a change at the next look. A fix started by hand counts too.
-func fixEnded(r run, k task.Kind, pr int) run {
-	if k == task.Fix {
-		r.snap.Babysit = r.snap.Babysit.Finished(pr)
+func babysitFixing(d babysit.Due) string {
+	if d.Kind == task.Conflicts {
+		return fmt.Sprintf("autofix: fixing the conflicts on PR #%d, which is approved", d.PR)
 	}
+	return fmt.Sprintf("autofix: fixing PR #%d, which changed and needs work", d.PR)
+}
+
+// taskEnded tells babysitting a task on pr is over, so its own push does
+// not read as a change at the next look. Every kind counts, one started by
+// hand included: a conflict fix or a comment fix also pushes, and a look
+// that took that push for somebody else's would start a full fix straight
+// after it.
+func taskEnded(r run, pr int) run {
+	r.snap.Babysit = r.snap.Babysit.Finished(pr)
 	return r
 }

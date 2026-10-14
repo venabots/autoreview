@@ -11,8 +11,10 @@
 //     known takes the PR's new state as the one to compare with. A build or
 //     a conflict the fix itself caused is the exception, because that is
 //     work.
-//   - An approved PR gets no fix. The fix pushes, and a push can dismiss the
-//     approval. What is open on an approved PR is for a person to decide.
+//   - An approved PR gets only a fix of its conflicts. A fix pushes, and a
+//     push can dismiss the approval. A PR with conflicts cannot merge, so
+//     that push loses nothing. Anything else open on an approved PR is for
+//     a person to decide.
 //   - A cap. At most MaxStreak fixes run in a row while nobody else acts. A
 //     new review thread, or a review decision that changed other than a stale
 //     approval the push dismissed, is somebody else acting and starts the
@@ -22,7 +24,8 @@
 // babysat: its branch is not on origin to fix.
 //
 // The package decides and runs nothing. The engine calls Look at each look,
-// starts a fix on each PR it returns, and calls Finished when a fix ends.
+// starts the fix it names on each PR it returns, and calls Finished when a
+// task on a PR ends.
 package babysit
 
 import (
@@ -94,9 +97,10 @@ func (s State) Streak(pr int) int {
 	return s.watches[pr].streak
 }
 
-// OnHold says the last look found the PR approved, so it gets no fix until
-// that changes. A push can dismiss an approval, and nothing that blocks an
-// approved PR is worth losing it: a person starts that fix.
+// OnHold says the last look found the PR approved, so until that changes
+// it gets only a fix of its conflicts. A push can dismiss an approval, and
+// only a conflict stops the merge that the approval allows: a person starts
+// any other fix.
 func (s State) OnHold(pr int) bool {
 	return s.Babysat(pr) && s.watches[pr].approved
 }

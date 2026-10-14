@@ -17,4 +17,7 @@ var (
 	headingStyle = lipgloss.NewStyle().Foreground(lipgloss.BrightBlack).Bold(true)
 	activeTab    = lipgloss.NewStyle().Bold(true).Reverse(true)
 	spinnerStyle = lipgloss.NewStyle().Foreground(lipgloss.Magenta)
+	// selectedStyle marks the text a drag in the right pane selects, as a
+	// terminal marks its own selection.
+	selectedStyle = lipgloss.NewStyle().Reverse(true)
 )

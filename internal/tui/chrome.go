@@ -50,7 +50,7 @@ const tabGap = "  "
 func tabLabels(s *engine.Snapshot) (review, mine string) {
 	mine = tabLabel("My PRs", len(s.Mine), s.MineLooked)
 	if n := len(s.Babysit.Listed(s.Mine)); n > 0 {
-		mine = fmt.Sprintf("%s· babysitting %d ", mine, n)
+		mine = fmt.Sprintf("%s· autofixing %d ", mine, n)
 	}
 	return tabLabel("Review", len(s.Reviews), s.Looked), mine
 }

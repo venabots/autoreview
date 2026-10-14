@@ -18,8 +18,8 @@ func TestATaskSaysWhatItDoesAndWhetherItPushed(t *testing.T) {
 		{"a fix starts", engine.JobStarted{Job: engine.Job{PR: 4, Author: "me", Task: task.Fix}}, "start   #4 (fixing)\n"},
 		{"a fix that pushed", engine.JobFinished{Job: engine.Job{PR: 4, Task: task.Fix, State: engine.JobDone, Verdict: "pushed", Elapsed: 63 * time.Second}},
 			"done    #4 (fix, 1m03s): pushed\n"},
-		{"a task that failed", engine.JobFinished{Job: engine.Job{PR: 4, Task: task.Comments, State: engine.JobFailed, Outcome: "exit 3", Verdict: "nothing pushed", Error: "boom"}},
-			"FAILED  #4 (comments, exit 3, 0s): nothing pushed; boom\n"},
+		{"a task that failed", engine.JobFinished{Job: engine.Job{PR: 4, Task: task.Fix, State: engine.JobFailed, Outcome: "exit 3", Verdict: "nothing pushed", Error: "boom"}},
+			"FAILED  #4 (fix, exit 3, 0s): nothing pushed; boom\n"},
 		{"a task that timed out", engine.JobFinished{Job: engine.Job{PR: 4, Task: task.Conflicts, State: engine.JobTimedOut, Verdict: "unknown", Elapsed: time.Hour}},
 			"TIMEOUT #4 (conflicts, 1h00m): unknown\n"},
 	}

@@ -32,6 +32,8 @@ type trees struct {
 	pushed     string
 	readFails  bool
 	missing    string
+	// own makes each worktree on a branch of the run's own.
+	own bool
 }
 
 func (f *trees) deps(d *Deps) {
@@ -48,7 +50,11 @@ func (f *trees) deps(d *Deps) {
 			return worktree.Prepared{}, f.prepareErr
 		}
 		f.made = append(f.made, r.PR)
-		return worktree.Prepared{Path: "/run/worktrees/pr-" + strconv.Itoa(r.PR), Head: "sha1"}, nil
+		tree := worktree.Prepared{Path: "/run/worktrees/pr-" + strconv.Itoa(r.PR), Branch: r.Branch, Head: "sha1"}
+		if f.own {
+			tree.Branch, tree.OwnBranch = "autoreview/run-1/pr-"+strconv.Itoa(r.PR), true
+		}
+		return tree, nil
 	}
 	d.Finish = func(_ context.Context, p worktree.Prepared) (string, error) {
 		f.mu.Lock()
@@ -162,9 +168,9 @@ func TestASecondTaskOnAPRWithOneRunningIsRefused(t *testing.T) {
 		f := &trees{}
 		b := newBench(t, held(setup{deps: f.deps}))
 		b.eng.Do(fixOf(4))
-		b.eng.Do(RunTask{Request: task.Request{PR: 4, Kind: task.Comments}})
+		b.eng.Do(RunTask{Request: task.Request{PR: 4, Kind: task.Conflicts}})
 		synctest.Wait()
-		if !slices.Contains(b.notes(), "not fixing comments PR #4: a job on it is already running") {
+		if !slices.Contains(b.notes(), "not fixing conflicts PR #4: a job on it is already running") {
 			t.Errorf("notes = %q", b.notes())
 		}
 		b.eng.Do(Quit{})

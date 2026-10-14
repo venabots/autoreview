@@ -37,8 +37,23 @@ func shaN(i int) string {
 	return fmt.Sprintf("sha%d", i+10)
 }
 
-// look is one look at list, with no job running on any PR.
+// look is one look at list, with no job running on any PR, and the PRs
+// it fixes.
 func look(s State, list ...mine.PR) (State, []int) {
+	next, due := lookDue(s, list...)
+	prs := make([]int, 0, len(due))
+	for _, d := range due {
+		prs = append(prs, d.PR)
+	}
+	if len(prs) == 0 {
+		return next, nil
+	}
+	return next, prs
+}
+
+// lookDue is one look at list, with no job running on any PR, and the fix
+// each PR gets.
+func lookDue(s State, list ...mine.PR) (State, []Due) {
 	return s.Look(list, nil)
 }
 
@@ -53,6 +68,13 @@ func babysitting(numbers ...int) State {
 func everything() State {
 	s, _ := State{}.Apply(All(true), nil)
 	return s
+}
+
+func wantKinds(t *testing.T, got []Due, want []Due, why string) {
+	t.Helper()
+	if !slices.Equal(got, want) {
+		t.Errorf("%s: due %v, want %v", why, got, want)
+	}
 }
 
 func wantDue(t *testing.T, got []int, want []int, why string) {

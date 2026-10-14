@@ -301,6 +301,8 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		return e.requestTask(w, r, in.Request)
 	case Babysit:
 		return e.setBabysit(w, r, in.Change)
+	case FixAll:
+		return e.fixAll(w, r)
 	case taskReady:
 		return e.taskReady(w, r, in)
 	case taskReaped:
