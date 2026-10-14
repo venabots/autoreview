@@ -81,9 +81,12 @@ type Job struct {
 	FollowFromEnd bool
 	// Worktree is where a task runs. Kept says why it was kept after the
 	// task, "uncommitted changes" or "commits that are not pushed", or is
-	// empty when it was removed.
+	// empty when it was removed. Yours says Worktree is a worktree of
+	// yours that the task borrowed: it stays after the task even when Kept
+	// is empty, so the task can be reopened in it.
 	Worktree string
 	Kept     string
+	Yours    bool
 	// Stderr is the file the reviewer writes its stderr to. FollowStderr
 	// says it is the only live record: an override keeps no transcript.
 	Stderr       string

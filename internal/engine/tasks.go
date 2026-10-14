@@ -148,6 +148,7 @@ func (e *Engine) taskReady(w workers, r run, in taskReady) run {
 	t.tree = in.tree
 	t.view.State = JobQueued
 	t.view.Worktree = in.tree.Path
+	t.view.Yours = in.tree.Borrowed
 	return e.fill(w, withTask(r, i, t))
 }
 

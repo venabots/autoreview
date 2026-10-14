@@ -32,8 +32,10 @@ type trees struct {
 	pushed     string
 	readFails  bool
 	missing    string
-	// own makes each worktree on a branch of the run's own.
-	own bool
+	// own makes each worktree on a branch of the run's own, and borrow
+	// hands back the person's own worktree.
+	own    bool
+	borrow bool
 }
 
 func (f *trees) deps(d *Deps) {
@@ -53,6 +55,9 @@ func (f *trees) deps(d *Deps) {
 		tree := worktree.Prepared{Path: "/run/worktrees/pr-" + strconv.Itoa(r.PR), Branch: r.Branch, Head: "sha1"}
 		if f.own {
 			tree.Branch, tree.OwnBranch = "autoreview/run-1/pr-"+strconv.Itoa(r.PR), true
+		}
+		if f.borrow {
+			tree.Path, tree.Borrowed = "/home/me/work", true
 		}
 		return tree, nil
 	}
