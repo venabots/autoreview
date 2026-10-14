@@ -96,7 +96,7 @@ var helpLines = []keyHelp{
 	{"f", "My PRs: fix the selected PR once: its conflicts, review comments and CI, as it needs"},
 	{"F", "My PRs: fix each of your PRs that needs it, once"},
 	{"a", "My PRs: autofix the selected PR: fix it again each time it changes; an approved PR gets only its conflicts fixed"},
-	{"A", "My PRs: autofix all your PRs, and any you open later"},
+	{"A", "My PRs: autofix all your PRs, and any you open later; on when the view opens, A again turns it off"},
 	{"r", "resume the selected review, or your PR's last task, in a new terminal tab"},
 	{"o", "open the selected PR in the browser"},
 	{"x x", "stop the selected review or task; the first x asks"},
