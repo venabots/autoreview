@@ -117,7 +117,11 @@ is running. `esc` closes the key list and answers no to a question.
 
 Each task on your own PR runs in `<run dir>/worktrees/pr-N`. The worktree is
 removed after the task, unless it holds uncommitted or unpushed work. Then it is
-kept, and the view and the log name it.
+kept, and the view and the log name it. When you have the PR's branch checked
+out somewhere else, the task works on a branch of its own,
+`autoreview/<run>/pr-N`, and pushes to the PR from it. Your checkout does not
+move. A local branch with commits that are not on `origin` is refused: push them
+first.
 
 `f` runs once. It merges the base in, answers the review comments and fixes
 failing CI, in that order. `u` and `c` each do one part of that. `b` and `B` are
