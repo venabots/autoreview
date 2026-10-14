@@ -62,7 +62,7 @@ func TestABadAnswerIsAskedAgain(t *testing.T) {
 	if got.Orchestrator != "claude" || len(got.Panelists) != 0 || got.MaxPasses != 3 || got.Rest != "30m" {
 		t.Errorf("Ask = %+v", got)
 	}
-	for _, reason := range []string{"unknown orchestrator", "a panel of one never approves", "a whole number, 1 or more", "invalid wait interval"} {
+	for _, reason := range []string{"unknown orchestrator", "a panel of one never approves", "a whole number from 1 to 1000", "invalid wait interval"} {
 		if !strings.Contains(out, reason) {
 			t.Errorf("the form does not say %q:\n%s", reason, out)
 		}
@@ -75,9 +75,11 @@ func TestTheChecksMatchTheFlags(t *testing.T) {
 		ok    []string
 		bad   []string
 	}{
-		{orchestrator, []string{"claude", "codex:gpt-5.5"}, []string{"gemini", "codex:"}},
+		{orchestratorBeside("auto"), []string{"claude", "codex:gpt-5.5"}, []string{"gemini", "codex:"}},
 		{panelists, []string{"", "claude codex", "claude:opus-4.8 opencode:glm-5.2"}, []string{"claude", "claude gemini"}},
-		{atLeastOne, []string{"1", " 12 "}, []string{"0", "-1", "two", ""}},
+		{upTo(100), []string{"1", " 12 ", "100"}, []string{"0", "-1", "two", "", "101"}},
+		{orchestratorBeside("codex"), []string{"claude", "codex:gpt-5.5"}, []string{"codex"}},
+		{orchestratorBeside("auto"), []string{"claude", "codex"}, nil},
 		{interval, []string{"30", "30m", "2h"}, []string{"0", "soon", ""}},
 	} {
 		for _, raw := range c.ok {

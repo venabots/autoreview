@@ -16,11 +16,11 @@ const (
 	defaultMaxPasses = "3"
 	defaultCIWait    = "30"
 	maxIdle          = 100_000
-	maxPasses        = 1000
+	MaxPasses        = 1000
 	// The autofix cap has no flag and no variable, and its default is
 	// babysit.MaxStreak.
 	defaultAutofixCap = "3"
-	maxAutofixCap     = 100
+	MaxAutofixCap     = 100
 )
 
 // withLoopFlags checks the flags that say what a run does after its first
@@ -46,11 +46,11 @@ func withLoopFlags(cfg Config, raw map[string]*string, babysit string, given fun
 		return Config{}, told(err)
 	}
 	value, told = set.pick("max-passes", *raw["max-passes"], given("max-passes"), env(EnvMaxPasses), defaultMaxPasses)
-	if cfg.MaxPasses, err = count("max-passes", value, 1, maxPasses); err != nil {
+	if cfg.MaxPasses, err = count("max-passes", value, 1, MaxPasses); err != nil {
 		return Config{}, told(err)
 	}
 	value, told = set.pick("autofix-cap", "", false, "", defaultAutofixCap)
-	if cfg.AutofixCap, err = countOf("the autofix cap", value, 1, maxAutofixCap); err != nil {
+	if cfg.AutofixCap, err = countOf("the autofix cap", value, 1, MaxAutofixCap); err != nil {
 		return Config{}, told(err)
 	}
 	return cfg, nil

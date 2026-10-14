@@ -230,7 +230,7 @@ func withReviewFlags(cfg Config, raw map[string]*string, given func(string) bool
 	}
 	var err error
 	value, told := pick("jobs", EnvJobs, defaultJobs)
-	if cfg.Jobs, err = count("jobs", value, 1, maxJobs); err != nil {
+	if cfg.Jobs, err = count("jobs", value, 1, MaxJobs); err != nil {
 		return Config{}, told(err)
 	}
 	value, told = pick("timeout", EnvTimeout, defaultTimeout)

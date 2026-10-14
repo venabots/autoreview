@@ -59,7 +59,7 @@ func Ask(current config.Values, path string, term Terminal) (config.Values, erro
 			huh.NewNote().Title("autoreview settings").Description(intro(path)),
 			huh.NewInput().Title("The agent that runs each review").
 				Description("claude or codex, with an optional model, as in codex:gpt-5.5").
-				Value(&a.orchestrator).Validate(orchestrator),
+				Value(&a.orchestrator).Validate(orchestratorBeside(current.Fallback)),
 			huh.NewInput().Title("The models in the review panel").
 				Description("Each backend[:model], separated by spaces, as in claude:opus-4.8 codex. Blank is every backend on PATH.").
 				Value(&a.panel).Validate(panelists),
@@ -70,12 +70,12 @@ func Ask(current config.Values, path string, term Terminal) (config.Values, erro
 			).Value(&a.verdicts),
 		),
 		huh.NewGroup(
-			huh.NewInput().Title("Reviews one PR gets in a run").Value(&a.maxPasses).Validate(atLeastOne),
+			huh.NewInput().Title("Reviews one PR gets in a run").Value(&a.maxPasses).Validate(upTo(cli.MaxPasses)),
 			huh.NewInput().Title("The rest before a reviewed PR is checked again").
 				Description("A bare number is minutes; 30m, 1h and 2d also work.").Value(&a.rest).Validate(interval),
 			huh.NewInput().Title("The wait between two looks at the PR list").Value(&a.watch).Validate(interval),
-			huh.NewInput().Title("Fixes in a row on one of your PRs while nobody else acts").Value(&a.autofixCap).Validate(atLeastOne),
-			huh.NewInput().Title("Reviews that run at once").Value(&a.jobs).Validate(atLeastOne),
+			huh.NewInput().Title("Fixes in a row on one of your PRs while nobody else acts").Value(&a.autofixCap).Validate(upTo(cli.MaxAutofixCap)),
+			huh.NewInput().Title("Reviews that run at once").Value(&a.jobs).Validate(upTo(cli.MaxJobs)),
 		),
 	).WithInput(term.In).WithOutput(term.Out).WithAccessible(term.Accessible)
 	if err := form.Run(); err != nil {
@@ -108,9 +108,20 @@ func withAnswers(current config.Values, a answers) config.Values {
 	return next
 }
 
-func orchestrator(raw string) error {
-	_, err := review.ParseOrchestrator(strings.TrimSpace(raw))
-	return err
+// orchestratorBeside checks the agent, and refuses the one the settings
+// already name as its fallback: the run would refuse that pair, and the
+// answers would be lost after the form.
+func orchestratorBeside(fallback string) func(string) error {
+	return func(raw string) error {
+		o, err := review.ParseOrchestrator(strings.TrimSpace(raw))
+		if err != nil {
+			return err
+		}
+		if f, err := review.ParseFallback(fallback); err == nil && f.Kind == review.FallbackSpec && f.Spec == o {
+			return fmt.Errorf("%s is the fallback in the settings file too; choose another agent, or change review.fallback in the file", o.Label())
+		}
+		return nil
+	}
 }
 
 // panelists checks each spec, and refuses a panel of one: auto-review
@@ -128,11 +139,15 @@ func panelists(raw string) error {
 	return nil
 }
 
-func atLeastOne(raw string) error {
-	if n, err := strconv.Atoi(strings.TrimSpace(raw)); err != nil || n < 1 {
-		return errors.New("a whole number, 1 or more")
+// upTo is the check of a count from 1 to most, the limit the run itself
+// uses.
+func upTo(most int) func(string) error {
+	return func(raw string) error {
+		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err != nil || n < 1 || n > most {
+			return fmt.Errorf("a whole number from 1 to %d", most)
+		}
+		return nil
 	}
-	return nil
 }
 
 func interval(raw string) error {

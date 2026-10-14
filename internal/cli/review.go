@@ -30,8 +30,10 @@ const (
 const (
 	defaultJobs    = "2"
 	defaultTimeout = "3600"
-	maxJobs        = 1024
-	maxTimeout     = 999_999_999
+	// MaxJobs, MaxPasses and MaxAutofixCap are the largest values a run
+	// takes. The settings form checks its answers against them.
+	MaxJobs    = 1024
+	maxTimeout = 999_999_999
 	// focusMax is the most text a prompt carries as a focus.
 	focusMax = 2000
 )
