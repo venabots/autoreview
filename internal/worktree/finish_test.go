@@ -8,9 +8,9 @@ import (
 )
 
 func TestFinishRunsV1sGitStepsAndKeepsWhatHoldsWork(t *testing.T) {
-	status := call{wt, "status --porcelain --untracked-files=normal"}
+	status := call{wt, "status --porcelain --untracked-files=no"}
 	ahead := call{wt, "rev-list --count @{upstream}..HEAD"}
-	remove := call{root, "worktree remove " + wt}
+	remove := call{root, "worktree remove --force " + wt}
 	deleteBranch := call{root, "branch --quiet -d me/work"}
 	clean := map[string]answer{"rev-list --count @{upstream}..HEAD": {out: "0\n"}}
 	cases := []struct {
@@ -24,17 +24,17 @@ func TestFinishRunsV1sGitStepsAndKeepsWhatHoldsWork(t *testing.T) {
 	}{
 		{"a clean worktree goes with the branch it made", clean, true, Kept{}, false, "", []call{status, ahead, remove, deleteBranch}},
 		{"a clean worktree on your branch leaves the branch", clean, false, Kept{}, false, "", []call{status, ahead, remove}},
-		{"uncommitted changes keep it", map[string]answer{"status --porcelain --untracked-files=normal": {out: "?? half.txt\n"}}, true,
+		{"uncommitted changes keep it", map[string]answer{"status --porcelain --untracked-files=no": {out: "A  half.txt\n"}}, true,
 			Kept{wt, "uncommitted changes"}, true, "", []call{status}},
 		{"unpushed commits keep it", map[string]answer{"rev-list --count @{upstream}..HEAD": {out: "2\n"}}, true,
 			Kept{wt, "commits that are not pushed"}, true, "", []call{status, ahead}},
-		{"a status git cannot read keeps it", map[string]answer{"status --porcelain --untracked-files=normal": {err: errNo}}, true,
+		{"a status git cannot read keeps it", map[string]answer{"status --porcelain --untracked-files=no": {err: errNo}}, true,
 			Kept{wt, "git could not read it: no"}, true, "git could not read it: no", []call{status}},
 		{"a comparison git cannot make keeps it", map[string]answer{"rev-list --count @{upstream}..HEAD": {err: errNo}}, true,
 			Kept{wt, "git could not compare it with origin: no"}, true, "git could not compare it with origin: no", []call{status, ahead}},
 		{"a removal git refuses keeps it and the branch", map[string]answer{
 			"rev-list --count @{upstream}..HEAD": {out: "0"},
-			"worktree remove " + wt:              {err: errNo},
+			"worktree remove --force " + wt:      {err: errNo},
 		}, true, Kept{wt, "git could not remove it: no"}, true, "git could not remove it: no", []call{status, ahead, remove}},
 	}
 	for _, c := range cases {

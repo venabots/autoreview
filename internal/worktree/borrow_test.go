@@ -101,6 +101,7 @@ func TestABorrowedWorktreeThatTheTaskLeftWorkInIsNamedAndNeverRemoved(t *testing
 			if err := os.WriteFile(filepath.Join(dir, "half.txt"), []byte("x"), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			mustGit(t, dir, "add", "half.txt")
 		}, WhyUncommitted},
 		{"a commit it did not push", func(t *testing.T, dir string) {
 			mustGit(t, dir, "commit", "--quiet", "--allow-empty", "-m", "not pushed")

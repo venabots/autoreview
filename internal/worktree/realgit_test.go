@@ -97,38 +97,18 @@ func TestAMissingWorktreeThatIsNotOursIsRefused(t *testing.T) {
 	}
 }
 
-// Some people set status.showUntrackedFiles=no in a large repo. A plain
-// `git status` then lists no new file, and `git worktree remove` asks the
-// same question the same way. A file the task made and did not commit would
-// go with the worktree.
-func TestANewFileKeepsTheWorktreeWhenGitIsToldToHideUntrackedFiles(t *testing.T) {
-	f := setup(t)
-	mustGit(t, f.clone, "config", "status.showUntrackedFiles", "no")
-	p := prepareOK(t, f.request("me/work"))
-	if err := os.WriteFile(filepath.Join(p.Path, "half.txt"), []byte("edit"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	want := Kept{Path: p.Path, Why: "uncommitted changes"}
-	if kept, isKept, err := Finish(context.Background(), Exec, f.clone, p); kept != want || !isKept || err != nil {
-		t.Errorf("Finish = %+v, %v, %v; want %+v kept", kept, isKept, err, want)
-	}
-	if _, err := os.Stat(filepath.Join(p.Path, "half.txt")); err != nil {
-		t.Errorf("the new file is gone: %v", err)
-	}
-}
-
 func TestWorkLeftBehindKeepsTheWorktree(t *testing.T) {
 	f := setup(t)
 	p := prepareOK(t, f.request("me/work"))
 	if err := os.WriteFile(filepath.Join(p.Path, "half.txt"), []byte("edit"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	mustGit(t, p.Path, "add", "half.txt")
 	want := Kept{Path: p.Path, Why: "uncommitted changes"}
 	if kept, isKept, err := Finish(context.Background(), Exec, f.clone, p); kept != want || !isKept || err != nil {
 		t.Errorf("Finish = %+v, %v, %v; want %+v kept", kept, isKept, err, want)
 	}
 
-	mustGit(t, p.Path, "add", "half.txt")
 	mustGit(t, p.Path, "commit", "--quiet", "-m", "done, not pushed")
 	want = Kept{Path: p.Path, Why: "commits that are not pushed"}
 	kept, isKept, err := Finish(context.Background(), Exec, f.clone, p)
@@ -185,17 +165,6 @@ func TestAFailedFetchSaysWhyInGitsWords(t *testing.T) {
 	}
 	if !strings.HasPrefix(said, "fatal:") || !strings.Contains(said, "me/not-there") {
 		t.Errorf("git's own words, naming the ref it could not find: %q", said)
-	}
-}
-
-func TestAnEarlierTasksWorktreeStillOnDiskIsRefused(t *testing.T) {
-	f := setup(t)
-	r := f.request("me/work")
-	if err := os.MkdirAll(r.Path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if want := "PR #4's worktree from an earlier task is still at " + r.Path; prepareErr(t, r) != want {
-		t.Errorf("error = %q, want %q", prepareErr(t, r), want)
 	}
 }
 

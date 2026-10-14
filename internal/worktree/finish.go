@@ -5,10 +5,10 @@ import (
 	"fmt"
 )
 
-// Finish removes the worktree when the task left nothing behind, and keeps
-// it when it did: uncommitted changes, or commits it never pushed. A
-// worktree is never removed on a guess, so when git cannot say, it is kept
-// too.
+// Finish removes the worktree when the task left no work behind, and keeps
+// it when it did: changes to tracked files, or commits it never pushed. A
+// file the task left untracked is not work (see heldWork). A worktree is
+// never removed on a guess, so when git cannot say, it is kept too.
 //
 // A borrowed worktree is yours, so it always stays, and so does its branch.
 // What the task left in it is still named, so you learn of it.
@@ -21,28 +21,18 @@ import (
 // -d, not -D: -d refuses a branch that is not fully pushed, which the
 // checks before it already ruled out, so a refusal there loses nothing.
 func Finish(ctx context.Context, git Git, root string, p Prepared) (Kept, bool, error) {
-	// --untracked-files is spelled out. With status.showUntrackedFiles=no
-	// in the person's config, a plain status lists no new file, and a file
-	// the task made and did not commit would go with the worktree.
-	changes, err := run(ctx, git, p.Path, "status", "--porcelain", "--untracked-files=normal")
+	why, err := heldWork(ctx, git, p.Path)
 	if err != nil {
-		return keptOnError(p, "git could not read it", err)
+		return keptOnError(p, err)
 	}
-	if changes != "" {
-		return Kept{Path: p.Path, Why: WhyUncommitted}, true, nil
-	}
-	ahead, err := run(ctx, git, p.Path, "rev-list", "--count", "@{upstream}..HEAD")
-	if err != nil {
-		return keptOnError(p, "git could not compare it with origin", err)
-	}
-	if ahead != "0" {
-		return Kept{Path: p.Path, Why: WhyUnpushed}, true, nil
+	if why != "" {
+		return Kept{Path: p.Path, Why: why}, true, nil
 	}
 	if p.Borrowed {
 		return Kept{}, false, nil
 	}
-	if _, err := run(ctx, git, root, "worktree", "remove", p.Path); err != nil {
-		return keptOnError(p, "git could not remove it", err)
+	if err := removeTree(ctx, git, root, p.Path); err != nil {
+		return keptOnError(p, fmt.Errorf("git could not remove it: %w", err))
 	}
 	if p.CreatedBranch {
 		_, _ = git(ctx, root, "branch", "--quiet", "-d", p.Branch)
@@ -50,7 +40,6 @@ func Finish(ctx context.Context, git Git, root string, p Prepared) (Kept, bool, 
 	return Kept{}, false, nil
 }
 
-func keptOnError(p Prepared, what string, err error) (Kept, bool, error) {
-	why := fmt.Sprintf("%s: %v", what, err)
-	return Kept{Path: p.Path, Why: why}, true, fmt.Errorf("%s: %w", what, err)
+func keptOnError(p Prepared, err error) (Kept, bool, error) {
+	return Kept{Path: p.Path, Why: err.Error()}, true, err
 }
