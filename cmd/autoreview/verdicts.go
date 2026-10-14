@@ -27,7 +27,9 @@ var verdictSkills = []string{"auto-review", "recheck-pr"}
 // is the agent's installed one when there is one: Claude Code reads it
 // before the staged copies, and codex reads only its own.
 func verdictCopies(cfg cli.Config, o review.Orchestrator, source skills.Source, repoRoot string) error {
-	if cfg.Verdicts == review.VerdictsAll {
+	// Under --no-post the review runs panel-review, which submits no
+	// verdict and is given no --verdicts.
+	if cfg.Verdicts == review.VerdictsAll || cfg.NoPost {
 		return nil
 	}
 	roots := task.SkillRoots(o, os.Getenv("HOME"), os.Getenv("CODEX_HOME"), session.ConfigDir(os.Getenv), repoRoot)

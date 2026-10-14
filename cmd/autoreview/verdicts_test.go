@@ -75,3 +75,13 @@ func mkdir(t *testing.T, dir string) string {
 	}
 	return dir
 }
+
+// Under --no-post the review runs panel-review, which gets no --verdicts:
+// an old copy of auto-review never runs, and must not stop the run.
+func TestNoPostDoesNotCheckTheSkillsThatGiveAVerdict(t *testing.T) {
+	sandbox(t)
+	settingsFile(t, "[review]\nverdicts = \"approve-only\"\n")
+	if _, stderr, code := autoreview(t, "--orchestrator", "codex", "--no-post", "9"); code != 0 {
+		t.Errorf("--no-post with an old copy: exit %d, stderr %q", code, stderr)
+	}
+}
