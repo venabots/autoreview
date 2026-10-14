@@ -72,11 +72,11 @@ func babysatWhat(c babysit.Change) string {
 }
 
 // babysitLook starts a fix on each babysat PR that changed and needs work.
-// A PR that is approved gets none, and the log says so once: a babysat PR
-// with a red build that nothing fixes would otherwise look forgotten.
-// It runs only after a look at your PRs that worked: after a failed one,
-// the list is the last good one, and a fix that just ended would take its
-// state from before the fix.
+// A PR that is approved gets only a fix of its conflicts, and the log says
+// so once: a babysat PR with a red build that nothing fixes would otherwise
+// look forgotten. It runs only after a look at your PRs that worked: after
+// a failed one, the list is the last good one, and a fix that just ended
+// would take its state from before the fix.
 func (e *Engine) babysitLook(w workers, r run) run {
 	if !r.snap.Babysit.Any() || r.snap.Phase == Stopping || r.snap.Phase == Done {
 		return r
@@ -87,16 +87,23 @@ func (e *Engine) babysitLook(w workers, r run) run {
 	r.snap.Babysit = next
 	for _, pr := range r.looked {
 		if next.OnHold(pr.Number) && !before.OnHold(pr.Number) {
-			e.journal(Noted{Text: fmt.Sprintf("babysitting: PR #%d is approved, so it gets no fix until that changes", pr.Number)})
+			e.journal(Noted{Text: fmt.Sprintf("babysitting: PR #%d is approved, so only a conflict on it gets a fix until that changes", pr.Number)})
 		}
 	}
-	for _, pr := range due {
-		i := slices.IndexFunc(r.looked, func(p mine.PR) bool { return p.Number == pr })
+	for _, d := range due {
+		i := slices.IndexFunc(r.looked, func(p mine.PR) bool { return p.Number == d.PR })
 		found := r.looked[i]
-		e.journal(Noted{Text: fmt.Sprintf("babysitting: fixing PR #%d, which changed and needs work", pr)})
-		r = e.requestTask(w, r, task.Request{PR: pr, Kind: task.Fix, Title: found.Title, Branch: found.Branch, CrossRepo: found.CrossRepo})
+		e.journal(Noted{Text: babysitFixing(d)})
+		r = e.requestTask(w, r, task.Request{PR: d.PR, Kind: d.Kind, Title: found.Title, Branch: found.Branch, CrossRepo: found.CrossRepo})
 	}
 	return r
+}
+
+func babysitFixing(d babysit.Due) string {
+	if d.Kind == task.Conflicts {
+		return fmt.Sprintf("babysitting: fixing the conflicts on PR #%d, which is approved", d.PR)
+	}
+	return fmt.Sprintf("babysitting: fixing PR #%d, which changed and needs work", d.PR)
 }
 
 // taskEnded tells babysitting a task on pr is over, so its own push does

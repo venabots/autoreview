@@ -4,31 +4,39 @@ import (
 	"maps"
 
 	"github.com/venabots/autoreview/internal/mine"
+	"github.com/venabots/autoreview/internal/task"
 )
+
+// Due is one PR to fix now, and the task it gets: a full fix, or only a fix
+// of its conflicts when it is approved.
+type Due struct {
+	PR   int
+	Kind task.Kind
+}
 
 // Look is the state after one look at your PRs, and the PRs to fix now, in
 // the order of list. busy says which PRs have a job running or waiting:
 // those wait for the next look. A nil busy means none do.
 //
 // A fix is recorded as started when Look returns it, so the engine must
-// start one on each PR it returns. Do not call Look after a look that
-// failed: the list would be the last good one, and a fix that just ended
-// would take its state from before the fix.
-func (s State) Look(list []mine.PR, busy func(pr int) bool) (State, []int) {
+// start one on each PR it returns, of the kind it names. Do not call Look
+// after a look that failed: the list would be the last good one, and a fix
+// that just ended would take its state from before the fix.
+func (s State) Look(list []mine.PR, busy func(pr int) bool) (State, []Due) {
 	open := map[int]bool{}
 	for _, pr := range list {
 		open[pr.Number] = true
 	}
 	next := State{all: s.all, prs: keepOpen(s.prs, open), watches: keepOpen(s.watches, open)}
-	var due []int
+	var due []Due
 	for _, pr := range list {
 		if !next.Babysat(pr.Number) || pr.CrossRepo || (busy != nil && busy(pr.Number)) {
 			continue
 		}
-		w, fix := step(next.watches[pr.Number], pr)
+		w, kind, fix := step(next.watches[pr.Number], pr)
 		next.watches[pr.Number] = w
 		if fix {
-			due = append(due, pr.Number)
+			due = append(due, Due{PR: pr.Number, Kind: kind})
 		}
 	}
 	return next, due

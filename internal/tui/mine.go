@@ -128,8 +128,9 @@ func babysatWord(pr mine.PR, s babysit.State) word {
 	case !s.Babysat(pr.Number) || pr.CrossRepo:
 		return word{"no", dimStyle}
 	case pr.Approved():
-		// A push can dismiss the approval, so nothing pushes by itself.
-		return word{"yes · on hold while approved", plainStyle}
+		// A push can dismiss the approval, so only a conflict, which stops
+		// the merge anyway, gets a fix by itself.
+		return word{"yes · approved, so only conflicts get a fix", plainStyle}
 	case n == 1:
 		return word{"yes · 1 fix so far", plainStyle}
 	case n > 1:

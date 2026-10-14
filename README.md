@@ -137,9 +137,10 @@ Babysitting has three limits:
 
 - A fix runs only after the PR changed.
 - At most 3 fixes run in a row while nobody else acts on the PR.
-- An approved PR gets no fix, because a push can dismiss the approval. `f`, `c`
-  and `u` still work by hand, for example to answer the threads that are still
-  open.
+- An approved PR gets only a fix of its conflicts, because a push can dismiss
+  the approval. A PR with conflicts cannot merge, so that push loses nothing.
+  Open threads and a failing build on an approved PR stay for you: `f`, `c`
+  and `u` still work by hand.
 
 ## Which agents?
 

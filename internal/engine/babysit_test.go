@@ -123,7 +123,7 @@ func TestBabysittingLeavesAnApprovedPRAloneAndSaysSoOnce(t *testing.T) {
 		if !b.eng.Snapshot().Babysit.OnHold(4) {
 			t.Error("the snapshot does not say PR #4 is on hold")
 		}
-		const said = "babysitting: PR #4 is approved, so it gets no fix until that changes"
+		const said = "babysitting: PR #4 is approved, so only a conflict on it gets a fix until that changes"
 		if n := len(slices.DeleteFunc(b.notes(), func(note string) bool { return note != said })); n != 1 {
 			t.Errorf("the hold was noted %d times in %q, want once", n, b.notes())
 		}
@@ -135,6 +135,39 @@ func TestBabysittingLeavesAnApprovedPRAloneAndSaysSoOnce(t *testing.T) {
 		synctest.Wait()
 		if got := b.reviewer.started(); !slices.Equal(got, []int{4}) {
 			t.Errorf("started %v: a PR that lost its approval was not fixed", got)
+		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
+func TestBabysittingFixesOnlyTheConflictsOfAnApprovedPR(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f, m := &trees{}, &mineList{}
+		approved := threaded(4)
+		approved.Review, approved.Merge = mine.ReviewApproved, mine.MergeConflicts
+		m.set(approved)
+		b := newBench(t, held(setup{deps: m.deps(f), edit: watchedEvery}))
+		b.eng.Do(Babysit{Change: babysit.One(4, true)})
+		synctest.Wait()
+
+		if job := taskOf(t, b, 4); job.Task != task.Conflicts || job.State != JobRunning {
+			t.Fatalf("the task on an approved PR with conflicts: %+v, want a conflict fix", job)
+		}
+		const said = "babysitting: fixing the conflicts on PR #4, which is approved"
+		if !slices.Contains(b.notes(), said) {
+			t.Errorf("notes = %q, want %q", b.notes(), said)
+		}
+
+		b.reviewer.finish(t, 4, 0, "done")
+		synctest.Wait()
+		merged := approved
+		merged.Head, merged.Merge = "sha-merge", mine.MergeClean
+		m.set(merged)
+		time.Sleep(3 * time.Minute)
+		synctest.Wait()
+		if got := b.reviewer.started(); !slices.Equal(got, []int{4}) {
+			t.Errorf("started %v: the conflict fix's own push was fixed again", got)
 		}
 		b.eng.Do(Quit{})
 		<-b.results
