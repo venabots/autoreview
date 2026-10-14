@@ -109,8 +109,9 @@ number of threads that are still open.
 | `r`   | Reopen the last task in its worktree, when it was kept         |
 | `x x` | Stop the running task. The first `x` asks                      |
 
-On both tabs, `o` opens the PR in the browser, `l` shows the run log, `m` gives
-the mouse back to the terminal so you can select text, and `?` lists every key.
+On both tabs, `o` opens the PR in the browser, `l` shows the run log, and `?`
+lists every key. A drag in the right pane selects its text and copies it. `m`
+gives the mouse back to the terminal, to select text anywhere on the screen.
 `q q` quits: the first `q` asks, because a quit stops every review and task that
 is running. `esc` closes the key list and answers no to a question.
 
@@ -249,7 +250,7 @@ autoreview stats --since 7d
 | A codex run refuses to start              | The skills are not in `~/.agents/skills/`. See [Review skills](#review-skills).                                                                                       |
 | A My PRs key says a skill is missing      | `babysit-pr`, `sync-main` or `pr-comment-handler` is not installed where your orchestrator looks. See [Review skills](#review-skills).                                |
 | A task says the PR is from a fork         | Its branch is not on `origin`, so no worktree can be made for it here.                                                                                                |
-| You cannot select text in the view        | The view has the mouse. Press `m` to give it back to the terminal.                                                                                                    |
+| You cannot select text in the view        | Drag in the right pane to copy its text. For any other text, press `m` to give the mouse back to the terminal.                                                        |
 | `--continue` reviews fresh                | Another process still holds that session.                                                                                                                             |
 | You need to know why a review failed      | Read `pr-N.log` in the logs directory the run prints. In the view, press `l`.                                                                                         |
 

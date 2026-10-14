@@ -58,6 +58,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.wheeled(msg), nil
 	case tea.MouseClickMsg:
 		return m.clicked(msg), nil
+	case tea.MouseMotionMsg:
+		return m.dragged(msg), nil
+	case tea.MouseReleaseMsg:
+		return m.released()
+	case copiedMsg:
+		return m.copied(msg), nil
 	}
 	return m, nil
 }
@@ -324,6 +330,9 @@ func (m Model) synced() Model {
 	case key == "log" && atEnd:
 		// A log that was read at its end keeps showing its end.
 		m.pane.GotoBottom()
+	}
+	if key != m.paneKey {
+		m.sel = selection{}
 	}
 	m.paneKey = key
 	return m

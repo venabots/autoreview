@@ -40,6 +40,9 @@ type Actions struct {
 	// Transcript finds the transcript of a session, for the activity of a
 	// review that is running.
 	Transcript func(id string) (string, bool)
+	// Copy puts text on the system clipboard. It may be nil: the view
+	// also asks the terminal to do it.
+	Copy func(ctx context.Context, text string) error
 }
 
 type tab int
@@ -83,6 +86,8 @@ type Model struct {
 	// paneKey names what the right pane shows. A different key means a
 	// different PR or side, and the pane starts from its top again.
 	paneKey string
+	// sel is the text a drag in the right pane selected.
+	sel selection
 
 	// spin turns while the run is busy. spinning says its ticks are on the
 	// way, so a look that starts does not start a second chain of them.
@@ -138,6 +143,10 @@ type openedMsg struct {
 	pr  int
 	err error
 }
+
+// copiedMsg says whether the clipboard outside the terminal took the
+// text.
+type copiedMsg struct{ err error }
 
 type resumedMsg struct {
 	pr int

@@ -16,6 +16,7 @@ import (
 	xterm "github.com/charmbracelet/x/term"
 
 	"github.com/venabots/autoreview/internal/cli"
+	"github.com/venabots/autoreview/internal/clipboard"
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/gh"
 	"github.com/venabots/autoreview/internal/mine"
@@ -178,5 +179,8 @@ func actions(rc repo.Context) tui.Actions {
 		},
 		ResumeCommand: term.ResumeCommand,
 		Transcript:    session.StoreIn(session.ConfigDir(os.Getenv)).Transcript,
+		Copy: func(ctx context.Context, text string) error {
+			return clipboard.Copy(ctx, exec.LookPath, os.Getenv, clipboard.Exec, text)
+		},
 	}
 }

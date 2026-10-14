@@ -71,7 +71,7 @@ func (m Model) footer() string {
 // them on a wide screen, stacked with a rule between them on a narrow one.
 func (m Model) body() []string {
 	list := m.listPane()
-	pane := exactly(strings.Split(m.pane.View(), "\n"), m.lay.detail.h)
+	pane := exactly(highlighted(strings.Split(m.pane.View(), "\n"), m.pane.YOffset(), m.sel), m.lay.detail.h)
 	if m.lay.wide {
 		rule := dimStyle.Render("│") + " "
 		out := make([]string, len(list))
