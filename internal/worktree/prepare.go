@@ -21,6 +21,9 @@ func Prepare(ctx context.Context, git Git, r Request) (Prepared, error) {
 	if err := refuseBeforeGit(r); err != nil {
 		return Prepared{}, err
 	}
+	if err := clearLeftover(ctx, git, r); err != nil {
+		return Prepared{}, err
+	}
 	if err := fetch(ctx, git, r); err != nil {
 		return Prepared{}, err
 	}
@@ -100,9 +103,6 @@ func refuseBeforeGit(r Request) error {
 	}
 	if r.Branch == "" || strings.HasPrefix(r.Branch, "-") {
 		return fmt.Errorf("PR #%d has no branch this run can check out", r.PR)
-	}
-	if exists(r.Path) {
-		return fmt.Errorf("PR #%d's worktree from an earlier task is still at %s", r.PR, r.Path)
 	}
 	return nil
 }
