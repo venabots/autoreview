@@ -21,26 +21,29 @@ const (
 
 // withLoopFlags checks the flags that say what a run does after its first
 // pass. babysit is the raw --babysit value, noValue when it was given bare.
-func withLoopFlags(cfg Config, raw map[string]*string, babysit string, given func(string) bool, env func(string) string) (Config, error) {
+func withLoopFlags(cfg Config, raw map[string]*string, babysit string, given func(string) bool, env func(string) string, set settings) (Config, error) {
 	cfg.WatchGiven = given("watch")
 	cfg.BabysitGiven = given("babysit")
 	if cfg.Once && (cfg.WatchGiven || cfg.BabysitGiven) {
 		return Config{}, errors.New("--once cannot be used with --watch or --babysit, which keep the run going")
 	}
 	var err error
-	value := chosen(babysit, babysit != "" && babysit != noValue, env(EnvBabysit), defaultBabysit)
+	value, told := set.pick("babysit", babysit, babysit != "" && babysit != noValue, env(EnvBabysit), defaultBabysit)
 	if cfg.Babysit, err = ParseInterval(value, "babysit"); err != nil {
-		return Config{}, err
+		return Config{}, told(err)
 	}
-	if cfg.CIWait, err = ParseInterval(chosen("", false, env(EnvCIWait), defaultCIWait), "CI wait"); err != nil {
-		return Config{}, err
+	// The wait for checks has no flag.
+	value, told = set.pick("ci-wait", "", false, env(EnvCIWait), defaultCIWait)
+	if cfg.CIWait, err = ParseInterval(value, "CI wait"); err != nil {
+		return Config{}, told(err)
 	}
-	if cfg.MaxIdle, err = count("max-idle", chosen(*raw["max-idle"], given("max-idle"), env(EnvMaxIdle), defaultMaxIdle), 1, maxIdle); err != nil {
-		return Config{}, err
+	value, told = set.pick("max-idle", *raw["max-idle"], given("max-idle"), env(EnvMaxIdle), defaultMaxIdle)
+	if cfg.MaxIdle, err = count("max-idle", value, 1, maxIdle); err != nil {
+		return Config{}, told(err)
 	}
-	cfg.MaxPasses, err = count("max-passes", chosen(*raw["max-passes"], given("max-passes"), env(EnvMaxPasses), defaultMaxPasses), 1, maxPasses)
-	if err != nil {
-		return Config{}, err
+	value, told = set.pick("max-passes", *raw["max-passes"], given("max-passes"), env(EnvMaxPasses), defaultMaxPasses)
+	if cfg.MaxPasses, err = count("max-passes", value, 1, maxPasses); err != nil {
+		return Config{}, told(err)
 	}
 	return cfg, nil
 }

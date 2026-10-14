@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/venabots/autoreview/internal/config"
 	"github.com/venabots/autoreview/internal/review"
 )
 
@@ -110,9 +111,17 @@ var valued = []string{"jobs", "timeout", "budget", "log-dir", "skills", "focus",
 // noValue marks a --watch given with no value. No interval can contain it.
 const noValue = "\x00"
 
-// Parse reads the arguments after the program name. env looks a variable
-// up, and an empty value counts as unset.
+// Parse reads the arguments after the program name, with no settings
+// file. env looks a variable up, and an empty value counts as unset.
 func Parse(args []string, env func(string) string) (Config, error) {
+	return ParseWith(args, env, config.File{})
+}
+
+// ParseWith reads the arguments with the person's settings file between
+// the variables and the built-in defaults. The file only gives values: a
+// run off a terminal loops when --watch or --babysit is given, whatever the
+// file says.
+func ParseWith(args []string, env func(string) string, file config.File) (Config, error) {
 	if err := refuseSpacedValue(args); err != nil {
 		return Config{}, err
 	}
@@ -161,53 +170,80 @@ func Parse(args []string, env func(string) string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	interval, err := ParseInterval(watchValue(watch, env), "watch")
+	set := settingsOf(file)
+	value, told := set.pick("watch", watch, watch != "" && watch != noValue, env(EnvWatch), DefaultWatch)
+	interval, err := ParseInterval(value, "watch")
 	if err != nil {
-		return Config{}, err
+		return Config{}, told(err)
 	}
 	cfg.View, cfg.Only, cfg.Watch = view, only, interval
 	given := func(name string) bool { return fs.Changed(name) }
-	cfg, err = withReviewFlags(cfg, raw, given, env)
+	cfg = withFileSwitches(cfg, set, given)
+	cfg, err = withReviewFlags(cfg, raw, given, env, set)
 	if err != nil {
 		return Config{}, err
 	}
-	return withLoopFlags(cfg, raw, babysit, given, env)
+	return withLoopFlags(cfg, raw, babysit, given, env, set)
+}
+
+// withFileSwitches takes the flags with no value from the settings file
+// when they were not given. --all=false turns one off for one run.
+func withFileSwitches(cfg Config, set settings, given func(string) bool) Config {
+	switched := func(name string, flag bool) bool {
+		if on, ok := set.on[name]; ok && !given(name) {
+			return on
+		}
+		return flag
+	}
+	cfg.All = switched("all", cfg.All)
+	cfg.Dependabot = switched("dependabot", cfg.Dependabot)
+	cfg.Stacked = switched("stacked", cfg.Stacked)
+	cfg.SkipCI = switched("skip-wait-for-ci", cfg.SkipCI)
+	return cfg
 }
 
 // withReviewFlags checks the flags that say how a review runs.
-func withReviewFlags(cfg Config, raw map[string]*string, given func(string) bool, env func(string) string) (Config, error) {
+func withReviewFlags(cfg Config, raw map[string]*string, given func(string) bool, env func(string) string, set settings) (Config, error) {
 	for _, name := range valued {
 		if err := refuseFlagAsValue(name, *raw[name]); err != nil {
 			return Config{}, err
 		}
 	}
-	var err error
-	if cfg.Jobs, err = count("jobs", chosen(*raw["jobs"], given("jobs"), env(EnvJobs), defaultJobs), 1, maxJobs); err != nil {
-		return Config{}, err
+	pick := func(name, envName, fallback string) (string, func(error) error) {
+		return set.pick(name, *raw[name], given(name), env(envName), fallback)
 	}
-	timeout, err := count("timeout", chosen(*raw["timeout"], given("timeout"), env(EnvTimeout), defaultTimeout), 0, maxTimeout)
+	var err error
+	value, told := pick("jobs", EnvJobs, defaultJobs)
+	if cfg.Jobs, err = count("jobs", value, 1, maxJobs); err != nil {
+		return Config{}, told(err)
+	}
+	value, told = pick("timeout", EnvTimeout, defaultTimeout)
+	timeout, err := count("timeout", value, 0, maxTimeout)
 	if err != nil {
-		return Config{}, err
+		return Config{}, told(err)
 	}
 	cfg.Timeout = seconds(timeout)
-	if value := chosen(*raw["budget"], given("budget"), env(EnvBudget), ""); value != "" || given("budget") {
+	if value, told = pick("budget", EnvBudget, ""); value != "" || given("budget") {
 		if cfg.Budget, err = budget(value); err != nil {
-			return Config{}, err
+			return Config{}, told(err)
 		}
 	}
-	if given("focus") {
-		if cfg.Focus, err = ParseFocus(*raw["focus"]); err != nil {
-			return Config{}, err
+	// --focus has no variable.
+	if value, told = set.pick("focus", *raw["focus"], given("focus"), "", ""); value != "" || given("focus") {
+		if cfg.Focus, err = ParseFocus(value); err != nil {
+			return Config{}, told(err)
 		}
 	}
-	if cfg.Orchestrator, err = review.ParseOrchestrator(chosen(*raw["orchestrator"], given("orchestrator"), env(EnvOrchestrator), "claude")); err != nil {
-		return Config{}, err
+	value, told = pick("orchestrator", EnvOrchestrator, "claude")
+	if cfg.Orchestrator, err = review.ParseOrchestrator(value); err != nil {
+		return Config{}, told(err)
 	}
-	if cfg.Fallback, err = review.ParseFallback(chosen(*raw["fallback"], given("fallback"), env(EnvFallback), "auto")); err != nil {
-		return Config{}, err
+	value, told = pick("fallback", EnvFallback, "auto")
+	if cfg.Fallback, err = review.ParseFallback(value); err != nil {
+		return Config{}, told(err)
 	}
 	if cfg.Fallback.Kind == review.FallbackSpec && cfg.Fallback.Spec == cfg.Orchestrator {
-		return Config{}, fmt.Errorf("--fallback %s is the orchestrator itself; name another, or none", cfg.Orchestrator.Label())
+		return Config{}, told(fmt.Errorf("--fallback %s is the orchestrator itself; name another, or none", cfg.Orchestrator.Label()))
 	}
 	cfg.LogDir = chosen(*raw["log-dir"], given("log-dir"), env(EnvLogDir), "")
 	cfg.Skills = chosen(*raw["skills"], given("skills"), env(EnvSkills), "")
@@ -234,16 +270,6 @@ func viewFrom(screen, plain bool) (View, error) {
 		return ViewPlain, nil
 	}
 	return ViewAuto, nil
-}
-
-func watchValue(flag string, env func(string) string) string {
-	if flag != "" && flag != noValue {
-		return flag
-	}
-	if fromEnv := env(EnvWatch); fromEnv != "" {
-		return fromEnv
-	}
-	return DefaultWatch
 }
 
 // prNumbers reads the positional arguments. Anything that is not a PR

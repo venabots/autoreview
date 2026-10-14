@@ -60,6 +60,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		say(stdout, "autoreview %s\n", version)
 		return engine.ExitOK
 	}
+	// The settings file is read after --help and --version, which must
+	// work whatever the file says, and parsed with the flags again.
+	file, err := settings(os.Getenv)
+	if err == nil {
+		cfg, err = cli.ParseWith(args, os.Getenv, file)
+	}
+	if err != nil {
+		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
+		return engine.ExitFailed
+	}
 
 	// A closed pipe must end a write with an error, not end the process:
 	// `autoreview --headless | head` would otherwise die with work running.

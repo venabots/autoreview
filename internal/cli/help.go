@@ -95,6 +95,13 @@ end.
   --help, -h          Print this text.
   --version, -V       Print the version.
 
+Settings: $XDG_CONFIG_HOME/autoreview/config.toml (default
+~/.config/autoreview/config.toml) gives a value to each setting that no flag
+and no variable gives. A flag wins over its variable, and the variable wins
+over the file. The file never makes a run loop by itself. $AUTOREVIEW_CONFIG
+names another file, or "off" reads none. A switch that the file turns on, such
+as approved = true, is turned off for one run with --all=false.
+
 $AUTOREVIEW_CI_WAIT is how long a one-pass run waits for checks that are
 still running (default 30 minutes). $AUTOREVIEW_CMD names a shell command that
 replaces the built-in reviewer; the PR number replaces each {} in it, or is
