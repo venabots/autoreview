@@ -37,10 +37,15 @@ func shaN(i int) string {
 	return fmt.Sprintf("sha%d", i+10)
 }
 
-// look is one look at list, with no job running on any PR, and the PRs
-// it fixes.
+// look is one look at list, with no job running on any PR and the default
+// cap, and the PRs it fixes.
 func look(s State, list ...mine.PR) (State, []int) {
-	next, due := lookDue(s, list...)
+	return lookUnder(MaxStreak, s, list...)
+}
+
+// lookUnder is look with a cap of limit fixes in a row.
+func lookUnder(limit int, s State, list ...mine.PR) (State, []int) {
+	next, due := s.Look(list, nil, limit)
 	prs := make([]int, 0, len(due))
 	for _, d := range due {
 		prs = append(prs, d.PR)
@@ -54,7 +59,7 @@ func look(s State, list ...mine.PR) (State, []int) {
 // lookDue is one look at list, with no job running on any PR, and the fix
 // each PR gets.
 func lookDue(s State, list ...mine.PR) (State, []Due) {
-	return s.Look(list, nil)
+	return s.Look(list, nil, MaxStreak)
 }
 
 func babysitting(numbers ...int) State {

@@ -61,12 +61,17 @@ func refuseFlagAsValue(name, value string) error {
 // count reads a whole number within bounds. Both bounds are named in the
 // error, so a person does not have to find them by trial.
 func count(name, raw string, least, most int) (int, error) {
+	return countOf("--"+name, raw, least, most)
+}
+
+// countOf is count for a value that the error calls what.
+func countOf(what, raw string, least, most int) (int, error) {
 	n, err := strconv.Atoi(raw)
 	if err != nil || !allDigits(raw) || n < least {
-		return 0, fmt.Errorf("--%s expects an integer >= %d, got %q", name, least, raw)
+		return 0, fmt.Errorf("%s expects an integer >= %d, got %q", what, least, raw)
 	}
 	if n > most {
-		return 0, fmt.Errorf("--%s expects an integer <= %d, got %q", name, most, raw)
+		return 0, fmt.Errorf("%s expects an integer <= %d, got %q", what, most, raw)
 	}
 	return n, nil
 }

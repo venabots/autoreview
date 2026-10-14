@@ -23,6 +23,7 @@ type File struct {
 	Review Review `toml:"review"`
 	Loop   Loop   `toml:"loop"`
 	PRs    PRs    `toml:"prs"`
+	Mine   Mine   `toml:"mine"`
 }
 
 // Review is how each review runs.
@@ -52,6 +53,13 @@ type PRs struct {
 	Dependabot *bool `toml:"dependabot"`
 	Stacked    *bool `toml:"stacked"`
 	SkipCI     *bool `toml:"skip_ci"`
+}
+
+// Mine is what is done to your own PRs.
+type Mine struct {
+	// AutofixCap is the most fixes a PR gets in a row while nobody else
+	// acts on it.
+	AutofixCap *int `toml:"autofix_cap"`
 }
 
 // Load reads the settings file at path. A file that is not there has no

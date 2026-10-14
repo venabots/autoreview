@@ -61,6 +61,9 @@ type Config struct {
 	// MaxPasses is how many reviews one PR gets in a run.
 	MaxIdle   int
 	MaxPasses int
+	// AutofixCap is the most fixes one of your PRs gets in a row while
+	// nobody else acts on it. Only the settings file sets it.
+	AutofixCap int
 	// NoPost reviews and leaves the PR alone.
 	NoPost bool
 	// Continue resumes a PR's earlier review session.

@@ -50,6 +50,7 @@ func settingsOf(f config.File) settings {
 	number("max-passes", "loop.max_passes", f.Loop.MaxPasses)
 	number("max-idle", "loop.max_idle", f.Loop.MaxIdle)
 	text("ci-wait", "loop.ci_wait", f.Loop.CIWait)
+	number("autofix-cap", "mine.autofix_cap", f.Mine.AutofixCap)
 	flag("all", f.PRs.Approved)
 	flag("dependabot", f.PRs.Dependabot)
 	flag("stacked", f.PRs.Stacked)

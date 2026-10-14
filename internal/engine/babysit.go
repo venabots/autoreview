@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 
@@ -93,7 +94,7 @@ func (e *Engine) babysitLook(w workers, r run) run {
 	}
 	busy := func(pr int) bool { return liveTask(r.tasks, pr) >= 0 }
 	before := r.snap.Babysit
-	next, due := before.Look(r.looked, busy)
+	next, due := before.Look(r.looked, busy, cmp.Or(e.cfg.AutofixCap, babysit.MaxStreak))
 	r.snap.Babysit = next
 	for _, pr := range r.looked {
 		if next.OnHold(pr.Number) && !before.OnHold(pr.Number) {

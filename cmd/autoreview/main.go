@@ -124,11 +124,12 @@ func wantsScreen(view cli.View, stderr io.Writer) bool {
 //     still running.
 func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 	c := engine.Config{
-		Repo:      rc,
-		Gates:     prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
-		Only:      cfg.Only,
-		MaxPasses: cfg.MaxPasses,
-		MaxIdle:   cfg.MaxIdle,
+		Repo:       rc,
+		Gates:      prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
+		Only:       cfg.Only,
+		MaxPasses:  cfg.MaxPasses,
+		MaxIdle:    cfg.MaxIdle,
+		AutofixCap: cfg.AutofixCap,
 	}
 	switch {
 	case screen || cfg.WatchGiven:

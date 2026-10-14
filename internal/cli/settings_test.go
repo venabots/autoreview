@@ -59,6 +59,19 @@ func TestTheFlagWinsThenTheVariableThenTheFileThenTheDefault(t *testing.T) {
 	}
 }
 
+func TestTheAutofixCapComesFromTheFile(t *testing.T) {
+	if cfg := parse(t); cfg.AutofixCap != 3 {
+		t.Errorf("the default cap is %d, want 3", cfg.AutofixCap)
+	}
+	if cfg := parseWith(t, nil, withSettings(func(f *config.File) { f.Mine.AutofixCap = ptr(5) })); cfg.AutofixCap != 5 {
+		t.Errorf("the cap is %d, want the file's 5", cfg.AutofixCap)
+	}
+	_, err := ParseWith(nil, noEnv, withSettings(func(f *config.File) { f.Mine.AutofixCap = ptr(0) }))
+	if want := "mine.autofix_cap in " + settingsPath + ": the autofix cap expects an integer >= 1"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("a cap of 0: %v, want %q", err, want)
+	}
+}
+
 func TestABareWatchOrBabysitTakesTheFilesValue(t *testing.T) {
 	file := withSettings(func(f *config.File) { f.Loop.Watch, f.Loop.Rest = ptr("5m"), ptr("1h") })
 	cfg := parseWith(t, nil, file, "--watch", "--babysit")
