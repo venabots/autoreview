@@ -101,14 +101,14 @@ held under another PR, seen, or approved.
 CI, requested changes, open threads. An approved PR reads `approved`, with the
 number of threads that are still open.
 
-| Key   | What it does                                                   |
-| ----- | -------------------------------------------------------------- |
-| `f`   | Fix the selected PR once: conflicts, comments and CI           |
-| `F`   | Fix each of your PRs that needs it, once                       |
-| `a`   | Autofix the PR: fix it again each time it changes and needs it |
-| `A`   | Autofix all your PRs, and any you open later                   |
-| `r`   | Reopen the last task in its worktree, when it was kept         |
-| `x x` | Stop the running task. The first `x` asks                      |
+| Key   | What it does                                                     |
+| ----- | ---------------------------------------------------------------- |
+| `f`   | Fix the selected PR once: conflicts, comments and CI             |
+| `F`   | Fix each of your PRs that needs it, once                         |
+| `a`   | Autofix the PR: fix it again each time it changes and needs it   |
+| `A`   | Autofix all your PRs, and any you open later                     |
+| `r`   | Reopen the last task in its worktree, if it was kept or is yours |
+| `x x` | Stop the running task. The first `x` asks                        |
 
 On both tabs, `o` opens the PR in the browser, `l` shows the run log, and `?`
 lists every key. A drag in the right pane selects its text and copies it. `m`

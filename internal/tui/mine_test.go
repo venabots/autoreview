@@ -180,6 +180,26 @@ func TestRResumesTheLastTaskInItsWorktree(t *testing.T) {
 	wantOnScreen(t, m, "opened PR #4's task in a new cmux tab")
 }
 
+// A task that ran in your own worktree leaves it in place, also when it
+// left nothing in it, so r reopens the task there.
+func TestRResumesATaskInYourOwnWorktree(t *testing.T) {
+	m, hs := onMine(t, func(s *engine.Snapshot) {
+		s.Tasks = []engine.Job{{PR: 4, Task: task.Fix, State: engine.JobDone, Session: "0b5c7d1e-2f3a-4b6c-8d9e-0f1a2b3c4d5e",
+			Worktree: "/home/me/work", Yours: true, Orchestrator: review.Claude()}}
+	})
+	wantOnScreen(t, m, "worktree  /home/me/work (yours)")
+	next, cmd := m.Update(keys["r"])
+	m = next.(Model)
+	wantOnScreen(t, m, "opening PR #4's task in a new tab")
+	if cmd == nil {
+		t.Fatal("r started nothing")
+	}
+	send(m, cmd())
+	if want := []string{"PR 4 Resume: cd /home/me/work && claude --resume 0b5c7d1e-2f3a-4b6c-8d9e-0f1a2b3c4d5e"}; !reflect.DeepEqual(hs.tabs, want) {
+		t.Errorf("tabs = %q, want %q", hs.tabs, want)
+	}
+}
+
 func TestRSaysWhyATaskCannotBeResumed(t *testing.T) {
 	gone := engine.Job{PR: 4, Task: task.Fix, State: engine.JobDone, Session: "0b5c7d1e-2f3a-4b6c-8d9e-0f1a2b3c4d5e", Worktree: "/wt/pr-4", Orchestrator: review.Claude()}
 	live := engine.Job{PR: 4, Task: task.Fix, State: engine.JobRunning, StartedAt: start}

@@ -154,8 +154,11 @@ func taskLines(job engine.Job, live bool, now time.Time) []line {
 	}
 	if job.Worktree != "" {
 		where := job.Worktree
-		if job.Kept != "" {
+		switch {
+		case job.Kept != "":
 			where += " (kept: " + job.Kept + ")"
+		case job.Yours:
+			where += " (yours)"
 		}
 		lines = append(lines, field("worktree", word{where, dimStyle}))
 	}

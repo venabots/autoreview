@@ -133,7 +133,7 @@ func (m Model) resumingTask() (tea.Model, tea.Cmd) {
 		return m.flashed(fmt.Sprintf("PR #%d has a task running; resume it when it ends", pr)), nil
 	case sessionOf(*row.task) == "":
 		return m.flashed(fmt.Sprintf("PR #%d's task has no session to resume", pr)), nil
-	case row.task.Kept == "":
+	case row.task.Kept == "" && !row.task.Yours:
 		return m.flashed(fmt.Sprintf("PR #%d's task worktree is gone; its session was %s", pr, sessionOf(*row.task))), nil
 	}
 	command := m.act.ResumeCommand(row.task.Worktree, row.task.Orchestrator.ReopenCommand(sessionOf(*row.task)))
