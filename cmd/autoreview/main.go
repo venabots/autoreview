@@ -46,6 +46,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == cli.Panel {
 		return runPanel(args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == cli.Setup {
+		return runSetup(args[1:], stdout, stderr)
+	}
 
 	cfg, err := cli.Parse(args, os.Getenv)
 	if err != nil {
@@ -83,7 +86,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return engine.ExitFailed
 	}
 
-	if !wantsScreen(cfg.View, stderr) {
+	screen := wantsScreen(cfg.View, stderr)
+	// The first run in the view asks for the settings. A run that prints
+	// plain lines never asks: nobody may be there to answer.
+	if screen && needsSetup(file) {
+		next, err := setUp(file)
+		if err == nil {
+			cfg, err = cli.ParseWith(args, os.Getenv, next)
+		}
+		if code := setupEnded(err, file.Path, stdout, stderr); err != nil {
+			return code
+		}
+	}
+	if !screen {
 		return runHeadless(cfg, rc, stdout, stderr)
 	}
 	return runScreen(cfg, rc, stdout, stderr)

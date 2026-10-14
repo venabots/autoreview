@@ -14,6 +14,8 @@ Usage: autoreview [PR ...] [--watch[=MINUTES]] [--babysit[=MINUTES]] [--once]
                   (how each model has done; see autoreview stats --help)
        autoreview panel [--base REF | --uncommitted | --staged | --tree [PATH]]
                   (one change, several models; see autoreview panel --help)
+       autoreview setup
+                  (ask for the settings and write them; see Settings below)
        autoreview --help | --version
 
 Run it inside a GitHub checkout. A PR is ready for review when something on
@@ -97,7 +99,8 @@ end.
 
 Settings: $XDG_CONFIG_HOME/autoreview/config.toml (default
 ~/.config/autoreview/config.toml) gives a value to each setting that no flag
-and no variable gives. A flag wins over its variable, and the variable wins
+and no variable gives. The first run in the view asks for the main settings
+and writes the file; autoreview setup asks again. A flag wins over its variable, and the variable wins
 over the file. The file never makes a run loop by itself. $AUTOREVIEW_CONFIG
 names another file, or "off" reads none. A switch that the file turns on, such
 as approved = true, is turned off for one run with --all=false.

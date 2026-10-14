@@ -86,6 +86,11 @@ func Load(path string) (File, error) {
 	if err != nil {
 		return File{}, fmt.Errorf("reading the settings in %s: %w", path, err)
 	}
+	return Parse(raw, path)
+}
+
+// Parse reads the text of a settings file that is, or will be, at path.
+func Parse(raw []byte, path string) (File, error) {
 	f := File{Path: path, Found: true}
 	md, err := toml.Decode(string(raw), &f)
 	if err != nil {
