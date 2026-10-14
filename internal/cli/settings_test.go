@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,21 @@ func TestTheAutofixCapComesFromTheFile(t *testing.T) {
 	_, err := ParseWith(nil, noEnv, withSettings(func(f *config.File) { f.Mine.AutofixCap = ptr(0) }))
 	if want := "mine.autofix_cap in " + settingsPath + ": the autofix cap expects an integer >= 1"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("a cap of 0: %v, want %q", err, want)
+	}
+}
+
+func TestThePanelComesFromTheFileUnlessTheVariableNamesOne(t *testing.T) {
+	file := withSettings(func(f *config.File) { f.Panel.Panelists = []string{"claude:opus-4.8", "codex"} })
+	if cfg := parseWith(t, nil, file); !slices.Equal(cfg.Panelists, []string{"claude:opus-4.8", "codex"}) {
+		t.Errorf("panelists %q, want the file's", cfg.Panelists)
+	}
+	// panel-review.sh reads the variable itself, so the run leaves it be.
+	if cfg := parseWith(t, map[string]string{EnvPanelists: "opencode"}, file); cfg.Panelists != nil {
+		t.Errorf("panelists %q, want none when $%s names a panel", cfg.Panelists, EnvPanelists)
+	}
+	_, err := ParseWith(nil, noEnv, withSettings(func(f *config.File) { f.Panel.Panelists = []string{"claude", "gemini"} }))
+	if want := "panel.panelists in " + settingsPath + ": unknown panelist backend \"gemini\""; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("a bad panelist: %v, want %q", err, want)
 	}
 }
 

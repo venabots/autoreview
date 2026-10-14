@@ -279,6 +279,7 @@ func (e *Engine) request(j job, r run) review.Request {
 		SkillsDir:    e.deps.SkillsDir,
 		Override:     e.cfg.Override,
 		Dashp:        e.cfg.Dashp,
+		Panelists:    e.cfg.Panelists,
 		Dir:          e.cfg.Repo.Root,
 		Stdout:       r.pass.Stdout(pr),
 		Stderr:       r.pass.Stderr(pr),

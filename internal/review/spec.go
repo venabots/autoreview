@@ -62,6 +62,9 @@ type Request struct {
 	Override string
 	// Dashp is the path of the dash-p binary.
 	Dashp string
+	// Panelists is the panel the review seats, each backend[:model], or
+	// nil for the one panel-review.sh picks itself.
+	Panelists []string
 	// Dir is the working directory: the repo root.
 	Dir string
 	// Stdout, Stderr and Meta are files in the run directory.
@@ -97,11 +100,22 @@ func SpecFor(r Request) Spec {
 	return Spec{
 		Path:   r.Dashp,
 		Args:   dashpArgs(r),
+		Env:    panelEnv(r),
 		Dir:    r.Dir,
 		Stdout: r.Stdout,
 		Stderr: r.Stderr,
 		Guard:  dashpGuard(r.Timeout),
 	}
+}
+
+// panelEnv hands the person's panel to panel-review.sh, which reads it from
+// $PANEL_REVIEW_PANELISTS when no --panelist is given. A task seats no
+// panel. The specs are joined by spaces, as the script splits them.
+func panelEnv(r Request) []string {
+	if r.Task != "" || len(r.Panelists) == 0 {
+		return nil
+	}
+	return []string{"PANEL_REVIEW_PANELISTS=" + strings.Join(r.Panelists, " ")}
 }
 
 // Skill is the skill a review runs.

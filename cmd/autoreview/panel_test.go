@@ -343,3 +343,24 @@ func TestPanelIsASubcommandOnlyAsTheFirstArgument(t *testing.T) {
 		t.Error("autoreview --help does not mention the panel subcommand")
 	}
 }
+
+func TestThePanelInTheSettingsIsSeatedWhenNoFlagNamesOne(t *testing.T) {
+	b := panelSandbox(t)
+	settingsFile(t, "[panel]\npanelists = [\"codex\", \"opencode:glm-5.2\"]\nsynth = \"opencode\"\n")
+
+	stdout, stderr, code := b.panel("--base", "main")
+	if code != 0 {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	contains(t, "stdout", stdout, "- Panelists: codex, opencode-glm-5.2\n")
+	contains(t, "the dash-p calls", b.calls(), "--harness=opencode --output-format=text")
+	lacks(t, "the dash-p calls", b.calls(), "--harness=claude")
+
+	settingsFile(t, "[panel]\npanelists = [\"gemini\"]\n")
+	if _, stderr, code := b.panel("--base", "main"); code != 1 || !strings.Contains(stderr, "panel.panelists in ") {
+		t.Errorf("a bad panelist in the settings: exit %d, stderr %q", code, stderr)
+	}
+	if _, _, code := b.panel("--help"); code != 0 {
+		t.Errorf("--help with a bad settings file: exit %d", code)
+	}
+}

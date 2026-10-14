@@ -24,6 +24,7 @@ type File struct {
 	Loop   Loop   `toml:"loop"`
 	PRs    PRs    `toml:"prs"`
 	Mine   Mine   `toml:"mine"`
+	Panel  Panel  `toml:"panel"`
 }
 
 // Review is how each review runs.
@@ -60,6 +61,16 @@ type Mine struct {
 	// AutofixCap is the most fixes a PR gets in a row while nobody else
 	// acts on it.
 	AutofixCap *int `toml:"autofix_cap"`
+}
+
+// Panel is the models that review together. Each one is written
+// backend[:model], as `autoreview panel --panelist` takes it.
+type Panel struct {
+	// Panelists is the panel a review seats. Empty is every backend on
+	// PATH.
+	Panelists []string `toml:"panelists"`
+	// Synth is the model that writes `autoreview panel`'s synthesis.
+	Synth *string `toml:"synth"`
 }
 
 // Load reads the settings file at path. A file that is not there has no

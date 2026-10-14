@@ -45,6 +45,7 @@ func runPanel(args []string, stdout, stderr io.Writer) int {
 		TempDir:  os.TempDir(),
 		PID:      os.Getpid(),
 		Version:  version,
+		Settings: func() (panel.Settings, error) { return panelSettings(os.Getenv) },
 	})
 }
 

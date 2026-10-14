@@ -168,6 +168,10 @@ func prepare(cfg cli.Config, rc repo.Context) (prepared, error) {
 		}
 		p.fallback, p.fallbackLine = fallback, line
 		p.notes = review.BudgetNotes(cfg.Budget, cfg.Orchestrator, fallback)
+		if len(cfg.Panelists) == 1 {
+			// auto-review approves only when several models reviewed.
+			p.notes = append(p.notes, "the settings seat one panelist, so no review approves a PR: auto-review asks for several")
+		}
 	}
 	source, err := skills.Parse(cfg.Skills)
 	if err != nil {

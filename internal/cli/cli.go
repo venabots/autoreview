@@ -64,6 +64,10 @@ type Config struct {
 	// AutofixCap is the most fixes one of your PRs gets in a row while
 	// nobody else acts on it. Only the settings file sets it.
 	AutofixCap int
+	// Panelists is the panel a review seats, each backend[:model], or nil
+	// for the one panel-review.sh picks: $PANEL_REVIEW_PANELISTS, or every
+	// backend on PATH.
+	Panelists []string
 	// NoPost reviews and leaves the PR alone.
 	NoPost bool
 	// Continue resumes a PR's earlier review session.
@@ -182,6 +186,9 @@ func ParseWith(args []string, env func(string) string, file config.File) (Config
 	cfg.View, cfg.Only, cfg.Watch = view, only, interval
 	given := func(name string) bool { return fs.Changed(name) }
 	cfg = withFileSwitches(cfg, set, given)
+	if cfg.Panelists, err = panelists(file, env); err != nil {
+		return Config{}, err
+	}
 	cfg, err = withReviewFlags(cfg, raw, given, env, set)
 	if err != nil {
 		return Config{}, err

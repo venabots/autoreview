@@ -362,3 +362,21 @@ func TestATaskRunsItsSkillAndNothingElse(t *testing.T) {
 		t.Errorf("a codex task's prompt is %q, want the skill and no trailer request", got[len(got)-1])
 	}
 }
+
+// panel-review.sh seats the panel that $PANEL_REVIEW_PANELISTS names. A
+// review gets the person's panel through it, and a task, which seats no
+// panel, gets nothing.
+func TestThePersonsPanelReachesAReviewThroughItsEnvironment(t *testing.T) {
+	r := request()
+	r.Panelists = []string{"claude:opus-4.8", "codex"}
+	if got := SpecFor(r).Env; !slices.Equal(got, []string{"PANEL_REVIEW_PANELISTS=claude:opus-4.8 codex"}) {
+		t.Errorf("a review's Env = %q", got)
+	}
+	r.Task = "babysit-pr"
+	if got := SpecFor(r).Env; len(got) != 0 {
+		t.Errorf("a task's Env = %q, want nothing", got)
+	}
+	if got := SpecFor(request()).Env; len(got) != 0 {
+		t.Errorf("with no panel, Env = %q, want nothing", got)
+	}
+}
