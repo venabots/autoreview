@@ -39,3 +39,13 @@ func TestASettingsFileThatCannotBeReadStopsTheRunButNotTheHelp(t *testing.T) {
 		t.Errorf("a bad value: exit %d, stderr %q", code, stderr)
 	}
 }
+
+// The checks that join two values see both: a file that moves the
+// orchestrator to codex lets a flag name claude as the fallback.
+func TestAFlagIsCheckedWithTheFilesValuesAndNotWithTheDefaults(t *testing.T) {
+	sandbox(t)
+	settingsFile(t, "[review]\norchestrator = \"codex\"\n")
+	if stdout, stderr, code := autoreview(t, "--fallback", "claude", "9"); code != 0 || !strings.Contains(stdout, "fallback: claude") {
+		t.Errorf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+}

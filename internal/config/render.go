@@ -37,7 +37,8 @@ type Values struct {
 // fileTemplate writes every key with a comment that says what it does, so
 // the file explains itself to the person who opens it in an editor.
 var fileTemplate = template.Must(template.New("config.toml").Funcs(template.FuncMap{"q": quoted, "list": list}).Parse(
-	`# autoreview settings. ` + "`autoreview setup`" + ` writes this file, and you can edit it.
+	`# autoreview settings. You can edit this file. ` + "`autoreview setup`" + ` writes it
+# again from its answers, and does not keep comments that you add.
 # A flag wins over its $AUTOREVIEW_* variable, and a variable wins over this
 # file. The file never makes a run loop by itself.
 

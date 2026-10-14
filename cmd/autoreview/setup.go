@@ -35,14 +35,38 @@ func runSetup(args []string, stdout, stderr io.Writer) int {
 		return engine.ExitFailed
 	}
 	file, err := config.Load(path)
-	if err == nil {
-		_, err = setUp(file)
+	if err != nil {
+		return setupEnded(err, stderr)
 	}
-	return setupEnded(err, path, stdout, stderr)
+	_, raw, err := setUp(file)
+	if err == nil {
+		err = writeSettings(path, raw)
+	}
+	if err == nil {
+		say(stdout, "wrote %s\n", path)
+	}
+	return setupEnded(err, stderr)
 }
 
-// setupEnded says how the form ended, and is the exit status.
-func setupEnded(err error, path string, stdout, stderr io.Writer) int {
+// firstRun asks for the settings before the first run in the view, and
+// writes them. A file that cannot be written does not stop the run: it
+// goes on with the answers, says so, and the next run asks again.
+func firstRun(file config.File, stdout, stderr io.Writer) (config.File, error) {
+	next, raw, err := setUp(file)
+	if err != nil {
+		return config.File{}, err
+	}
+	if err := writeSettings(file.Path, raw); err != nil {
+		say(stderr, "note: %s; this run uses the answers, and the next one asks again\n", sanitize.Line(err.Error()))
+		return next, nil
+	}
+	say(stdout, "wrote %s\n", file.Path)
+	return next, nil
+}
+
+// setupEnded says how the form ended when it did not write, and is the
+// exit status.
+func setupEnded(err error, stderr io.Writer) int {
 	switch {
 	case errors.Is(err, setup.ErrAborted):
 		say(stderr, "%s\n", setup.ErrAborted)
@@ -51,7 +75,6 @@ func setupEnded(err error, path string, stdout, stderr io.Writer) int {
 		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
 		return engine.ExitFailed
 	}
-	say(stdout, "wrote %s\n", path)
 	return engine.ExitOK
 }
 
@@ -65,31 +88,31 @@ func onTerminal() bool {
 	return xterm.IsTerminal(os.Stdin.Fd()) && xterm.IsTerminal(os.Stdout.Fd())
 }
 
-// setUp asks for the settings, starting from what the file says, and
-// writes them. The answers are read back the way a run reads them before
-// the file is written: a file that the next run would refuse is never
-// written.
-func setUp(file config.File) (config.File, error) {
+// setUp asks for the settings, starting from what the file says, and is
+// the file the answers make and its text. The answers are read back the
+// way a run reads them, so the caller never writes a file that the next
+// run would refuse.
+func setUp(file config.File) (config.File, []byte, error) {
 	current, err := valuesOf(file)
 	if err != nil {
-		return config.File{}, err
+		return config.File{}, nil, err
 	}
 	answers, err := setup.Ask(current, file.Path, setup.Terminal{In: os.Stdin, Out: os.Stdout})
 	if err != nil {
-		return config.File{}, err
+		return config.File{}, nil, err
 	}
 	raw, err := config.Render(answers)
 	if err != nil {
-		return config.File{}, err
+		return config.File{}, nil, err
 	}
 	next, err := config.Parse(raw, file.Path)
 	if err == nil {
 		_, err = cli.ParseWith(nil, noEnv, next)
 	}
 	if err != nil {
-		return config.File{}, err
+		return config.File{}, nil, err
 	}
-	return next, writeSettings(file.Path, raw)
+	return next, raw, nil
 }
 
 func noEnv(string) string { return "" }
@@ -106,9 +129,15 @@ func valuesOf(file config.File) (config.Values, error) {
 	if file.Panel.Synth != nil && *file.Panel.Synth != "" {
 		synth = *file.Panel.Synth
 	}
+	// The focus goes back as the person wrote it. cfg.Focus is the form a
+	// prompt carries, with its double quotes made single.
+	focus := ""
+	if file.Review.Focus != nil {
+		focus = *file.Review.Focus
+	}
 	return config.Values{
 		Orchestrator: cfg.Orchestrator.Label(), Fallback: fallbackText(cfg.Fallback),
-		Jobs: cfg.Jobs, Timeout: int(cfg.Timeout / time.Second), Budget: cfg.Budget, Focus: cfg.Focus,
+		Jobs: cfg.Jobs, Timeout: int(cfg.Timeout / time.Second), Budget: cfg.Budget, Focus: focus,
 		Verdicts: cfg.Verdicts.String(),
 		Watch:    cfg.Watch.Text, Rest: cfg.Babysit.Text, MaxPasses: cfg.MaxPasses, MaxIdle: cfg.MaxIdle, CIWait: cfg.CIWait.Text,
 		Approved: cfg.All, Dependabot: cfg.Dependabot, Stacked: cfg.Stacked, SkipCI: cfg.SkipCI,
@@ -127,10 +156,19 @@ func fallbackText(f review.Fallback) string {
 }
 
 // writeSettings writes the file through a temporary one and a rename, so
-// a run that reads it never sees half of it. The directory and the file
-// are the person's own.
+// a run that reads it never sees half of it. A new file and its directory
+// are the person's own. A file that is there keeps its mode, and a link to
+// it, as a dotfiles repo makes, stays a link: the rename goes to the file
+// the link points at.
 func writeSettings(path string, raw []byte) error {
-	dir := filepath.Dir(path)
+	target, mode := path, os.FileMode(0o600)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		target = resolved
+	}
+	if info, err := os.Stat(target); err == nil {
+		mode = info.Mode().Perm()
+	}
+	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("making %s: %w", dir, err)
 	}
@@ -143,7 +181,10 @@ func writeSettings(path string, raw []byte) error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), path)
+		err = os.Chmod(tmp.Name(), mode)
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), target)
 	}
 	if err != nil {
 		_ = os.Remove(tmp.Name())

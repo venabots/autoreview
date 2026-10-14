@@ -50,27 +50,24 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runSetup(args[1:], stdout, stderr)
 	}
 
-	cfg, err := cli.Parse(args, os.Getenv)
-	if err != nil {
-		say(stderr, "error: %v\nsee autoreview --help\n", err)
-		return engine.ExitFailed
-	}
-	if cfg.Help {
+	// The flags are read once, with the settings file, so a check that joins
+	// two values sees both. --help and --version are answered before any
+	// value is checked, and work whatever the file says: a file that cannot
+	// be read parses as none for them.
+	file, fileErr := settings(os.Getenv)
+	cfg, err := cli.ParseWith(args, os.Getenv, file)
+	switch {
+	case err == nil && cfg.Help:
 		say(stdout, "%s", cli.Help)
 		return engine.ExitOK
-	}
-	if cfg.Version {
+	case err == nil && cfg.Version:
 		say(stdout, "autoreview %s\n", version)
 		return engine.ExitOK
-	}
-	// The settings file is read after --help and --version, which must
-	// work whatever the file says, and parsed with the flags again.
-	file, err := settings(os.Getenv)
-	if err == nil {
-		cfg, err = cli.ParseWith(args, os.Getenv, file)
-	}
-	if err != nil {
-		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
+	case fileErr != nil:
+		say(stderr, "error: %s\n", sanitize.Line(fileErr.Error()))
+		return engine.ExitFailed
+	case err != nil:
+		say(stderr, "error: %s\nsee autoreview --help\n", sanitize.Line(err.Error()))
 		return engine.ExitFailed
 	}
 
@@ -90,12 +87,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// The first run in the view asks for the settings. A run that prints
 	// plain lines never asks: nobody may be there to answer.
 	if screen && needsSetup(file) {
-		next, err := setUp(file)
+		next, err := firstRun(file, stdout, stderr)
 		if err == nil {
 			cfg, err = cli.ParseWith(args, os.Getenv, next)
 		}
-		if code := setupEnded(err, file.Path, stdout, stderr); err != nil {
-			return code
+		if err != nil {
+			return setupEnded(err, stderr)
 		}
 	}
 	if !screen {
