@@ -98,14 +98,14 @@ func panel(panelists []review.Panelist) string {
 // one unapproved PR a reader may only need to look over.
 func whyLines(job engine.Job) []string {
 	lines := []string{}
-	if short, ok := review.CleanButShort(job.Verdict, job.Trailer); ok {
+	if short, ok := job.Shortfall(); ok {
 		lines = append(lines, fmt.Sprintf("#%d %s", job.PR, short.Line()))
 	}
 	reasons := review.Reasons(job.Verdict, job.Trailer)
 	if len(reasons) == 0 {
 		return lines
 	}
-	lines = append(lines, fmt.Sprintf("#%d %s", job.PR, review.ReasonsHeader))
+	lines = append(lines, fmt.Sprintf("#%d %s", job.PR, job.ReasonsHeader()))
 	for _, reason := range reasons {
 		lines = append(lines, "  "+reason)
 	}

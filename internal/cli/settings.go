@@ -45,6 +45,7 @@ func settingsOf(f config.File) settings {
 	number("timeout", "review.timeout", f.Review.Timeout)
 	text("budget", "review.budget", f.Review.Budget)
 	text("focus", "review.focus", f.Review.Focus)
+	text("verdicts", "review.verdicts", f.Review.Verdicts)
 	text("watch", "loop.watch", f.Loop.Watch)
 	text("babysit", "loop.rest", f.Loop.Rest)
 	number("max-passes", "loop.max_passes", f.Loop.MaxPasses)

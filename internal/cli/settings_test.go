@@ -88,6 +88,24 @@ func TestThePanelComesFromTheFileUnlessTheVariableNamesOne(t *testing.T) {
 	}
 }
 
+func TestTheVerdictLevelComesFromTheFileAndRefusesAnOverride(t *testing.T) {
+	if cfg := parse(t); cfg.Verdicts != review.VerdictsAll {
+		t.Errorf("the default level is %v", cfg.Verdicts)
+	}
+	commentOnly := withSettings(func(f *config.File) { f.Review.Verdicts = ptr("comment-only") })
+	if cfg := parseWith(t, nil, commentOnly); cfg.Verdicts != review.VerdictsCommentOnly {
+		t.Errorf("the level is %v, want the file's comment-only", cfg.Verdicts)
+	}
+	_, err := ParseWith(nil, noEnv, withSettings(func(f *config.File) { f.Review.Verdicts = ptr("never") }))
+	if want := "review.verdicts in " + settingsPath + ": the verdicts expects approve-and-request-changes"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("a bad level: %v, want %q", err, want)
+	}
+	_, err = ParseWith(nil, envOf(map[string]string{EnvOverride: "my-review {}"}), commentOnly)
+	if err == nil || !strings.Contains(err.Error(), "verdicts comment-only cannot be used with $AUTOREVIEW_CMD") {
+		t.Errorf("a level with an override: %v", err)
+	}
+}
+
 func TestABareWatchOrBabysitTakesTheFilesValue(t *testing.T) {
 	file := withSettings(func(f *config.File) { f.Loop.Watch, f.Loop.Rest = ptr("5m"), ptr("1h") })
 	cfg := parseWith(t, nil, file, "--watch", "--babysit")

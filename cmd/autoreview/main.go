@@ -131,6 +131,7 @@ func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 		MaxIdle:    cfg.MaxIdle,
 		AutofixCap: cfg.AutofixCap,
 		Panelists:  cfg.Panelists,
+		Verdicts:   cfg.Verdicts,
 	}
 	switch {
 	case screen || cfg.WatchGiven:

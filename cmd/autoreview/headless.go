@@ -177,6 +177,11 @@ func prepare(cfg cli.Config, rc repo.Context) (prepared, error) {
 	if err != nil {
 		return prepared{}, err
 	}
+	if builtIn {
+		if p, err = withVerdictCopies(p, cfg, source, rc.Root); err != nil {
+			return prepared{}, err
+		}
+	}
 	if p.run, err = rundir.New(cfg.LogDir, os.TempDir()); err != nil {
 		return prepared{}, err
 	}

@@ -11,7 +11,6 @@ import (
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/queue"
 	"github.com/venabots/autoreview/internal/report"
-	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/words"
 )
 
@@ -218,7 +217,7 @@ func outcomeColor(job engine.Job) lipgloss.Style {
 	case engine.JobFailed:
 		return redStyle
 	}
-	if _, short := review.CleanButShort(job.Verdict, job.Trailer); short {
+	if _, short := job.Shortfall(); short {
 		return greenStyle
 	}
 	switch job.Verdict {

@@ -64,6 +64,9 @@ type Config struct {
 	// AutofixCap is the most fixes one of your PRs gets in a row while
 	// nobody else acts on it. Only the settings file sets it.
 	AutofixCap int
+	// Verdicts is which events a review may submit. Only the settings file
+	// sets it.
+	Verdicts review.Verdicts
 	// Panelists is the panel a review seats, each backend[:model], or nil
 	// for the one panel-review.sh picks: $PANEL_REVIEW_PANELISTS, or every
 	// backend on PATH.
@@ -263,6 +266,13 @@ func withReviewFlags(cfg Config, raw map[string]*string, given func(string) bool
 	// run, and that one posts.
 	if env(EnvRetiredOverride) != "" {
 		return Config{}, fmt.Errorf("$%s is no longer read, and the run would not use it: move the command to $%s, or unset it", EnvRetiredOverride, EnvOverride)
+	}
+	value, told = set.pick("verdicts", "", false, "", "approve-and-request-changes")
+	if cfg.Verdicts, err = review.ParseVerdicts(value); err != nil {
+		return Config{}, told(fmt.Errorf("the verdicts %w", err))
+	}
+	if cfg.Verdicts != review.VerdictsAll && cfg.Override != "" {
+		return Config{}, told(fmt.Errorf("verdicts %s cannot be used with $%s: that command decides for itself what it posts", cfg.Verdicts, EnvOverride))
 	}
 	if cfg.NoPost && cfg.Override != "" {
 		return Config{}, fmt.Errorf("--no-post cannot be used with $%s: that command decides for itself what it posts", EnvOverride)

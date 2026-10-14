@@ -36,6 +36,9 @@ type Review struct {
 	Timeout *int    `toml:"timeout"`
 	Budget  *string `toml:"budget"`
 	Focus   *string `toml:"focus"`
+	// Verdicts is approve-and-request-changes, approve-only or
+	// comment-only.
+	Verdicts *string `toml:"verdicts"`
 }
 
 // Loop is when the run looks and when it reviews again. An interval is

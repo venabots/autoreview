@@ -180,7 +180,7 @@ func spent(job engine.Job) string {
 // answered a clean review, or the blockers it named.
 func whyNot(job engine.Job) []line {
 	lines := []line{}
-	if short, ok := review.CleanButShort(job.Verdict, job.Trailer); ok {
+	if short, ok := job.Shortfall(); ok {
 		lines = append(lines, line{}, note(short.Line(), greenStyle),
 			note("not approved: the gate needs more of the panel; R reviews it again", dimStyle))
 	}
@@ -188,7 +188,7 @@ func whyNot(job engine.Job) []line {
 	if len(reasons) == 0 {
 		return lines
 	}
-	lines = append(lines, line{}, note(review.ReasonsHeader, yellowStyle))
+	lines = append(lines, line{}, note(job.ReasonsHeader(), yellowStyle))
 	for _, reason := range reasons {
 		lines = append(lines, note(sanitize.Line(reason), plainStyle))
 	}
