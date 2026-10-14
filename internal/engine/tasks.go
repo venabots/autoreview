@@ -198,7 +198,7 @@ func (e *Engine) startTask(w workers, r run, i int) run {
 	}
 	t.spec = review.SpecFor(e.taskRequest(t, dir))
 	started, err := e.deps.Procs.Start(proc.Command{
-		Path: t.spec.Path, Args: t.spec.Args, Env: t.spec.Env, Dir: t.spec.Dir, Stdout: t.spec.Stdout, Stderr: t.spec.Stderr,
+		Path: t.spec.Path, Args: t.spec.Args, Env: slices.Concat(t.spec.Env, t.tree.Env()), Dir: t.spec.Dir, Stdout: t.spec.Stdout, Stderr: t.spec.Stderr,
 	})
 	if err != nil {
 		return e.taskFailedToStart(w, r, i, err)
