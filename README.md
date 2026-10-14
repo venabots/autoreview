@@ -106,7 +106,7 @@ number of threads that are still open.
 | `f`   | Fix the selected PR once: conflicts, comments and CI             |
 | `F`   | Fix each of your PRs that needs it, once                         |
 | `a`   | Autofix the PR: fix it again each time it changes and needs it   |
-| `A`   | Autofix all your PRs, and any you open later                     |
+| `A`   | Autofix all your PRs, and any you open later. On at the start    |
 | `r`   | Reopen the last task in its worktree, if it was kept or is yours |
 | `x x` | Stop the running task. The first `x` asks                        |
 
@@ -130,6 +130,10 @@ first.
 failing CI, in that order, and skips each step that has nothing to do. `F` does
 the same for each of your PRs that needs it. `a` and `A` are the loop: at each
 look, an autofixed PR that needs work and has changed gets the same fix as `f`.
+
+Autofix is on for all your PRs when the view opens, as watching is. Press `A` to
+turn it off, or `a` to turn it off for one PR. `--once` opens the view with
+autofix off, and `--no-post` refuses it.
 
 While a task runs, its row says so. When it ends, the footer says how, and the
 row keeps the result: `fix pushed`, `fix pushed nothing` or `fix failed`. Your
