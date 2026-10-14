@@ -33,7 +33,7 @@ func TestABabysatPRThatIsApprovedSaysOnlyConflictsGetAFix(t *testing.T) {
 		approvedWithThreads(s)
 		s.Babysit, _ = s.Babysit.Apply(babysit.All(true), s.Mine)
 	})
-	wantOnScreen(t, m, "✓ #4 · babysat · approved · 2 threads open", "babysat   yes · approved, so only conflicts get a fix")
+	wantOnScreen(t, m, "✓ #4 · autofix · approved · 2 threads open", "autofix   on · approved, so only conflicts get a fix")
 }
 
 func TestAnApprovalWhereNoRuleAsksForOneHasTheApprovedMark(t *testing.T) {

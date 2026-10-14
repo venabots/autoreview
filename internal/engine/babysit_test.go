@@ -75,8 +75,8 @@ func TestBabysittingFixesAPRThatNeedsWorkAtOnceAndNotAgainUntilItChanges(t *test
 		}
 		notes := b.notes()
 		for _, want := range []string{
-			"babysitting PR #4: it is fixed when it changes and needs work",
-			"babysitting: fixing PR #4, which changed and needs work",
+			"autofixing PR #4: it is fixed when it changes and needs work",
+			"autofix: fixing PR #4, which changed and needs work",
 		} {
 			if !slices.Contains(notes, want) {
 				t.Errorf("notes = %q, want %q", notes, want)
@@ -123,7 +123,7 @@ func TestBabysittingLeavesAnApprovedPRAloneAndSaysSoOnce(t *testing.T) {
 		if !b.eng.Snapshot().Babysit.OnHold(4) {
 			t.Error("the snapshot does not say PR #4 is on hold")
 		}
-		const said = "babysitting: PR #4 is approved, so only a conflict on it gets a fix until that changes"
+		const said = "autofix: PR #4 is approved, so only a conflict on it gets a fix until that changes"
 		if n := len(slices.DeleteFunc(b.notes(), func(note string) bool { return note != said })); n != 1 {
 			t.Errorf("the hold was noted %d times in %q, want once", n, b.notes())
 		}
@@ -154,7 +154,7 @@ func TestBabysittingFixesOnlyTheConflictsOfAnApprovedPR(t *testing.T) {
 		if job := taskOf(t, b, 4); job.Task != task.Conflicts || job.State != JobRunning {
 			t.Fatalf("the task on an approved PR with conflicts: %+v, want a conflict fix", job)
 		}
-		const said = "babysitting: fixing the conflicts on PR #4, which is approved"
+		const said = "autofix: fixing the conflicts on PR #4, which is approved"
 		if !slices.Contains(b.notes(), said) {
 			t.Errorf("notes = %q, want %q", b.notes(), said)
 		}
@@ -216,9 +216,9 @@ func TestBabysittingIsRefusedWhereAFixWouldBe(t *testing.T) {
 		want string
 	}{
 		{"under --no-post", func(c *Config) { c.NoPost = true }, &trees{}, []mine.PR{threaded(4)},
-			"not babysitting PR #4: --no-post leaves every PR alone"},
+			"not autofixing PR #4: --no-post leaves every PR alone"},
 		{"when the skill is missing", nil, &trees{missing: "babysit-pr is not installed where claude looks (~/.claude/skills)"}, []mine.PR{threaded(4)},
-			"not babysitting PR #4: babysit-pr is not installed where claude looks (~/.claude/skills)"},
+			"not autofixing PR #4: babysit-pr is not installed where claude looks (~/.claude/skills)"},
 		{"for a fork", nil, &trees{}, []mine.PR{fork},
 			"PR #4 is from a fork; its branch is not on origin, so nothing can fix it here"},
 	}
@@ -249,7 +249,7 @@ func TestBabysittingAllRefusedNamesNoPR(t *testing.T) {
 		b := newBench(t, held(setup{deps: m.deps(&trees{}), edit: func(c *Config) { c.NoPost = true }}))
 		b.eng.Do(Babysit{Change: babysit.All(true)})
 		synctest.Wait()
-		if !slices.Contains(b.notes(), "not babysitting your PRs: --no-post leaves every PR alone") {
+		if !slices.Contains(b.notes(), "not autofixing your PRs: --no-post leaves every PR alone") {
 			t.Errorf("notes = %q", b.notes())
 		}
 		b.eng.Do(Quit{})
@@ -272,7 +272,7 @@ func TestStoppingBabysittingLeavesARunningFixAlone(t *testing.T) {
 		if job := taskOf(t, b, 4); job.State != JobRunning {
 			t.Errorf("the fix is in state %d; stopping babysitting stopped it", job.State)
 		}
-		if !slices.Contains(b.notes(), "no longer babysitting your PRs") {
+		if !slices.Contains(b.notes(), "autofix is off for your PRs") {
 			t.Errorf("notes = %q", b.notes())
 		}
 		b.eng.Do(Quit{})

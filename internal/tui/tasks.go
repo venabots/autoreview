@@ -14,7 +14,7 @@ import (
 )
 
 // notMine is what a key for your own PRs says on the Review tab.
-const notMine = "f, c, u, b and B work on your own PRs: tab shows them"
+const notMine = "c, u, F, a and A work on your own PRs: tab shows them"
 
 // selectedMine is the row under the cursor on the My PRs tab.
 func (m Model) selectedMine() (mineRow, bool) {
@@ -86,8 +86,8 @@ func (m Model) taskLive(pr int) bool {
 	return slices.ContainsFunc(m.snap.Tasks, func(j engine.Job) bool { return j.PR == pr && !j.State.Settled() })
 }
 
-// babysitPressed turns babysitting on or off for the selected PR.
-func (m Model) babysitPressed() Model {
+// autofixPressed turns autofix on or off for the selected PR.
+func (m Model) autofixPressed() Model {
 	row, m, ok := m.minePicked()
 	if !ok {
 		return m
@@ -99,19 +99,19 @@ func (m Model) babysitPressed() Model {
 	return m.babysat(c, fmt.Sprintf("PR #%d", row.pr.Number))
 }
 
-// babysitAllPressed turns babysitting on or off for every PR of yours.
-func (m Model) babysitAllPressed() Model {
+// autofixAllPressed turns autofix on or off for every PR of yours.
+func (m Model) autofixAllPressed() Model {
 	if m.tab != tabMine {
 		return m.flashed(notMine)
 	}
 	return m.babysat(m.snap.Babysit.ToggleAll(), "your PRs")
 }
 
-// babysat sends a change. Babysitting runs the fix, so a fix that is
-// refused refuses babysitting too.
+// babysat sends a change. Autofix runs the fix, so a fix that is refused
+// refuses autofix too.
 func (m Model) babysat(c babysit.Change, what string) Model {
 	if why := m.snap.Refusals[task.Fix]; c.On && why != "" {
-		return m.flashed(fmt.Sprintf("not babysitting %s: %s", what, why))
+		return m.flashed(fmt.Sprintf("not autofixing %s: %s", what, why))
 	}
 	m.eng.Do(engine.Babysit{Change: c})
 	return m.flashed(c.Said())

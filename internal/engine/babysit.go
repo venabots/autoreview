@@ -48,7 +48,7 @@ func (e *Engine) refusal(k task.Kind) string {
 // seconds after a push, before the checks and the merge state are known.
 func (e *Engine) setBabysit(w workers, r run, c babysit.Change) run {
 	if why := e.refusal(task.Fix); c.On && why != "" {
-		e.journal(Noted{Text: fmt.Sprintf("not babysitting %s: %s", babysatWhat(c), why)})
+		e.journal(Noted{Text: fmt.Sprintf("not autofixing %s: %s", babysatWhat(c), why)})
 		return r
 	}
 	next, err := r.snap.Babysit.Apply(c, r.looked)
@@ -87,7 +87,7 @@ func (e *Engine) babysitLook(w workers, r run) run {
 	r.snap.Babysit = next
 	for _, pr := range r.looked {
 		if next.OnHold(pr.Number) && !before.OnHold(pr.Number) {
-			e.journal(Noted{Text: fmt.Sprintf("babysitting: PR #%d is approved, so only a conflict on it gets a fix until that changes", pr.Number)})
+			e.journal(Noted{Text: fmt.Sprintf("autofix: PR #%d is approved, so only a conflict on it gets a fix until that changes", pr.Number)})
 		}
 	}
 	for _, d := range due {
@@ -101,9 +101,9 @@ func (e *Engine) babysitLook(w workers, r run) run {
 
 func babysitFixing(d babysit.Due) string {
 	if d.Kind == task.Conflicts {
-		return fmt.Sprintf("babysitting: fixing the conflicts on PR #%d, which is approved", d.PR)
+		return fmt.Sprintf("autofix: fixing the conflicts on PR #%d, which is approved", d.PR)
 	}
-	return fmt.Sprintf("babysitting: fixing PR #%d, which changed and needs work", d.PR)
+	return fmt.Sprintf("autofix: fixing PR #%d, which changed and needs work", d.PR)
 }
 
 // taskEnded tells babysitting a task on pr is over, so its own push does

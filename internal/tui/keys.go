@@ -24,12 +24,12 @@ const (
 	intentReviewNow
 	intentStop
 	intentFocus
-	// intentComments, intentConflicts, intentBabysit and intentBabysitAll
+	// intentComments, intentConflicts, intentAutofix and intentAutofixAll
 	// act on your own PRs. f is the fix there, and the focus on Review.
 	intentComments
 	intentConflicts
-	intentBabysit
-	intentBabysitAll
+	intentAutofix
+	intentAutofixAll
 	intentFixAll
 	intentWatch
 	intentLog
@@ -68,8 +68,8 @@ var keyNames = map[string]intent{
 	"f":         intentFocus,
 	"c":         intentComments,
 	"u":         intentConflicts,
-	"b":         intentBabysit,
-	"B":         intentBabysitAll,
+	"a":         intentAutofix,
+	"A":         intentAutofixAll,
 	"F":         intentFixAll,
 	"w":         intentWatch,
 	"l":         intentLog,
@@ -99,8 +99,8 @@ var helpLines = []keyHelp{
 	{"R", "review the selected PR now, whatever holds it"},
 	{"f", "My PRs: fix the selected PR once (conflicts, comments, CI)"},
 	{"F", "My PRs: fix each of your PRs that needs it, once"},
-	{"b", "My PRs: babysit the selected PR: fix it again when it changes, until it is approved"},
-	{"B", "My PRs: babysit all your PRs, and any you open later"},
+	{"a", "My PRs: autofix the selected PR: fix it again each time it changes; an approved PR gets only its conflicts fixed"},
+	{"A", "My PRs: autofix all your PRs, and any you open later"},
 	{"u", "My PRs: merge the base in and fix the conflicts"},
 	{"c", "My PRs: answer the selected PR's review comments"},
 	{"r", "resume the selected review, or your PR's last task, in a new terminal tab"},
@@ -127,8 +127,8 @@ type hint struct {
 func footerHints(shown tab) []hint {
 	if shown == tabMine {
 		return []hint{
-			{"q", "quit"}, {"f", "fix"}, {"b", "babysit"}, {"u", "conflicts"}, {"c", "comments"}, {"tab", "review"},
-			{"B", "babysit all"}, {"o", "open"}, {"j/k", "move"}, {"r", "resume"}, {"x", "stop"},
+			{"q", "quit"}, {"f", "fix"}, {"a", "autofix"}, {"u", "conflicts"}, {"c", "comments"}, {"tab", "review"},
+			{"A", "autofix all"}, {"o", "open"}, {"j/k", "move"}, {"r", "resume"}, {"x", "stop"},
 			{"m", "mouse"}, {"l", "log"}, {"^d/^u", "scroll"},
 		}
 	}

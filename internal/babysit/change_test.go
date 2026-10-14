@@ -167,10 +167,10 @@ func TestTheZeroStateBabysitsNothing(t *testing.T) {
 
 func TestEachChangeSaysWhatItDoes(t *testing.T) {
 	cases := map[Change]string{
-		One(4, true):  "babysitting PR #4: it is fixed when it changes and needs work",
-		One(4, false): "no longer babysitting PR #4",
-		All(true):     "babysitting all your PRs, and any you open: each is fixed when it changes and needs work",
-		All(false):    "no longer babysitting your PRs",
+		One(4, true):  "autofixing PR #4: it is fixed when it changes and needs work",
+		One(4, false): "autofix is off for PR #4",
+		All(true):     "autofixing all your PRs, and any you open: each is fixed when it changes and needs work",
+		All(false):    "autofix is off for your PRs",
 	}
 	for c, want := range cases {
 		if got := c.Said(); got != want {

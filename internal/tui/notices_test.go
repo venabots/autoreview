@@ -89,5 +89,5 @@ func TestTheRowSaysHowTheLastTaskEnded(t *testing.T) {
 		s.Tasks = fixOn4(engine.JobDone, "pushed").Tasks
 		s.Babysit, _ = s.Babysit.Apply(babysit.All(true), s.Mine)
 	})
-	wantOnScreen(t, babysat, "#4 · babysat · fix pushed · conflicts")
+	wantOnScreen(t, babysat, "#4 · autofix · fix pushed · conflicts")
 }

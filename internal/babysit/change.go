@@ -134,11 +134,11 @@ func cloneSet(set map[int]bool) map[int]bool {
 func (c Change) Said() string {
 	switch {
 	case c.Scope == ScopeAll && c.On:
-		return "babysitting all your PRs, and any you open: each is fixed when it changes and needs work"
+		return "autofixing all your PRs, and any you open: each is fixed when it changes and needs work"
 	case c.Scope == ScopeAll:
-		return "no longer babysitting your PRs"
+		return "autofix is off for your PRs"
 	case c.On:
-		return fmt.Sprintf("babysitting PR #%d: it is fixed when it changes and needs work", c.PR)
+		return fmt.Sprintf("autofixing PR #%d: it is fixed when it changes and needs work", c.PR)
 	}
-	return fmt.Sprintf("no longer babysitting PR #%d", c.PR)
+	return fmt.Sprintf("autofix is off for PR #%d", c.PR)
 }
