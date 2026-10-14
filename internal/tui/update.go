@@ -158,6 +158,8 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 		return m.babysitPressed(), nil
 	case intentBabysitAll:
 		return m.babysitAllPressed(), nil
+	case intentFixAll:
+		return m.fixAllPressed(), nil
 	case intentWatch:
 		return m.watchToggled(), nil
 	case intentQuit:

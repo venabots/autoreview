@@ -3,12 +3,14 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/task"
+	"github.com/venabots/autoreview/internal/words"
 )
 
 // notMine is what a key for your own PRs says on the Review tab.
@@ -59,6 +61,29 @@ func (m Model) taskPressed(k task.Kind) Model {
 	}
 	m.eng.Do(engine.RunTask{Request: task.Request{PR: pr, Kind: k, Title: row.pr.Title, Branch: row.pr.Branch, CrossRepo: row.pr.CrossRepo}})
 	return m.flashed(fmt.Sprintf("%s PR #%d", k.Doing(), pr))
+}
+
+// fixAllPressed asks for one fix on each of your PRs that needs one. The
+// view counts them by the engine's own rule, so the footer says at once
+// how many start, or why none does.
+func (m Model) fixAllPressed() Model {
+	if m.tab != tabMine {
+		return m.flashed(notMine)
+	}
+	if why := m.snap.Refusals[task.Fix]; why != "" {
+		return m.flashed("not fixing your PRs: " + why)
+	}
+	n := len(babysit.ToFix(m.snap.Mine, m.taskLive))
+	if n == 0 {
+		return m.flashed("none of your PRs needs a fix now")
+	}
+	m.eng.Do(engine.FixAll{})
+	return m.flashed("fixing " + words.Count(n, "PR") + " of yours")
+}
+
+// taskLive says the PR has a task that has not ended.
+func (m Model) taskLive(pr int) bool {
+	return slices.ContainsFunc(m.snap.Tasks, func(j engine.Job) bool { return j.PR == pr && !j.State.Settled() })
 }
 
 // babysitPressed turns babysitting on or off for the selected PR.

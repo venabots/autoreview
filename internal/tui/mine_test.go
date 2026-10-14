@@ -19,6 +19,7 @@ var mineKeys = map[string]tea.KeyPressMsg{
 	"B": {Code: 'b', Text: "B", Mod: tea.ModShift},
 	"c": {Code: 'c', Text: "c"},
 	"u": {Code: 'u', Text: "u"},
+	"F": {Code: 'f', Text: "F", Mod: tea.ModShift},
 }
 
 func pressMine(t *testing.T, m Model, names ...string) Model {
@@ -211,7 +212,7 @@ func TestTheMyPRsFooterNamesItsOwnKeys(t *testing.T) {
 }
 
 func TestTheMyPRsKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
-	want := map[string]intent{"b": intentBabysit, "B": intentBabysitAll, "c": intentComments, "u": intentConflicts}
+	want := map[string]intent{"b": intentBabysit, "B": intentBabysitAll, "c": intentComments, "u": intentConflicts, "F": intentFixAll}
 	for name, key := range mineKeys {
 		if got := intentFor(key); got != want[name] {
 			t.Errorf("%s (which Bubble Tea names %q) asks for %d, want %d", name, key.String(), got, want[name])
