@@ -34,9 +34,10 @@ func (s State) Look(list []mine.PR, busy func(pr int) bool) (State, []int) {
 	return next, due
 }
 
-// Finished is the state after a fix on pr ended. Its own push is not a
+// Finished is the state after a task on pr ended. Its own push is not a
 // change: the next settled look's state becomes the one to compare with.
-// Call it for every fix that ends on the PR, one started by hand included.
+// Call it for every task that ends on the PR, of any kind, one started by
+// hand included.
 func (s State) Finished(pr int) State {
 	w, ok := s.watches[pr]
 	if !ok {

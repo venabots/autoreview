@@ -140,7 +140,7 @@ func (e *Engine) taskReady(w workers, r run, in taskReady) run {
 		why := fmt.Sprintf("not %s PR #%d: %s", t.request.Kind.Doing(), t.view.PR, sanitize.Line(in.err.Error()))
 		e.journal(Noted{Text: why})
 		r.snap.NotStarted = withNote(r.snap.NotStarted, t.view.PR, why)
-		return fixEnded(withoutTask(r, i), t.request.Kind, t.view.PR)
+		return taskEnded(withoutTask(r, i), t.view.PR)
 	case t.dropped || r.snap.Phase == Stopping:
 		e.release(w, in.tree)
 		return withoutTask(r, i)
@@ -253,7 +253,7 @@ func (e *Engine) taskFailedToStart(w workers, r run, i int, err error) run {
 	t.view.Error = sanitize.Line(err.Error())
 	e.release(w, t.tree)
 	e.journal(JobFinished{Job: t.view})
-	return fixEnded(withTask(r, i, t), t.request.Kind, t.view.PR)
+	return taskEnded(withTask(r, i, t), t.view.PR)
 }
 
 func runningTask(r run, pr int) int {
@@ -318,7 +318,7 @@ func (e *Engine) taskSettled(w workers, r run, in taskSettled) run {
 		e.journal(Noted{Text: fmt.Sprintf("PR #%d's worktree has %s: %s", t.view.PR, in.kept, t.tree.Path)})
 	}
 	e.journal(JobFinished{Job: t.view})
-	return e.refreshMine(w, fixEnded(withTask(r, i, t), t.request.Kind, t.view.PR))
+	return e.refreshMine(w, taskEnded(withTask(r, i, t), t.view.PR))
 }
 
 // stopTask stops one task a person pointed at.

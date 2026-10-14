@@ -99,11 +99,12 @@ func (e *Engine) babysitLook(w workers, r run) run {
 	return r
 }
 
-// fixEnded tells babysitting a fix on pr is over, so its own push does not
-// read as a change at the next look. A fix started by hand counts too.
-func fixEnded(r run, k task.Kind, pr int) run {
-	if k == task.Fix {
-		r.snap.Babysit = r.snap.Babysit.Finished(pr)
-	}
+// taskEnded tells babysitting a task on pr is over, so its own push does
+// not read as a change at the next look. Every kind counts, one started by
+// hand included: a conflict fix or a comment fix also pushes, and a look
+// that took that push for somebody else's would start a full fix straight
+// after it.
+func taskEnded(r run, pr int) run {
+	r.snap.Babysit = r.snap.Babysit.Finished(pr)
 	return r
 }

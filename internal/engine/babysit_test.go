@@ -141,6 +141,37 @@ func TestBabysittingLeavesAnApprovedPRAloneAndSaysSoOnce(t *testing.T) {
 	})
 }
 
+func TestThePushOfACommentFixByHandIsNotAChangeOnABabysatPR(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f, m := &trees{}, &mineList{}
+		m.set(threaded(4))
+		b := newBench(t, held(setup{deps: m.deps(f), edit: watchedEvery}))
+		b.eng.Do(Babysit{Change: babysit.One(4, true)})
+		synctest.Wait()
+		b.reviewer.finish(t, 4, 0, "done")
+		synctest.Wait()
+
+		b.eng.Do(RunTask{Request: task.Request{PR: 4, Kind: task.Comments, Branch: "me/work"}})
+		synctest.Wait()
+		tasks := b.eng.Snapshot().Tasks
+		if job := tasks[len(tasks)-1]; job.Task != task.Comments || job.State != JobRunning {
+			t.Fatalf("the comment fix: %+v", job)
+		}
+		b.reviewer.finish(t, 4, 0, "done")
+		synctest.Wait()
+		answered := threaded(4)
+		answered.Head = "sha-comments"
+		m.set(answered)
+		time.Sleep(3 * time.Minute)
+		synctest.Wait()
+		if got := b.reviewer.started(); !slices.Equal(got, []int{4, 4}) {
+			t.Errorf("started %v: the comment fix's own push was fixed again", got)
+		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
 func TestBabysittingIsRefusedWhereAFixWouldBe(t *testing.T) {
 	fork := threaded(4)
 	fork.CrossRepo = true
