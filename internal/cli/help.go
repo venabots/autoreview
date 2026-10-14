@@ -28,10 +28,11 @@ or starts watching, and q quits. Press ? in the view for every key.
 Your own PRs are never reviewed. tab shows them on the My PRs tab, with what
 blocks each one. There f fixes the selected PR once: its conflicts, review
 comments and CI, as it needs. F fixes each of your PRs that needs it, once.
-a autofixes the selected PR (fixes it again when it changes and needs work)
-and A autofixes all of them. An approved PR gets only its conflicts fixed by
-F, a and A. Each fix runs in a worktree, with the babysit-pr and sync-main
-skills you have installed.
+Autofix is on for all of them when the view opens: a PR is fixed again each
+time it changes and needs work. a turns autofix off or on for the selected
+PR, and A autofixes all of them, or none. An approved PR gets only its
+conflicts fixed by F and by autofix. Each fix runs in a worktree, with the
+babysit-pr and sync-main skills you have installed.
 
 Off a terminal (a pipe, cron, CI), or with --headless, it makes one pass: it
 waits for checks that are still running, reviews every PR that is ready,
@@ -50,8 +51,8 @@ end.
                       to review or to wait for. In the view and under --watch
                       it is how long a reviewed PR rests before it may be
                       reviewed again.
-  --once              One pass. In the view, the view then holds; press w to
-                      watch after all.
+  --once              One pass, with autofix off. In the view, the view then
+                      holds; press w to watch, or A to autofix, after all.
   --max-passes N      Reviews one PR gets in a run (default 3, or
                       $AUTOREVIEW_MAX_PASSES). While the run watches, a push
                       starts the count again.

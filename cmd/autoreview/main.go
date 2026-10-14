@@ -105,7 +105,8 @@ func wantsScreen(view cli.View, stderr io.Writer) bool {
 //
 //   - The view watches: it looks every --watch minutes, reviews what has
 //     become ready, and rests a reviewed PR for the --babysit interval.
-//     --once makes it one pass that holds.
+//     It also autofixes your PRs. --once makes it one pass that holds,
+//     with autofix off.
 //   - Off a terminal, --watch does the same and never ends by itself.
 //   - Off a terminal, --babysit makes a pass every --babysit minutes and
 //     ends when nothing is left.
@@ -124,6 +125,7 @@ func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 		c.Watch = cfg.Watch.Duration
 		c.Loop = engine.LoopWatch
 		c.Watching = !cfg.Once
+		c.Autofix = screen && !cfg.Once
 		c.Rest = cfg.Babysit.Duration
 	case cfg.BabysitGiven:
 		c.Watch = cfg.Babysit.Duration

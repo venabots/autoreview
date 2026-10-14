@@ -64,6 +64,16 @@ func (e *Engine) setBabysit(w workers, r run, c babysit.Change) run {
 	return e.babysitLook(w, r)
 }
 
+// autofixAtStart turns autofix on for all your PRs when the run was asked
+// to. It takes the path of the "A" key, so a refusal is said in the same
+// words. The first look at your PRs then starts the fixes.
+func (e *Engine) autofixAtStart(w workers, r run) run {
+	if !e.cfg.Autofix {
+		return r
+	}
+	return e.setBabysit(w, r, babysit.All(true))
+}
+
 func babysatWhat(c babysit.Change) string {
 	if c.Scope == babysit.ScopeAll {
 		return "your PRs"

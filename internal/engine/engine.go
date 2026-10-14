@@ -42,6 +42,10 @@ type Config struct {
 	Loop Loop
 	// Watching starts the loop on. The view turns it off and on again.
 	Watching bool
+	// Autofix starts the run with all your PRs autofixed, as if "A" was
+	// pressed. Without it, a PR of yours that gets a review comment or a
+	// conflict waits for a person to notice and press a key.
+	Autofix bool
 	// Rest is how long a PR waits after its review before it may be
 	// reviewed again. MaxPasses is how many reviews one PR gets in a run.
 	Rest      time.Duration
@@ -252,7 +256,7 @@ func (e *Engine) Run() Result {
 	defer timer.Stop()
 	w := workers{ctx: ctx, group: &group, timer: timer}
 
-	r := e.look(w, run{snap: *e.Snapshot()})
+	r := e.look(w, e.autofixAtStart(w, run{snap: *e.Snapshot()}))
 	e.publish(r)
 	for r.snap.Phase != Done {
 		select {
