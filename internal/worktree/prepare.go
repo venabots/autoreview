@@ -41,7 +41,7 @@ func Prepare(ctx context.Context, git Git, r Request) (Prepared, error) {
 		}
 	}
 	if at != "" {
-		return create(ctx, git, r, ownBranch(r), remote, false, false)
+		return borrowOrOwn(ctx, git, r, at, remote)
 	}
 	// A branch of yours that tracks somewhere else would push the task's
 	// work there, and changing what it tracks is not this run's to do.
@@ -53,9 +53,38 @@ func Prepare(ctx context.Context, git Git, r Request) (Prepared, error) {
 	return create(ctx, git, r, r.Branch, remote, exists, !tracked)
 }
 
+// borrowOrOwn runs the task in your worktree at, which has the PR's branch
+// checked out, when that is safe, and on a branch of its own when not. A
+// second worktree of the same branch is not possible, and a branch of its
+// own for every task leaves a branch you never made.
+//
+// Your worktree is not borrowed when it has changes: the task commits what
+// it finds, and would commit your work in progress with its own. It is not
+// borrowed either when the branch tracks somewhere else: the push would go
+// there. Your main checkout is borrowed on the same terms as any other
+// worktree.
+func borrowOrOwn(ctx context.Context, git Git, r Request, at, remote string) (Prepared, error) {
+	changes, err := run(ctx, git, at, "status", "--porcelain", "--untracked-files=normal")
+	if err != nil {
+		return Prepared{}, fmt.Errorf("could not read your worktree of PR #%d at %s: %w", r.PR, at, err)
+	}
+	upstream, trackErr := run(ctx, git, r.Root, "rev-parse", "--abbrev-ref", r.Branch+"@{upstream}")
+	tracked := trackErr == nil
+	if changes != "" || (tracked && upstream != remote) {
+		return create(ctx, git, r, ownBranch(r), remote, false, false)
+	}
+	yours := r
+	yours.Path = at
+	head, err := finishSetup(ctx, git, yours, remote, true, !tracked)
+	if err != nil {
+		return Prepared{}, fmt.Errorf("could not use your worktree of PR #%d at %s: %w", r.PR, at, err)
+	}
+	return Prepared{Path: at, Branch: r.Branch, Head: head, Borrowed: true}, nil
+}
+
 // ownBranch is the branch a task gets when your branch of the PR's name is
-// checked out in another worktree or tracks somewhere else. On your branch,
-// the task would move a checkout under you, or push to the wrong place.
+// checked out in a worktree with changes, or tracks somewhere else. On your
+// branch, the task would commit your work, or push to the wrong place.
 // The name holds the run, so it never meets a branch that is there
 // already, and it says where it came from if it is ever left behind.
 func ownBranch(r Request) string {

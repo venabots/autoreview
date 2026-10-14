@@ -3,13 +3,16 @@
 // push without touching the checkout you are working in.
 //
 // The local branch has the PR's own name and tracks it on origin, so the
-// plain `git push` the skills run pushes to the PR. Two things would make
-// your branch unsafe to use: it is checked out in another worktree (it would
-// move under that checkout), or it tracks somewhere else (the push would go
-// there). Then the task gets a branch of its own that tracks the PR's, and
-// an environment that makes a plain push go to the PR. A local branch that
-// holds commits origin does not have is refused: the task starts from
-// origin, and your branch would part from the PR.
+// plain `git push` the skills run pushes to the PR. When you have that
+// branch checked out already, git allows no second worktree of it. A clean
+// worktree of yours is then borrowed: the task runs in it, and it stays
+// after the task. One with changes is not, because the task would commit
+// your work in progress, and neither is a branch that tracks somewhere else,
+// because the push would go there. In those two cases the task gets a branch
+// of its own that tracks the PR's, and an environment that makes a plain
+// push go to the PR. A local branch that holds commits origin does not have
+// is refused: the task starts from origin, and your branch would part from
+// the PR.
 package worktree
 
 import (
@@ -60,6 +63,10 @@ type Prepared struct {
 	// your branch of the PR's name could not be used. Its name differs
 	// from the PR's.
 	OwnBranch bool
+	// Borrowed is true when Path is a worktree of yours that the task ran
+	// in, because it had the PR's branch checked out and no changes. Finish
+	// never removes it and never deletes its branch: both are yours.
+	Borrowed bool
 }
 
 // Env is what the task's process adds to its environment so that a plain

@@ -67,16 +67,12 @@ func wantOwnBranch(t *testing.T, f fixture, yours string) {
 	}
 }
 
-func TestABranchCheckedOutElsewhereGetsTheTaskABranchOfItsOwn(t *testing.T) {
-	f := setup(t)
-	mustGit(t, f.clone, "switch", "--quiet", "me/work")
-	wantOwnBranch(t, f, f.clone)
-}
-
-func TestABranchCheckedOutInAnotherWorktreeOfYoursGetsTheTaskABranchOfItsOwn(t *testing.T) {
+// A branch that tracks somewhere else would push the task's work there,
+// also from a worktree of yours that is clean.
+func TestABranchCheckedOutElsewhereThatTracksSomewhereElseGetsTheTaskABranchOfItsOwn(t *testing.T) {
 	f := setup(t)
 	yours := filepath.Join(f.base, "clone.me-work")
-	mustGit(t, f.clone, "worktree", "add", "--quiet", yours, "-b", "me/work", "origin/me/work")
+	mustGit(t, f.clone, "worktree", "add", "--quiet", "--track", yours, "-b", "me/work", "origin/main")
 	wantOwnBranch(t, f, yours)
 }
 
@@ -129,13 +125,16 @@ func TestABranchOfItsOwnIsMadeFromOriginAndUndoneWithItsOwnName(t *testing.T) {
 		answers map[string]answer
 		want    []call
 	}{
-		{"checked out in another worktree", map[string]answer{
-			"worktree list --porcelain": {out: "worktree " + elsewhere + "\nbranch refs/heads/me/work\n"},
-			"rev-parse HEAD":            {out: "abc123\n"},
+		{"checked out in another worktree that has changes", map[string]answer{
+			"worktree list --porcelain":                   {out: "worktree " + elsewhere + "\nbranch refs/heads/me/work\n"},
+			"status --porcelain --untracked-files=normal": {out: "?? draft.txt\n"},
+			"rev-parse HEAD":                              {out: "abc123\n"},
 		}, []call{
 			{root, "worktree list --porcelain"},
 			{root, "rev-parse --verify --quiet refs/heads/me/work"},
 			{root, "merge-base --is-ancestor refs/heads/me/work origin/me/work"},
+			{elsewhere, "status --porcelain --untracked-files=normal"},
+			{root, "rev-parse --abbrev-ref me/work@{upstream}"},
 			{root, add},
 			{wt, "rev-parse HEAD"},
 		}},
