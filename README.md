@@ -117,8 +117,10 @@ gives the mouse back to the terminal, to select text anywhere on the screen.
 is running. `esc` closes the key list and answers no to a question.
 
 Each task on your own PR runs in `<run dir>/worktrees/pr-N`. The worktree is
-removed after the task, unless it holds uncommitted or unpushed work. Then it is
-kept, and the view and the log name it. When you have the PR's branch checked
+removed after the task, unless it holds uncommitted changes to tracked files or
+unpushed commits. Then it is kept, and the view and the log name it. Untracked
+files, such as a `__pycache__`, do not keep it. The next task on the PR removes
+a kept worktree when that work is gone, and is refused while it is there. When you have the PR's branch checked
 out somewhere else with no changes, the task runs there instead. It brings the
 branch up to `origin` first, and the worktree stays after the task. When that
 checkout has changes of yours, or the branch tracks somewhere else, the task
