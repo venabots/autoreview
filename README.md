@@ -22,7 +22,8 @@ green again.
 - **It keeps watching.** New PRs and new pushes are reviewed as they arrive. It
   waits for CI to pass first.
 - **It handles your PRs too.** The My PRs tab says what blocks each one. A key
-  runs the fix in a worktree of its own, so your checkout is not touched.
+  runs the fix in a worktree of its own, or in your clean worktree of that PR's
+  branch. A checkout with changes of yours is not touched.
 - **It says when it is looking.** A PR carries an eyes reaction while its review
   runs.
 - **It survives an outage.** If claude fails, codex retries the review, and the
@@ -118,9 +119,11 @@ is running. `esc` closes the key list and answers no to a question.
 Each task on your own PR runs in `<run dir>/worktrees/pr-N`. The worktree is
 removed after the task, unless it holds uncommitted or unpushed work. Then it is
 kept, and the view and the log name it. When you have the PR's branch checked
-out somewhere else, the task works on a branch of its own,
-`autoreview/<run>/pr-N`, and pushes to the PR from it. Your checkout does not
-move. A local branch with commits that are not on `origin` is refused: push them
+out somewhere else with no changes, the task runs there instead. It brings the
+branch up to `origin` first, and the worktree stays after the task. When that
+checkout has changes of yours, or the branch tracks somewhere else, the task
+works on a branch of its own, `autoreview/<run>/pr-N`, and pushes to the PR from
+it. A local branch with commits that are not on `origin` is refused: push them
 first.
 
 `f` runs once. It merges the base in, answers the review comments and fixes
