@@ -150,10 +150,6 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 			return m.taskPressed(task.Fix), nil
 		}
 		return m.focusOpened()
-	case intentComments:
-		return m.taskPressed(task.Comments), nil
-	case intentConflicts:
-		return m.taskPressed(task.Conflicts), nil
 	case intentAutofix:
 		return m.autofixPressed(), nil
 	case intentAutofixAll:

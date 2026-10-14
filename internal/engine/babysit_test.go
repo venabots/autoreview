@@ -174,7 +174,7 @@ func TestBabysittingFixesOnlyTheConflictsOfAnApprovedPR(t *testing.T) {
 	})
 }
 
-func TestThePushOfACommentFixByHandIsNotAChangeOnABabysatPR(t *testing.T) {
+func TestThePushOfAConflictFixByHandIsNotAChangeOnABabysatPR(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		f, m := &trees{}, &mineList{}
 		m.set(threaded(4))
@@ -184,11 +184,11 @@ func TestThePushOfACommentFixByHandIsNotAChangeOnABabysatPR(t *testing.T) {
 		b.reviewer.finish(t, 4, 0, "done")
 		synctest.Wait()
 
-		b.eng.Do(RunTask{Request: task.Request{PR: 4, Kind: task.Comments, Branch: "me/work"}})
+		b.eng.Do(RunTask{Request: task.Request{PR: 4, Kind: task.Conflicts, Branch: "me/work"}})
 		synctest.Wait()
 		tasks := b.eng.Snapshot().Tasks
-		if job := tasks[len(tasks)-1]; job.Task != task.Comments || job.State != JobRunning {
-			t.Fatalf("the comment fix: %+v", job)
+		if job := tasks[len(tasks)-1]; job.Task != task.Conflicts || job.State != JobRunning {
+			t.Fatalf("the conflict fix: %+v", job)
 		}
 		b.reviewer.finish(t, 4, 0, "done")
 		synctest.Wait()
@@ -198,7 +198,7 @@ func TestThePushOfACommentFixByHandIsNotAChangeOnABabysatPR(t *testing.T) {
 		time.Sleep(3 * time.Minute)
 		synctest.Wait()
 		if got := b.reviewer.started(); !slices.Equal(got, []int{4, 4}) {
-			t.Errorf("started %v: the comment fix's own push was fixed again", got)
+			t.Errorf("started %v: the conflict fix's own push was fixed again", got)
 		}
 		b.eng.Do(Quit{})
 		<-b.results

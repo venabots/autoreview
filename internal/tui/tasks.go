@@ -14,7 +14,7 @@ import (
 )
 
 // notMine is what a key for your own PRs says on the Review tab.
-const notMine = "c, u, F, a and A work on your own PRs: tab shows them"
+const notMine = "F, a and A work on your own PRs: tab shows them"
 
 // selectedMine is the row under the cursor on the My PRs tab.
 func (m Model) selectedMine() (mineRow, bool) {

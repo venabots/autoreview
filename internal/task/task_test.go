@@ -18,7 +18,6 @@ func TestEachKindNamesItsSkillItsVerbAndItsFiles(t *testing.T) {
 		skill, doing, tag, noun string
 	}{
 		{Fix, "babysit-pr", "fixing", "fix", "fix"},
-		{Comments, "pr-comment-handler", "fixing comments", "comments", "comment fix"},
 		{Conflicts, "sync-main", "fixing conflicts", "conflicts", "conflict fix"},
 		{Review, "", "reviewing", "", "review"},
 	}

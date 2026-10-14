@@ -168,9 +168,9 @@ func TestASecondTaskOnAPRWithOneRunningIsRefused(t *testing.T) {
 		f := &trees{}
 		b := newBench(t, held(setup{deps: f.deps}))
 		b.eng.Do(fixOf(4))
-		b.eng.Do(RunTask{Request: task.Request{PR: 4, Kind: task.Comments}})
+		b.eng.Do(RunTask{Request: task.Request{PR: 4, Kind: task.Conflicts}})
 		synctest.Wait()
-		if !slices.Contains(b.notes(), "not fixing comments PR #4: a job on it is already running") {
+		if !slices.Contains(b.notes(), "not fixing conflicts PR #4: a job on it is already running") {
 			t.Errorf("notes = %q", b.notes())
 		}
 		b.eng.Do(Quit{})

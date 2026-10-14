@@ -22,7 +22,7 @@ func (Babysit) command() {}
 // worked out once: the skills are looked for on disk.
 func (e *Engine) refusals() map[task.Kind]string {
 	out := map[task.Kind]string{}
-	for _, k := range []task.Kind{task.Fix, task.Comments, task.Conflicts} {
+	for _, k := range []task.Kind{task.Fix, task.Conflicts} {
 		switch {
 		case e.cfg.NoPost:
 			out[k] = "--no-post leaves every PR alone"

@@ -19,6 +19,8 @@ var mineKeys = map[string]tea.KeyPressMsg{
 	"A": {Code: 'a', Text: "A", Mod: tea.ModShift},
 	"c": {Code: 'c', Text: "c"},
 	"u": {Code: 'u', Text: "u"},
+	"b": {Code: 'b', Text: "b"},
+	"B": {Code: 'b', Text: "B", Mod: tea.ModShift},
 	"F": {Code: 'f', Text: "F", Mod: tea.ModShift},
 }
 
@@ -46,7 +48,7 @@ func onMine(t *testing.T, edit func(*engine.Snapshot)) (Model, *harness) {
 }
 
 func TestTheMyPRsKeysEachAskForTheirTask(t *testing.T) {
-	cases := map[string]task.Kind{"f": task.Fix, "c": task.Comments, "u": task.Conflicts}
+	cases := map[string]task.Kind{"f": task.Fix}
 	for key, kind := range cases {
 		m, hs := onMine(t, nil)
 		m = pressMine(t, m, key)
@@ -67,7 +69,7 @@ func TestATaskKeyIsRefusedInTheViewBeforeAnythingIsSent(t *testing.T) {
 		s.Refusals = map[task.Kind]string{task.Fix: "--no-post leaves every PR alone"}
 	}
 	busy := func(s *engine.Snapshot) {
-		s.Tasks = []engine.Job{{PR: 4, Task: task.Comments, State: engine.JobRunning, StartedAt: start}}
+		s.Tasks = []engine.Job{{PR: 4, Task: task.Conflicts, State: engine.JobRunning, StartedAt: start}}
 	}
 	cases := []struct {
 		name string
@@ -89,13 +91,13 @@ func TestATaskKeyIsRefusedInTheViewBeforeAnythingIsSent(t *testing.T) {
 }
 
 func TestTheMyPRsKeysSayWhereTheyWorkOnTheReviewTab(t *testing.T) {
-	for _, key := range []string{"c", "u", "a", "A"} {
+	for _, key := range []string{"F", "a", "A"} {
 		m, hs := newModel(t, 150, 30)
 		m = pressMine(t, m, key)
 		if len(commands(hs)) != 0 {
 			t.Errorf("%s on the Review tab sent %+v", key, commands(hs))
 		}
-		wantOnScreen(t, m, "c, u, F, a and A work on your own PRs: tab shows them")
+		wantOnScreen(t, m, "F, a and A work on your own PRs: tab shows them")
 	}
 }
 
@@ -204,7 +206,7 @@ func TestTheMyPRsFooterNamesItsOwnKeys(t *testing.T) {
 	wantOnScreen(t, m, "f fix", "a autofix")
 	m = press(t, m, "?")
 	got := screen(m)
-	for _, want := range []string{"fix the selected PR once", "autofix all your PRs", "answer the selected PR's review comments"} {
+	for _, want := range []string{"fix the selected PR once", "autofix all your PRs", "fix each of your PRs that needs it"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the key help does not say %q", want)
 		}
@@ -212,7 +214,7 @@ func TestTheMyPRsFooterNamesItsOwnKeys(t *testing.T) {
 }
 
 func TestTheMyPRsKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
-	want := map[string]intent{"a": intentAutofix, "A": intentAutofixAll, "c": intentComments, "u": intentConflicts, "F": intentFixAll}
+	want := map[string]intent{"a": intentAutofix, "A": intentAutofixAll, "F": intentFixAll, "c": intentNone, "u": intentNone, "b": intentNone, "B": intentNone}
 	for name, key := range mineKeys {
 		if got := intentFor(key); got != want[name] {
 			t.Errorf("%s (which Bubble Tea names %q) asks for %d, want %d", name, key.String(), got, want[name])
