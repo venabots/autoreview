@@ -54,6 +54,10 @@ done
 # dash-p. Both are set aside here, so the sandbox keeps its promise whatever
 # your shell exports. A run stops when $AUTOREVIEW_AUTO_CMD is set, so that
 # one goes too.
+#
+# The settings file is the sandbox's own, unless $AUTOREVIEW_CONFIG names
+# another. The first run asks for the settings and writes them there, never
+# to ~/.config.
 cd "$sandbox/repo"
 exec env \
   -u AUTOREVIEW_CMD \
@@ -67,4 +71,5 @@ exec env \
   FAKE_DASHP_SLEEP="${FAKE_DASHP_SLEEP-6}" \
   AUTOREVIEW_LEDGER="$sandbox/ledger.jsonl" \
   AUTOREVIEW_LOG_DIR="$sandbox/logs" \
+  AUTOREVIEW_CONFIG="${AUTOREVIEW_CONFIG-$sandbox/config.toml}" \
   autoreview "$@"

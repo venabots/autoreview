@@ -63,6 +63,8 @@ func sandbox(t *testing.T) (fixtures string) {
 	for _, name := range []string{
 		"AUTOREVIEW_WATCH_INTERVAL", "AUTOREVIEW_JOBS", "AUTOREVIEW_TIMEOUT", "AUTOREVIEW_MAX_BUDGET_USD",
 		"AUTOREVIEW_SKILLS", "AUTOREVIEW_ORCHESTRATOR", "AUTOREVIEW_CMD", "AUTOREVIEW_FALLBACK",
+		"AUTOREVIEW_BABYSIT_INTERVAL", "AUTOREVIEW_MAX_IDLE", "AUTOREVIEW_MAX_PASSES", "AUTOREVIEW_CI_WAIT",
+		"XDG_CONFIG_HOME",
 		"FAKE_DASHP_FAIL", "FAKE_DASHP_DECISION", "FAKE_DASHP_NO_TRAILER", "FAKE_DASHP_HANG", "FAKE_DASHP_SLEEP",
 		"FAKE_GH_REVIEWS",
 	} {
@@ -70,6 +72,8 @@ func sandbox(t *testing.T) (fixtures string) {
 	}
 	t.Setenv("AUTOREVIEW_LOG_DIR", filepath.Join(fixtures, "logs"))
 	t.Setenv("AUTOREVIEW_LEDGER", filepath.Join(fixtures, "ledger.jsonl"))
+	// The settings of the person who runs the tests must not change them.
+	t.Setenv("AUTOREVIEW_CONFIG", "off")
 	return fixtures
 }
 
