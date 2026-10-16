@@ -44,8 +44,13 @@ func TestTheFirstRunInTheViewAsksForTheSettingsAndWritesThem(t *testing.T) {
 		t.Errorf("the first run did not say it wrote the settings, or did not end well:\n%s", drawn[max(len(drawn)-600, 0):])
 	}
 	file, err := config.Load(path)
-	if err != nil || !file.Found || *file.Review.Orchestrator != "claude" || *file.Loop.MaxPasses != 3 || *file.Review.Verdicts != "approve-and-request-changes" {
-		t.Errorf("the written settings: %+v, %v", file, err)
+	// Enter on each default chooses nothing, so every key is a comment
+	// that shows its default.
+	if err != nil || !file.Found || len(file.Keys()) != 0 {
+		t.Errorf("the written settings: %+v, %v; want a file that sets no key", file, err)
+	}
+	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), "\n# orchestrator = \"claude\"\n") {
+		t.Errorf("the file does not show the default agent:\n%s", raw)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
 		t.Errorf("the settings file has mode %v, want 0600", info.Mode().Perm())
