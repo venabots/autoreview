@@ -56,7 +56,8 @@ done
 # one goes too.
 #
 # The settings file is the sandbox's own, unless $AUTOREVIEW_CONFIG names
-# another. The first run asks for the settings and writes them there, never
+# another. An empty one counts as unset, as autoreview reads it: kept, it
+# would send a first run's settings to ~/.config. The first run asks for the settings and writes them there, never
 # to ~/.config.
 cd "$sandbox/repo"
 exec env \
@@ -71,5 +72,5 @@ exec env \
   FAKE_DASHP_SLEEP="${FAKE_DASHP_SLEEP-6}" \
   AUTOREVIEW_LEDGER="$sandbox/ledger.jsonl" \
   AUTOREVIEW_LOG_DIR="$sandbox/logs" \
-  AUTOREVIEW_CONFIG="${AUTOREVIEW_CONFIG-$sandbox/config.toml}" \
+  AUTOREVIEW_CONFIG="${AUTOREVIEW_CONFIG:-$sandbox/config.toml}" \
   autoreview "$@"
