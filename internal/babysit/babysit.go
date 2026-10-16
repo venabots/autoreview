@@ -33,9 +33,9 @@ import (
 	"github.com/venabots/autoreview/internal/prs"
 )
 
-// MaxStreak is the most fixes a babysat PR gets in a row while nobody else
-// acts on it. Without it, a fix that keeps changing the PR without making it
-// clean would run for as long as the run does.
+// MaxStreak is the default of the most fixes a babysat PR gets in a row
+// while nobody else acts on it. Without a cap, a fix that keeps changing the
+// PR without making it clean would run for as long as the run does.
 const MaxStreak = 3
 
 // SettleLooks is how many looks after a fix wait for its checks and merge

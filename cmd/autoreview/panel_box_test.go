@@ -52,6 +52,7 @@ func panelSandbox(t *testing.T) panelBox {
 	t.Setenv("PATH", bin)
 	t.Setenv("FAKE_PANEL_DIR", b.dir)
 	t.Setenv("AUTOREVIEW_LEDGER", filepath.Join(b.dir, "ledger.jsonl"))
+	t.Setenv("AUTOREVIEW_CONFIG", "off")
 	for _, name := range []string{"DASHP_BIN", "PANEL_TIMEOUT", "PANEL_SYNTH", "FAKE_PANEL_EMPTY", "FAKE_PANEL_ALWAYS_EMPTY", "FAKE_PANEL_HANG", "FAKE_PANEL_DIRTY_EXIT"} {
 		t.Setenv(name, "")
 	}

@@ -120,14 +120,14 @@ func taskResultLine(job engine.Job) string {
 
 func whyLines(job engine.Job) []string {
 	lines := []string{}
-	if short, ok := review.CleanButShort(job.Verdict, job.Trailer); ok {
+	if short, ok := job.Shortfall(); ok {
 		lines = append(lines, indent+short.Line())
 	}
 	reasons := review.Reasons(job.Verdict, job.Trailer)
 	if len(reasons) == 0 {
 		return lines
 	}
-	lines = append(lines, indent+review.ReasonsHeader)
+	lines = append(lines, indent+job.ReasonsHeader())
 	for _, reason := range reasons {
 		lines = append(lines, indent+reason)
 	}

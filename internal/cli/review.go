@@ -30,8 +30,10 @@ const (
 const (
 	defaultJobs    = "2"
 	defaultTimeout = "3600"
-	maxJobs        = 1024
-	maxTimeout     = 999_999_999
+	// MaxJobs, MaxPasses and MaxAutofixCap are the largest values a run
+	// takes. The settings form checks its answers against them.
+	MaxJobs    = 1024
+	maxTimeout = 999_999_999
 	// focusMax is the most text a prompt carries as a focus.
 	focusMax = 2000
 )
@@ -61,12 +63,17 @@ func refuseFlagAsValue(name, value string) error {
 // count reads a whole number within bounds. Both bounds are named in the
 // error, so a person does not have to find them by trial.
 func count(name, raw string, least, most int) (int, error) {
+	return countOf("--"+name, raw, least, most)
+}
+
+// countOf is count for a value that the error calls what.
+func countOf(what, raw string, least, most int) (int, error) {
 	n, err := strconv.Atoi(raw)
 	if err != nil || !allDigits(raw) || n < least {
-		return 0, fmt.Errorf("--%s expects an integer >= %d, got %q", name, least, raw)
+		return 0, fmt.Errorf("%s expects an integer >= %d, got %q", what, least, raw)
 	}
 	if n > most {
-		return 0, fmt.Errorf("--%s expects an integer <= %d, got %q", name, most, raw)
+		return 0, fmt.Errorf("%s expects an integer <= %d, got %q", what, most, raw)
 	}
 	return n, nil
 }

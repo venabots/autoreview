@@ -96,6 +96,9 @@ golangci-lint fmt                         # gofmt and goimports
   `dash-p`: the test binary under those names. Nothing reaches GitHub. To
   see the view without a person, run the script in `tmux` and read the pane
   with `tmux capture-pane -p`.
+- The tests set `$AUTOREVIEW_CONFIG=off`, so your own settings file never
+  changes them. `scripts/sandbox.sh` uses a settings file of its own,
+  `$sandbox/config.toml`. Delete it to see the first-run form again.
 - The pty tests build the binary and run it under a real pty. They look only
   at what is outside the frame. What a frame says is tested on the model.
 - Do not run a build that posts against a real repo to test it. Use the

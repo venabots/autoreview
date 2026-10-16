@@ -169,3 +169,32 @@ func TestParseDoesNotChangeTheArguments(t *testing.T) {
 		t.Errorf("args became %q", args)
 	}
 }
+
+// The person's settings name a panel for every run. A flag or a variable
+// given for one run wins over them.
+func TestTheSettingsPanelAppliesWhereNoFlagNamesOne(t *testing.T) {
+	saved := Settings{Panelists: []Spec{{Backend: "claude", Model: "opus-4.8"}, {Backend: "codex"}}, Synth: &Spec{Backend: "codex", Model: "gpt-5.5"}}
+
+	plain := withSettings(mustParse(t), saved)
+	if !reflect.DeepEqual(plain.Panelists, saved.Panelists) || plain.Synth != *saved.Synth {
+		t.Errorf("with no flag the run seats %+v and synthesizes with %+v, want the settings", plain.Panelists, plain.Synth)
+	}
+
+	named := withSettings(mustParse(t, "--panelist", "opencode", "--synth", "claude"), saved)
+	if !reflect.DeepEqual(named.Panelists, []Spec{{Backend: "opencode"}}) || named.Synth != (Spec{Backend: "claude"}) {
+		t.Errorf("the flags did not win: %+v, %+v", named.Panelists, named.Synth)
+	}
+
+	p, err := Parse(nil, func(name string) string {
+		if name == EnvSynth {
+			return "opencode"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := withSettings(p.Config, saved).Synth; got != (Spec{Backend: "opencode"}) {
+		t.Errorf("$PANEL_SYNTH did not win over the settings: %+v", got)
+	}
+}

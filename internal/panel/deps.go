@@ -36,6 +36,32 @@ type Deps struct {
 	// PID keys the ledger record, as v1's does.
 	PID     int
 	Version string
+	// Settings reads the panel the person's settings file names. It is
+	// asked after --help and --version, which must work whatever the file
+	// says. Nil reads none.
+	Settings func() (Settings, error)
+}
+
+// Settings is the panel the person's settings file names. A flag or a
+// variable given for one run wins over it.
+type Settings struct {
+	// Panelists is seated when no --panelist is given.
+	Panelists []Spec
+	// Synth writes the synthesis when neither --synth nor $PANEL_SYNTH
+	// names a model. Nil keeps the default.
+	Synth *Spec
+}
+
+// withSettings is the run with the person's panel where the flags and the
+// variables named none.
+func withSettings(cfg Config, s Settings) Config {
+	if len(cfg.Panelists) == 0 {
+		cfg.Panelists = s.Panelists
+	}
+	if !cfg.synthChosen && s.Synth != nil {
+		cfg.Synth = *s.Synth
+	}
+	return cfg
 }
 
 // installHint is how to get a missing program.

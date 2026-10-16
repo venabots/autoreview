@@ -46,19 +46,29 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == cli.Panel {
 		return runPanel(args[1:], stdout, stderr)
 	}
-
-	cfg, err := cli.Parse(args, os.Getenv)
-	if err != nil {
-		say(stderr, "error: %v\nsee autoreview --help\n", err)
-		return engine.ExitFailed
+	if len(args) > 0 && args[0] == cli.Setup {
+		return runSetup(args[1:], stdout, stderr)
 	}
-	if cfg.Help {
+
+	// The flags are read once, with the settings file, so a check that joins
+	// two values sees both. --help and --version are answered before any
+	// value is checked, and work whatever the file says: a file that cannot
+	// be read parses as none for them.
+	file, fileErr := settings(os.Getenv)
+	cfg, err := cli.ParseWith(args, os.Getenv, file)
+	switch {
+	case err == nil && cfg.Help:
 		say(stdout, "%s", cli.Help)
 		return engine.ExitOK
-	}
-	if cfg.Version {
+	case err == nil && cfg.Version:
 		say(stdout, "autoreview %s\n", version)
 		return engine.ExitOK
+	case fileErr != nil:
+		say(stderr, "error: %s\n", sanitize.Line(fileErr.Error()))
+		return engine.ExitFailed
+	case err != nil:
+		say(stderr, "error: %s\nsee autoreview --help\n", sanitize.Line(err.Error()))
+		return engine.ExitFailed
 	}
 
 	// A closed pipe must end a write with an error, not end the process:
@@ -73,7 +83,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return engine.ExitFailed
 	}
 
-	if !wantsScreen(cfg.View, stderr) {
+	screen := wantsScreen(cfg.View, stderr)
+	// The first run in the view asks for the settings. A run that prints
+	// plain lines never asks: nobody may be there to answer.
+	if screen && needsSetup(file) {
+		next, err := firstRun(file, stdout, stderr)
+		if err == nil {
+			cfg, err = cli.ParseWith(args, os.Getenv, next)
+		}
+		if err != nil {
+			return setupEnded(err, stderr)
+		}
+	}
+	if !screen {
 		return runHeadless(cfg, rc, stdout, stderr)
 	}
 	return runScreen(cfg, rc, stdout, stderr)
@@ -114,11 +136,14 @@ func wantsScreen(view cli.View, stderr io.Writer) bool {
 //     still running.
 func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 	c := engine.Config{
-		Repo:      rc,
-		Gates:     prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
-		Only:      cfg.Only,
-		MaxPasses: cfg.MaxPasses,
-		MaxIdle:   cfg.MaxIdle,
+		Repo:       rc,
+		Gates:      prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
+		Only:       cfg.Only,
+		MaxPasses:  cfg.MaxPasses,
+		MaxIdle:    cfg.MaxIdle,
+		AutofixCap: cfg.AutofixCap,
+		Panelists:  cfg.Panelists,
+		Verdicts:   cfg.Verdicts,
 	}
 	switch {
 	case screen || cfg.WatchGiven:

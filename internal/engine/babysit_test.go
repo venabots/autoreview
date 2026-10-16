@@ -205,6 +205,42 @@ func TestThePushOfAConflictFixByHandIsNotAChangeOnABabysatPR(t *testing.T) {
 	})
 }
 
+// A push of yours with no new review is a change, and gets a fix while the
+// cap allows one. With a cap of 1 the first fix is the last until somebody
+// acts.
+func TestTheAutofixCapIsTheRunsSetting(t *testing.T) {
+	for _, c := range []struct {
+		limit int
+		want  []int
+	}{{0, []int{4, 4}}, {1, []int{4}}} {
+		synctest.Test(t, func(t *testing.T) {
+			f, m := &trees{}, &mineList{}
+			m.set(threaded(4))
+			b := newBench(t, held(setup{deps: m.deps(f), edit: func(cfg *Config) {
+				watchedEvery(cfg)
+				cfg.AutofixCap = c.limit
+			}}))
+			b.eng.Do(Babysit{Change: babysit.One(4, true)})
+			synctest.Wait()
+			b.reviewer.finish(t, 4, 0, "done")
+			synctest.Wait()
+			time.Sleep(time.Minute)
+			synctest.Wait()
+
+			pushed := threaded(4)
+			pushed.Head = "sha2"
+			m.set(pushed)
+			time.Sleep(time.Minute)
+			synctest.Wait()
+			if got := b.reviewer.started(); !slices.Equal(got, c.want) {
+				t.Errorf("a cap of %d: started %v, want %v", c.limit, got, c.want)
+			}
+			b.eng.Do(Quit{})
+			<-b.results
+		})
+	}
+}
+
 func TestBabysittingIsRefusedWhereAFixWouldBe(t *testing.T) {
 	fork := threaded(4)
 	fork.CrossRepo = true

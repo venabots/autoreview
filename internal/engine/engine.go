@@ -53,6 +53,14 @@ type Config struct {
 	// MaxIdle is how many looks in a row may find nothing to review before
 	// a run that babysits stops. Zero means no limit.
 	MaxIdle int
+	// AutofixCap is the most fixes one of your PRs gets in a row while
+	// nobody else acts on it. Zero means babysit.MaxStreak.
+	AutofixCap int
+	// Panelists is the panel each review seats, or nil for the one the
+	// review skill picks.
+	Panelists []string
+	// Verdicts is which events a review may submit.
+	Verdicts review.Verdicts
 	// CIWait is how long a run that looks once waits for checks that are
 	// still running before it starts its pass. Zero means it does not wait.
 	CIWait time.Duration

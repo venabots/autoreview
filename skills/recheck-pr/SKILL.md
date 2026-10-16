@@ -363,6 +363,22 @@ The first rule that matches wins:
    failed: the delta needed a panel that did not run or did not return
    (gate 3), or only polish rows are still open (gate 1).
 
+**`--verdicts`.** `autoreview` adds this option when the person's settings
+limit the verdicts. It changes only the event. Do not pass it on to
+`panel-review`.
+
+- `--verdicts approve-only`: rule 3 gives `COMMENT`. The review never
+  requests changes.
+- `--verdicts comment-only`: rules 3 and 4 give `COMMENT`. The review never
+  approves and never requests changes.
+- `--verdicts approve-and-request-changes`, or no `--verdicts`: the rules
+  apply as they are written.
+
+A `COMMENT` that `--verdicts` caused has the body
+`Comments only. No decision.`, and every finding goes into the review as
+it would for the verdict that the option replaced. Report the verdict that
+you would have given.
+
 **What goes in the review.** Every row with the status `NEW` is an inline
 comment in the review, at its `file:line`. An `OUTSTANDING` row that has a
 thread is not posted again: step 5 replied on it. An `OUTSTANDING` row
@@ -398,6 +414,7 @@ fixed:
 | Comment: head moved            | `No decision: the head moved during the re-check. I looked at <sha7>.`  |
 | Comment: delta not reviewed    | `No decision: the new commits need a panel review, and it did not run.` |
 | Comment: one polish row open   | `No decision: 1 optional comment is still open.`                        |
+| Comment: caused by --verdicts  | `Comments only. No decision.`                                           |
 | Comment: more polish rows open | `No decision: <n> optional comments are still open.`                    |
 
 - An approval with no user message takes `LGTM, just some small comments,

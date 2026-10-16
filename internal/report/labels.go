@@ -158,7 +158,7 @@ func Outcome(job engine.Job) string {
 		}
 		return "failed"
 	}
-	if short, ok := review.CleanButShort(job.Verdict, job.Trailer); ok {
+	if short, ok := job.Shortfall(); ok {
 		return short.Short()
 	}
 	switch job.Verdict {

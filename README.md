@@ -145,11 +145,51 @@ that could not start says why in the footer and in the right pane.
 Autofix has three limits, and `F` keeps to the last one too:
 
 - A fix runs only after the PR changed.
-- At most 3 fixes run in a row while nobody else acts on the PR.
+- At most 3 fixes run in a row while nobody else acts on the PR
+  (`mine.autofix_cap` in the [settings](#settings)).
 - An approved PR gets only a fix of its conflicts, because a push can dismiss
   the approval. A PR with conflicts cannot merge, so that push loses nothing.
   Open threads and a failing build on an approved PR stay for you: `f` still
   fixes them by hand.
+
+## Settings
+
+The first run in the view asks for the settings that you are most likely to
+change, and writes them to `~/.config/autoreview/config.toml`
+(`$XDG_CONFIG_HOME/autoreview/config.toml` when that variable is set). Every run
+reads the file. Run `autoreview setup` to change the settings, or edit the file:
+each key has a comment.
+
+- A flag wins over its `$AUTOREVIEW_*` variable, and a variable wins over the
+  file.
+- A bad value or an unknown key stops the run, and the error names the key.
+- The file never makes a run loop by itself. Off a terminal, only `--watch` and
+  `--babysit` do that.
+- A run off a terminal never asks. With no file, it uses the built-in defaults.
+- `$AUTOREVIEW_CONFIG` names another file, or `off` reads none.
+
+| Key                                                                     | What it sets                                                                                              |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `review.orchestrator`, `fallback`, `jobs`, `timeout`, `budget`, `focus` | The same as `--orchestrator`, `--fallback`, `--jobs`, `--timeout`, `--budget` and `--focus`               |
+| `review.verdicts`                                                       | `approve-and-request-changes` (the default), `approve-only` or `comment-only`                             |
+| `loop.watch`, `rest`, `max_passes`, `max_idle`, `ci_wait`               | `--watch`, `--babysit`, `--max-passes`, `--max-idle` and `$AUTOREVIEW_CI_WAIT`                            |
+| `prs.approved`, `dependabot`, `stacked`, `skip_ci`                      | `--all`, `--dependabot`, `--stacked` and `--skip-wait-for-ci`. `--all=false` turns one off for a run      |
+| `mine.autofix_cap`                                                      | The most fixes in a row on one of your PRs while nobody else acts on it (default 3)                       |
+| `panel.panelists`                                                       | The models that review together, such as `["claude:opus-4.8", "codex"]`. Empty is every backend on `PATH` |
+| `panel.synth`                                                           | The model that writes the synthesis of `autoreview panel`                                                 |
+
+**Verdicts.** `approve-only` makes a review that would request changes a comment
+review with the same findings. `comment-only` makes every review a comment
+review. The setting reaches `auto-review` and `recheck-pr` as a `--verdicts`
+option. If you installed your own copies of those skills, they need the option
+too: a run with `approve-only` or `comment-only` stops before it starts and
+names the copy that does not know it.
+
+**Panel models.** A review hands `panel.panelists` to `panel-review` through
+`$PANEL_REVIEW_PANELISTS`, unless you set that variable yourself. Name at least
+2, because `auto-review` approves only when several models review. With codex as
+the orchestrator, a codex `shell_environment_policy` of `core` can drop the
+variable.
 
 ## Which agents?
 
@@ -212,7 +252,8 @@ autoreview --help              # every flag and variable
 ```
 
 A reviewed PR rests 30 minutes before it is reviewed again, and gets at most 3
-reviews in a run. A new push starts that count again while the run watches.
+reviews in a run. A new push starts that count again while the run watches. The
+[settings](#settings) change both numbers: `loop.rest` and `loop.max_passes`.
 
 ## panel
 

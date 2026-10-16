@@ -53,7 +53,16 @@ func Run(ctx context.Context, args []string, d Deps) int {
 		_, _ = fmt.Fprintf(d.Stdout, "autoreview panel %s\n", d.Version)
 		return ExitOK
 	}
-	code, err := execute(ctx, parsed.Config, d)
+	cfg := parsed.Config
+	if d.Settings != nil {
+		saved, err := d.Settings()
+		if err != nil {
+			_, _ = fmt.Fprintf(d.Stderr, "error: %s\n", sanitize.Line(err.Error()))
+			return ExitFailed
+		}
+		cfg = withSettings(cfg, saved)
+	}
+	code, err := execute(ctx, cfg, d)
 	if err != nil && ctx.Err() != nil {
 		// A git that a ctrl-C stopped says "signal: killed", which names
 		// the wrong cause. The person pressed ctrl-C, and 130 says so.

@@ -45,6 +45,8 @@ type Job struct {
 	State  JobState
 	// Orchestrator is the agent that ran, or runs, the review.
 	Orchestrator review.Orchestrator
+	// Verdicts is which events the review was allowed to submit.
+	Verdicts review.Verdicts
 	// Resumed is true for a second look in an earlier session.
 	Resumed bool
 	// StartedAt is zero until the review starts.
@@ -102,4 +104,24 @@ type Attempt struct {
 	// The exit status says a provider failed; this says which way.
 	Error   string
 	Elapsed time.Duration
+}
+
+// Shortfall is a clean review that too few of the panel answered, or false.
+// Under comments only no review approves, so a short panel is not why this
+// one did not, and saying so would send the person to look for more
+// reviewers.
+func (j Job) Shortfall() (review.Shortfall, bool) {
+	if !j.Verdicts.Approves() {
+		return review.Shortfall{}, false
+	}
+	return review.CleanButShort(j.Verdict, j.Trailer)
+}
+
+// ReasonsHeader opens the list of the blockers the review named. Under
+// comments only nothing is approved, so the list is only what it found.
+func (j Job) ReasonsHeader() string {
+	if !j.Verdicts.Approves() {
+		return "the review found:"
+	}
+	return review.ReasonsHeader
 }

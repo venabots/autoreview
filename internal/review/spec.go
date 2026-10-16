@@ -62,6 +62,11 @@ type Request struct {
 	Override string
 	// Dashp is the path of the dash-p binary.
 	Dashp string
+	// Panelists is the panel the review seats, each backend[:model], or
+	// nil for the one panel-review.sh picks itself.
+	Panelists []string
+	// Verdicts is which events the review may submit.
+	Verdicts Verdicts
 	// Dir is the working directory: the repo root.
 	Dir string
 	// Stdout, Stderr and Meta are files in the run directory.
@@ -97,11 +102,22 @@ func SpecFor(r Request) Spec {
 	return Spec{
 		Path:   r.Dashp,
 		Args:   dashpArgs(r),
+		Env:    panelEnv(r),
 		Dir:    r.Dir,
 		Stdout: r.Stdout,
 		Stderr: r.Stderr,
 		Guard:  dashpGuard(r.Timeout),
 	}
+}
+
+// panelEnv hands the person's panel to panel-review.sh, which reads it from
+// $PANEL_REVIEW_PANELISTS when no --panelist is given. A task seats no
+// panel. The specs are joined by spaces, as the script splits them.
+func panelEnv(r Request) []string {
+	if r.Task != "" || len(r.Panelists) == 0 {
+		return nil
+	}
+	return []string{"PANEL_REVIEW_PANELISTS=" + strings.Join(r.Panelists, " ")}
 }
 
 // Skill is the skill a review runs.
@@ -127,7 +143,8 @@ func Skill(r Request) string {
 	return "auto-review"
 }
 
-// Prompt is the prompt for one review: the skill by name, then the focus.
+// Prompt is the prompt for one review: the skill by name, then the verdict
+// level when it is not the default, then the focus.
 //
 // The focus travels as the `--focus` option that panel-review and
 // auto-review define, and not as prose a skill would have to interpret.
@@ -135,6 +152,9 @@ func Skill(r Request) string {
 // one line, because it is one argv element and one line in a call log.
 func Prompt(r Request) string {
 	base := r.Orchestrator.SkillPrompt(Skill(r), r.PR)
+	if option := verdictOption(r); option != "" {
+		base += " " + option
+	}
 	if r.Focus == "" || r.Task != "" {
 		return base
 	}

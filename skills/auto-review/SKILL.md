@@ -102,6 +102,20 @@ Pass the user's `panel-review` options through (panelist selection,
 the standard multi-panelist run — the approval gate leans on having
 several independent reviewers (see the gate).
 
+`--verdicts` is an option of this skill, not of `panel-review`. Do not pass
+it on. `autoreview` adds it when the person's settings limit the verdicts.
+It changes only the event (see "The verdict"):
+
+- `--verdicts approve-only`: the review never requests changes. Rule 4
+  gives `COMMENT` with the body `Comments only. No decision.`, as when the
+  user says "don't request changes".
+- `--verdicts comment-only`: the review never approves and never requests
+  changes. The run is post-only (rule 1).
+- `--verdicts approve-and-request-changes`, or no `--verdicts`: the rules
+  apply as they are written.
+
+In each case, report the verdict that you would have given.
+
 ## The pipeline
 
 ### 1. Review — run `panel-review` (kept separate)
@@ -347,7 +361,7 @@ The review event follows from the gate. Apply these rules in order. The
 first rule that matches wins, so every pass has exactly one verdict:
 
 1. `COMMENT` — **post-only.** The invocation did not ask for a verdict
-   (see "Autonomy").
+   (see "Autonomy"), or it carries `--verdicts comment-only`.
 2. `COMMENT` — **no verdict is possible on this PR.** It is your own PR
    (#6), or it is a draft (#5).
 3. `COMMENT` — **the head moved** since the review (#7).
@@ -374,7 +388,8 @@ A request for changes is the default for a blocking finding. On a branch
 that requires reviews it blocks the merge until a later pass approves,
 which `recheck-pr` does when the author fixes or explains every finding.
 If the user says "don't request changes",
-"don't block" or "comment only", rule 4 gives `COMMENT` with the body
+"don't block" or "comment only", or the invocation carries
+`--verdicts approve-only`, rule 4 gives `COMMENT` with the body
 `Comments only. No decision.` instead.
 
 **When there is nothing to post, post nothing** in three cases, and write

@@ -1,6 +1,7 @@
 package babysit
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/venabots/autoreview/internal/mine"
@@ -98,6 +99,21 @@ func TestTheStreakStopsAtTheCapUntilSomeoneElseActs(t *testing.T) {
 	}
 }
 
+// The cap is the person's setting. A cap of 1 is one fix and then a wait
+// for somebody; a higher cap lets the fixes go on longer.
+func TestTheCapIsTheLimitTheLookIsGiven(t *testing.T) {
+	for _, limit := range []int{1, 5} {
+		s := babysitting(4)
+		var due []int
+		for i := range limit {
+			s, due = lookUnder(limit, s, head(pr(4), shaN(i)))
+			wantDue(t, due, []int{4}, fmt.Sprintf("fix %d under a cap of %d", i+1, limit))
+		}
+		_, due = lookUnder(limit, s, head(pr(4), "sha-more"))
+		wantDue(t, due, nil, fmt.Sprintf("the fix after a cap of %d", limit))
+	}
+}
+
 func TestAChangedReviewDecisionStartsTheCountAgain(t *testing.T) {
 	s := babysitting(4)
 	for i := range MaxStreak {
@@ -162,7 +178,7 @@ func TestAThreadOpenedWhileTheFixRunsIsNewWorkAfterIt(t *testing.T) {
 	s, due := look(babysitting(4), pr(4))
 	wantDue(t, due, []int{4}, "the first look")
 	two := with(pr(4), func(p *mine.PR) { p.ThreadIDs = []string{"t1", "t2"} })
-	s, busy := s.Look([]mine.PR{two}, func(int) bool { return true })
+	s, busy := s.Look([]mine.PR{two}, func(int) bool { return true }, MaxStreak)
 	wantKinds(t, busy, nil, "the fix is running")
 	s = s.Finished(4)
 	_, due = look(s, head(two, "sha-fix"))
@@ -248,7 +264,7 @@ func TestAPRFromAForkIsNeverScheduled(t *testing.T) {
 
 func TestABusyPRWaitsAndAClosedOneLeaves(t *testing.T) {
 	s := babysitting(4)
-	s, busy := s.Look([]mine.PR{pr(4)}, func(n int) bool { return n == 4 })
+	s, busy := s.Look([]mine.PR{pr(4)}, func(n int) bool { return n == 4 }, MaxStreak)
 	wantKinds(t, busy, nil, "a job on it is running")
 	s, due := look(s, pr(4))
 	wantDue(t, due, []int{4}, "it is fixed at the next look")

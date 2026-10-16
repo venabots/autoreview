@@ -32,6 +32,9 @@ type Config struct {
 	LogDir     string
 	Synthesize bool
 	Synth      Spec
+	// synthChosen says --synth or $PANEL_SYNTH named the synthesizer, so
+	// the settings file does not.
+	synthChosen bool
 }
 
 // Parsed is what the arguments asked for: a run, the help or the version.
@@ -53,9 +56,10 @@ func WantsHelp(err error) bool {
 
 // parser is the state of one pass over the arguments.
 type parser struct {
-	cfg        Config
-	timeoutRaw string
-	synthRaw   string
+	cfg         Config
+	timeoutRaw  string
+	synthRaw    string
+	synthChosen bool
 }
 
 // Parse reads the arguments after the word "panel". The parser is written by
@@ -64,9 +68,10 @@ type parser struct {
 // tree audit of a directory named "--focus".
 func Parse(args []string, env func(string) string) (Parsed, error) {
 	p := parser{
-		cfg:        Config{Target: Target{Kind: Uncommitted}, Synthesize: true},
-		timeoutRaw: orDefault(env(EnvTimeout), defaultTimeout),
-		synthRaw:   orDefault(env(EnvSynth), defaultSynth),
+		cfg:         Config{Target: Target{Kind: Uncommitted}, Synthesize: true},
+		timeoutRaw:  orDefault(env(EnvTimeout), defaultTimeout),
+		synthRaw:    orDefault(env(EnvSynth), defaultSynth),
+		synthChosen: env(EnvSynth) != "",
 	}
 	for at := 0; at < len(args); at++ {
 		switch args[at] {
@@ -152,7 +157,7 @@ func (p *parser) set(name, value string) error {
 	case "--log-dir":
 		p.cfg.LogDir = value
 	case "--synth":
-		p.synthRaw = value
+		p.synthRaw, p.synthChosen = value, true
 	}
 	return nil
 }
@@ -173,7 +178,7 @@ func (p *parser) finish() (Parsed, error) {
 	}
 	cfg := p.cfg
 	cfg.TimeoutSecs = timeout
-	cfg.Synth = synth
+	cfg.Synth, cfg.synthChosen = synth, p.synthChosen
 	return Parsed{Config: cfg}, nil
 }
 

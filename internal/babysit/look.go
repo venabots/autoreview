@@ -22,7 +22,12 @@ type Due struct {
 // start one on each PR it returns, of the kind it names. Do not call Look
 // after a look that failed: the list would be the last good one, and a fix
 // that just ended would take its state from before the fix.
-func (s State) Look(list []mine.PR, busy func(pr int) bool) (State, []Due) {
+//
+// limit is the most fixes a PR gets in a row while nobody else acts: the
+// person's setting, MaxStreak when they chose none. It is an argument and
+// not a field, because a change of babysitting makes a new State and must
+// not take the cap back to its default.
+func (s State) Look(list []mine.PR, busy func(pr int) bool, limit int) (State, []Due) {
 	open := map[int]bool{}
 	for _, pr := range list {
 		open[pr.Number] = true
@@ -33,7 +38,7 @@ func (s State) Look(list []mine.PR, busy func(pr int) bool) (State, []Due) {
 		if !next.Babysat(pr.Number) || pr.CrossRepo || (busy != nil && busy(pr.Number)) {
 			continue
 		}
-		w, kind, fix := step(next.watches[pr.Number], pr)
+		w, kind, fix := step(next.watches[pr.Number], pr, limit)
 		next.watches[pr.Number] = w
 		if fix {
 			due = append(due, Due{PR: pr.Number, Kind: kind})
