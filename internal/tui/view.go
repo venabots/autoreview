@@ -131,7 +131,10 @@ func (m Model) status() word {
 		// merged an hour ago would look as if it still waited on you.
 		return word{"could not read your PRs: " + sanitize.Line(m.snap.MineErr) + "; this list is from the last look", redStyle}
 	}
-	return statusText(m.snap, m.reviews(), m.now, m.spin.View())
+	if m.tab == tabMine {
+		return statusText(m.snap, mineTally(m.snap), m.now, m.spin.View())
+	}
+	return statusText(m.snap, reviewTally(m.snap, m.reviews()), m.now, m.spin.View())
 }
 
 // paneContent is what the right pane shows, and a key that names it.

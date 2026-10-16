@@ -117,17 +117,19 @@ type hint struct {
 }
 
 // footerHints are the keys the footer names, most useful first. The footer
-// shows as many as fit. Each tab names only the keys that act on it.
+// shows as many as fit. Each tab names only the keys that act on it. The
+// tab key names the tab it goes to: "tab review" on My PRs read as a key
+// that reviews your PR.
 func footerHints(shown tab) []hint {
 	if shown == tabMine {
 		return []hint{
-			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "review"}, {"o", "open"}, {"j/k", "move"}, {"r", "resume"}, {"x", "stop"},
+			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "to Review"}, {"o", "open"}, {"j/k", "move"}, {"r", "resume"}, {"x", "stop"},
 			{"m", "mouse"}, {"l", "log"}, {"^d/^u", "scroll"},
 		}
 	}
 	return []hint{
 		{"q", "quit"}, {"j/k", "move"}, {"r", "resume"}, {"o", "open"}, {"R", "review now"},
-		{"tab", "my PRs"}, {"w", "watch"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
+		{"tab", "to My PRs"}, {"w", "watch"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
 	}
 }
 
