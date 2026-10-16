@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	xterm "github.com/charmbracelet/x/term"
@@ -13,7 +14,6 @@ import (
 	"github.com/venabots/autoreview/internal/cli"
 	"github.com/venabots/autoreview/internal/config"
 	"github.com/venabots/autoreview/internal/engine"
-	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/sanitize"
 	"github.com/venabots/autoreview/internal/setup"
 )
@@ -35,8 +35,11 @@ func runSetup(args []string, stdout, stderr io.Writer) int {
 		return engine.ExitFailed
 	}
 	file, err := config.Load(path)
+	if err == nil {
+		err = cli.CheckFile(file)
+	}
 	if err != nil {
-		return setupEnded(err, stderr)
+		return setupEnded(withRepairHint(err, path), stderr)
 	}
 	_, raw, err := setUp(file)
 	if err == nil {
@@ -89,9 +92,11 @@ func onTerminal() bool {
 }
 
 // setUp asks for the settings, starting from what the file says, and is
-// the file the answers make and its text. The answers are read back the
-// way a run reads them, so the caller never writes a file that the next
-// run would refuse.
+// the file the answers make and its text. Each answer is read back as
+// CheckFile reads a file, so the caller never writes a bad value. The pair
+// of orchestrator and fallback is the run's to check, with its own
+// variables; the form refuses to choose an agent that is the file's
+// fallback.
 func setUp(file config.File) (config.File, []byte, error) {
 	current, err := valuesOf(file)
 	if err != nil {
@@ -107,7 +112,7 @@ func setUp(file config.File) (config.File, []byte, error) {
 	}
 	next, err := config.Parse(raw, file.Path)
 	if err == nil {
-		_, err = cli.ParseWith(nil, noEnv, next)
+		err = cli.CheckFile(next)
 	}
 	if err != nil {
 		return config.File{}, nil, err
@@ -120,13 +125,26 @@ func noEnv(string) string { return "" }
 // valuesOf is every setting as the file and the built-in defaults give it,
 // with no flag and no variable: what the form starts from, and what it
 // writes back for the keys it does not ask.
+//
+// The fallback is read as the file writes it. Read against the default
+// orchestrator, a fallback of claude would clash, though the person's runs
+// move the orchestrator with a variable.
 func valuesOf(file config.File) (config.Values, error) {
-	cfg, err := cli.ParseWith(nil, noEnv, file)
+	if err := cli.CheckFile(file); err != nil {
+		return config.Values{}, err
+	}
+	alone := file
+	alone.Review.Fallback = nil
+	cfg, err := cli.ParseWith(nil, noEnv, alone)
 	if err != nil {
 		return config.Values{}, err
 	}
+	fallback := "auto"
+	if file.Review.Fallback != nil {
+		fallback = *file.Review.Fallback
+	}
 	synth := "claude"
-	if file.Panel.Synth != nil && *file.Panel.Synth != "" {
+	if file.Panel.Synth != nil {
 		synth = *file.Panel.Synth
 	}
 	// The focus goes back as the person wrote it. cfg.Focus is the form a
@@ -136,23 +154,14 @@ func valuesOf(file config.File) (config.Values, error) {
 		focus = *file.Review.Focus
 	}
 	return config.Values{
-		Orchestrator: cfg.Orchestrator.Label(), Fallback: fallbackText(cfg.Fallback),
+		Orchestrator: cfg.Orchestrator.Label(), Fallback: fallback,
 		Jobs: cfg.Jobs, Timeout: int(cfg.Timeout / time.Second), Budget: cfg.Budget, Focus: focus,
 		Verdicts: cfg.Verdicts.String(),
 		Watch:    cfg.Watch.Text, Rest: cfg.Babysit.Text, MaxPasses: cfg.MaxPasses, MaxIdle: cfg.MaxIdle, CIWait: cfg.CIWait.Text,
 		Approved: cfg.All, Dependabot: cfg.Dependabot, Stacked: cfg.Stacked, SkipCI: cfg.SkipCI,
 		AutofixCap: cfg.AutofixCap, Panelists: file.Panel.Panelists, Synth: synth,
+		Set: file.Keys(),
 	}, nil
-}
-
-func fallbackText(f review.Fallback) string {
-	switch f.Kind {
-	case review.FallbackNone:
-		return "none"
-	case review.FallbackSpec:
-		return f.Spec.Label()
-	}
-	return "auto"
 }
 
 // writeSettings writes the file through a temporary one and a rename, so
@@ -161,11 +170,10 @@ func fallbackText(f review.Fallback) string {
 // it, as a dotfiles repo makes, stays a link: the rename goes to the file
 // the link points at.
 func writeSettings(path string, raw []byte) error {
-	target, mode := path, os.FileMode(0o600)
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		target = resolved
-	}
-	if info, err := os.Stat(target); err == nil {
+	target, mode := linkTarget(path), os.FileMode(0o600)
+	info, err := os.Stat(target)
+	existed := err == nil
+	if existed {
 		mode = info.Mode().Perm()
 	}
 	dir := filepath.Dir(target)
@@ -190,5 +198,89 @@ func writeSettings(path string, raw []byte) error {
 		_ = os.Remove(tmp.Name())
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
-	return nil
+	return readableThrough(path, target, existed)
+}
+
+// readableThrough checks that the file just written at target is the one a
+// run reads at path. A link through a folder that does not exist leads
+// nowhere: the file would sit where no run looks, and the next run would ask
+// for the settings again. A file this write made is then removed.
+func readableThrough(path, target string, existed bool) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	if !existed {
+		_ = os.Remove(target)
+	}
+	return fmt.Errorf("%s does not lead to the file written at %s; make the folders that its links point at, or replace the link", path, target)
+}
+
+// linkTarget is the file a link at path points at, followed to its end,
+// even when that file does not exist yet: a dotfiles install can make the
+// link first. A path that is no link is itself.
+func linkTarget(path string) string {
+	target, _ := resolved(path, maxLinks)
+	return target
+}
+
+// maxLinks is how many links one write may pass through, as the system
+// limits it, so two links that point at each other end the walk.
+const maxLinks = 40
+
+// resolved is linkTarget with hops left to follow, and the hops left after.
+func resolved(path string, hops int) (string, int) {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real, hops
+	}
+	target := path
+	for hops > 0 {
+		info, err := os.Lstat(target)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			return target, hops
+		}
+		text, err := os.Readlink(target)
+		if err != nil {
+			return target, hops
+		}
+		from := filepath.Dir(target)
+		if filepath.IsAbs(text) {
+			from = string(filepath.Separator)
+		}
+		target, hops = followed(from, text, hops-1)
+	}
+	return target, hops
+}
+
+// followed is the path that link text reaches from dir, read one part at a
+// time as the system reads it: a folder that is a link is resolved before a
+// later .. climbs out of it. Cleaned as text, alias/.. would vanish, and the
+// write would go to another file.
+func followed(dir, text string, hops int) (string, int) {
+	at := dir
+	if real, err := filepath.EvalSymlinks(at); err == nil {
+		at = real
+	}
+	parts := strings.Split(filepath.ToSlash(text), "/")
+	for i, part := range parts {
+		switch part {
+		case "", ".":
+		case "..":
+			at = filepath.Dir(at)
+		default:
+			at = filepath.Join(at, part)
+			// A folder that is a link is followed now, also to a folder
+			// that does not exist yet, so a later .. climbs out of where
+			// it points.
+			if i < len(parts)-1 {
+				at, hops = resolved(at, hops)
+			}
+		}
+	}
+	return at, hops
+}
+
+// withRepairHint says how to get past a settings file that cannot be read:
+// the form starts from what the file says, so it cannot start from that one.
+func withRepairHint(err error, path string) error {
+	return fmt.Errorf("%w; fix %s or delete it, then run autoreview setup again", err, path)
 }

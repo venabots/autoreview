@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -59,7 +61,7 @@ func Ask(current config.Values, path string, term Terminal) (config.Values, erro
 			huh.NewNote().Title("autoreview settings").Description(intro(path)),
 			huh.NewInput().Title("The agent that runs each review").
 				Description("claude or codex, with an optional model, as in codex:gpt-5.5").
-				Value(&a.orchestrator).Validate(orchestratorBeside(current.Fallback)),
+				Value(&a.orchestrator).Validate(orchestratorBeside(current.Fallback, unchosen(current))),
 			huh.NewInput().Title("The models in the review panel").
 				Description("Each backend[:model], separated by spaces, as in claude:opus-4.8 codex. Blank is every backend on PATH.").
 				Value(&a.panel).Validate(panelists),
@@ -105,16 +107,53 @@ func withAnswers(current config.Values, a answers) config.Values {
 	next.Watch = strings.TrimSpace(a.watch)
 	next.AutofixCap, _ = strconv.Atoi(strings.TrimSpace(a.autofixCap))
 	next.Jobs, _ = strconv.Atoi(strings.TrimSpace(a.jobs))
+	next.Set = chosen(current, next)
 	return next
 }
 
-// orchestratorBeside checks the agent, and refuses the one the settings
-// already name as its fallback: the run would refuse that pair, and the
-// answers would be lost after the form.
-func orchestratorBeside(fallback string) func(string) error {
+// chosen is the keys the person chose: those the file set before, and each
+// answer that differs from what the form showed. Enter on a default chooses
+// nothing, so a later default still reaches that person.
+func chosen(current, next config.Values) map[string]bool {
+	set := maps.Clone(current.Set)
+	if set == nil {
+		set = map[string]bool{}
+	}
+	for key, changed := range map[string]bool{
+		"review.orchestrator": next.Orchestrator != current.Orchestrator,
+		"panel.panelists":     !slices.Equal(next.Panelists, current.Panelists),
+		"review.verdicts":     next.Verdicts != current.Verdicts,
+		"loop.max_passes":     next.MaxPasses != current.MaxPasses,
+		"loop.rest":           next.Rest != current.Rest,
+		"loop.watch":          next.Watch != current.Watch,
+		"mine.autofix_cap":    next.AutofixCap != current.AutofixCap,
+		"review.jobs":         next.Jobs != current.Jobs,
+	} {
+		if changed {
+			set[key] = true
+		}
+	}
+	return set
+}
+
+// unchosen is the agent the form shows when the file does not set one: the
+// default, which an answer that keeps it does not write as a value. It is
+// empty when the file sets the agent, which goes back as a value.
+func unchosen(current config.Values) string {
+	if current.Set["review.orchestrator"] {
+		return ""
+	}
+	return current.Orchestrator
+}
+
+// orchestratorBeside checks the agent, and refuses to choose the one the
+// settings name as the fallback: every run would refuse that pair. shown is
+// the agent the form showed when it is no choice and is not written as one;
+// it passes.
+func orchestratorBeside(fallback, shown string) func(string) error {
 	return func(raw string) error {
 		o, err := review.ParseOrchestrator(strings.TrimSpace(raw))
-		if err != nil {
+		if err != nil || strings.TrimSpace(raw) == shown {
 			return err
 		}
 		if f, err := review.ParseFallback(fallback); err == nil && f.Kind == review.FallbackSpec && f.Spec == o {

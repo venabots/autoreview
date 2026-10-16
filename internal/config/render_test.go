@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,16 @@ func values() Values {
 		Watch: "5m", Rest: "1h", MaxPasses: 2, MaxIdle: 7, CIWait: "45m",
 		Approved: true, Dependabot: false, Stacked: true, SkipCI: false,
 		AutofixCap: 5, Panelists: []string{"claude:opus-4.8", "codex"}, Synth: "claude",
+		Set: allKeys(),
 	}
+}
+
+func allKeys() map[string]bool {
+	keys := map[string]bool{}
+	for _, k := range KeyNames() {
+		keys[k] = true
+	}
+	return keys
 }
 
 func rendered(t *testing.T, v Values) string {
@@ -37,6 +47,7 @@ func TestARenderedFileReadsBackAsTheSameValues(t *testing.T) {
 		Watch: *f.Loop.Watch, Rest: *f.Loop.Rest, MaxPasses: *f.Loop.MaxPasses, MaxIdle: *f.Loop.MaxIdle, CIWait: *f.Loop.CIWait,
 		Approved: *f.PRs.Approved, Dependabot: *f.PRs.Dependabot, Stacked: *f.PRs.Stacked, SkipCI: *f.PRs.SkipCI,
 		AutofixCap: *f.Mine.AutofixCap, Panelists: f.Panel.Panelists, Synth: *f.Panel.Synth,
+		Set: f.Keys(),
 	}
 	if !reflect.DeepEqual(got, v) {
 		t.Errorf("read back %+v, want %+v", got, v)
@@ -57,5 +68,60 @@ func TestAnEmptyPanelIsAnEmptyList(t *testing.T) {
 	v.Panelists = nil
 	if got := rendered(t, v); !strings.Contains(got, "\npanelists = []\n") {
 		t.Errorf("an empty panel renders as:\n%s", got)
+	}
+}
+
+// A key the person did not choose stays a comment that shows the default.
+// Written as a value, it would hold the default of the day it was written,
+// and a later default would never reach that person.
+func TestAKeyThePersonDidNotChooseIsAComment(t *testing.T) {
+	v := values()
+	v.Set = map[string]bool{"review.jobs": true, "panel.panelists": true}
+	text := rendered(t, v)
+	for _, want := range []string{"\njobs = 4\n", "\npanelists = [\"claude:opus-4.8\", \"codex\"]\n", "\n# timeout = 0\n", "\n# verdicts = \"approve-only\"\n"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the file lacks %q:\n%s", want, text)
+		}
+	}
+	f, err := Load(fileWith(t, text))
+	if err != nil || f.Review.Jobs == nil || f.Review.Timeout != nil || f.Review.Verdicts != nil {
+		t.Errorf("read back: %+v, %v; want jobs set and timeout and verdicts unset", f.Review, err)
+	}
+}
+
+func TestTheKeysAFileSetsAreTheOnesItNames(t *testing.T) {
+	f, err := Load(fileWith(t, "[review]\njobs = 4\n[panel]\npanelists = []\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Keys(); !reflect.DeepEqual(got, map[string]bool{"review.jobs": true, "panel.panelists": true}) {
+		t.Errorf("Keys = %v", got)
+	}
+}
+
+func TestTheKeysOfABuiltFileAreTheFieldsItSets(t *testing.T) {
+	jobs, synth := 4, "codex"
+	f := File{Review: Review{Jobs: &jobs}, Panel: Panel{Synth: &synth, Panelists: []string{"codex", "claude"}}}
+	if got := f.Keys(); !reflect.DeepEqual(got, map[string]bool{"review.jobs": true, "panel.synth": true, "panel.panelists": true}) {
+		t.Errorf("Keys = %v", got)
+	}
+}
+
+// Each key the template marks must be one that a file can set, or a chosen
+// value would be written as a comment.
+func TestEveryKeyTheTemplateMarksIsASetting(t *testing.T) {
+	f, err := Load(fileWith(t, rendered(t, values())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := f.Keys()
+	marked := regexp.MustCompile(`\.Mark "([^"]+)"`).FindAllStringSubmatch(fileTemplate.Root.String(), -1)
+	for _, m := range marked {
+		if !known[m[1]] {
+			t.Errorf("the template marks %q, which a file does not set", m[1])
+		}
+	}
+	if len(marked) != len(KeyNames()) || len(known) != len(KeyNames()) {
+		t.Errorf("the template marks %d keys, a full file sets %d, and KeyNames lists %d", len(marked), len(known), len(KeyNames()))
 	}
 }

@@ -27,6 +27,7 @@ func current() config.Values {
 	return config.Values{
 		Orchestrator: "claude", Fallback: "auto", Jobs: 2, Timeout: 3600, Verdicts: "approve-and-request-changes",
 		Watch: "2m", Rest: "30m", MaxPasses: 3, MaxIdle: 3, CIWait: "30m", AutofixCap: 3, Synth: "claude",
+		Set: map[string]bool{"review.timeout": true},
 	}
 }
 
@@ -45,6 +46,8 @@ func TestTheFormReturnsTheAnswersAndKeepsWhatItDidNotAsk(t *testing.T) {
 	want := current()
 	want.Orchestrator, want.Panelists, want.Verdicts = "codex:gpt-5.5", []string{"claude:opus-4.8", "codex"}, "comment-only"
 	want.MaxPasses, want.Rest, want.Watch, want.AutofixCap, want.Jobs = 2, "1h", "5m", 5, 4
+	want.Set = map[string]bool{"review.orchestrator": true, "panel.panelists": true, "review.verdicts": true, "loop.max_passes": true,
+		"loop.rest": true, "loop.watch": true, "mine.autofix_cap": true, "review.jobs": true, "review.timeout": true}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Ask = %+v, want %+v", got, want)
 	}
@@ -75,11 +78,16 @@ func TestTheChecksMatchTheFlags(t *testing.T) {
 		ok    []string
 		bad   []string
 	}{
-		{orchestratorBeside("auto"), []string{"claude", "codex:gpt-5.5"}, []string{"gemini", "codex:"}},
+		{orchestratorBeside("auto", "claude"), []string{"claude", "codex:gpt-5.5"}, []string{"gemini", "codex:"}},
 		{panelists, []string{"", "claude codex", "claude:opus-4.8 opencode:glm-5.2"}, []string{"claude", "claude gemini"}},
 		{upTo(100), []string{"1", " 12 ", "100"}, []string{"0", "-1", "two", "", "101"}},
-		{orchestratorBeside("codex"), []string{"claude", "codex:gpt-5.5"}, []string{"codex"}},
-		{orchestratorBeside("auto"), []string{"claude", "codex"}, nil},
+		{orchestratorBeside("codex", "claude"), []string{"claude", "codex:gpt-5.5"}, []string{"codex"}},
+		// The agent the form showed is no choice, so it does not clash.
+		{orchestratorBeside("claude", "claude"), []string{"claude"}, []string{}},
+		// Shown from the file, it is written back as a value: the clash
+		// stays, so the form says so.
+		{orchestratorBeside("claude", ""), nil, []string{"claude"}},
+		{orchestratorBeside("auto", "claude"), []string{"claude", "codex"}, nil},
 		{interval, []string{"30", "30m", "2h"}, []string{"0", "soon", ""}},
 	} {
 		for _, raw := range c.ok {
@@ -92,5 +100,17 @@ func TestTheChecksMatchTheFlags(t *testing.T) {
 				t.Errorf("%q passed", raw)
 			}
 		}
+	}
+}
+
+// Enter on a value the form shows keeps it unchosen. Written as a value, a
+// default of today would never change for that person again.
+func TestAnAnswerThatKeepsTheDefaultIsNotAChoice(t *testing.T) {
+	got, out, err := ask(t, "claude", "", "1", "3", "30m", "2m", "3", "2")
+	if err != nil {
+		t.Fatalf("Ask: %v\n%s", err, out)
+	}
+	if !reflect.DeepEqual(got.Set, map[string]bool{"review.timeout": true}) {
+		t.Errorf("Set = %v, want only the key the file already set", got.Set)
 	}
 }

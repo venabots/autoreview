@@ -32,6 +32,20 @@ type Values struct {
 
 	Panelists []string
 	Synth     string
+
+	// Set is the keys the person chose: in the form, or in the file before
+	// it. Every other key is written as a comment that shows the default,
+	// so a later default reaches a person who never chose a value.
+	Set map[string]bool
+}
+
+// Mark is what goes before the key's line: nothing for a key the person
+// chose, and a comment mark for one that keeps the default.
+func (v Values) Mark(key string) string {
+	if v.Set[key] {
+		return ""
+	}
+	return "# "
 }
 
 // fileTemplate writes every key with a comment that says what it does, so
@@ -40,61 +54,62 @@ var fileTemplate = template.Must(template.New("config.toml").Funcs(template.Func
 	`# autoreview settings. You can edit this file. ` + "`autoreview setup`" + ` writes it
 # again from its answers, and does not keep comments that you add.
 # A flag wins over its $AUTOREVIEW_* variable, and a variable wins over this
-# file. The file never makes a run loop by itself.
+# file. The file never makes a run loop by itself. A key in a comment is not
+# set: the run uses the built-in default that the comment shows.
 
 [review]
 # The agent that runs each review: claude or codex, with an optional model,
 # as in codex:gpt-5.5.
-orchestrator = {{q .Orchestrator}}
+{{.Mark "review.orchestrator"}}orchestrator = {{q .Orchestrator}}
 # The agent that retries a review whose agent failed: auto, none, or a name.
-fallback = {{q .Fallback}}
+{{.Mark "review.fallback"}}fallback = {{q .Fallback}}
 # Reviews that run at once. A review is itself several agents.
-jobs = {{.Jobs}}
+{{.Mark "review.jobs"}}jobs = {{.Jobs}}
 # Seconds before a review is stopped. 0 means no limit.
-timeout = {{.Timeout}}
+{{.Mark "review.timeout"}}timeout = {{.Timeout}}
 # The most one review may spend, in USD, with claude. Empty means no cap.
-budget = {{q .Budget}}
+{{.Mark "review.budget"}}budget = {{q .Budget}}
 # What the reviewers look at in every run. Empty means nothing in particular.
-focus = {{q .Focus}}
+{{.Mark "review.focus"}}focus = {{q .Focus}}
 # The verdicts a review may post: approve-and-request-changes, approve-only
 # (a blocking finding is a comment review), or comment-only (no verdict).
-verdicts = {{q .Verdicts}}
+{{.Mark "review.verdicts"}}verdicts = {{q .Verdicts}}
 
 [loop]
 # The wait between two looks at the PR list. A bare number is minutes; 30m,
 # 1h and 2d also work.
-watch = {{q .Watch}}
+{{.Mark "loop.watch"}}watch = {{q .Watch}}
 # How long a reviewed PR rests before it may be reviewed again.
-rest = {{q .Rest}}
+{{.Mark "loop.rest"}}rest = {{q .Rest}}
 # Reviews one PR gets in a run. While the run watches, a push starts the
 # count again.
-max_passes = {{.MaxPasses}}
+{{.Mark "loop.max_passes"}}max_passes = {{.MaxPasses}}
 # Looks in a row that find nothing to review before --babysit stops.
-max_idle = {{.MaxIdle}}
+{{.Mark "loop.max_idle"}}max_idle = {{.MaxIdle}}
 # How long a run that looks once waits for checks that are still running.
-ci_wait = {{q .CIWait}}
+{{.Mark "loop.ci_wait"}}ci_wait = {{q .CIWait}}
 
 [prs]
 # Review PRs that are approved already.
-approved = {{.Approved}}
+{{.Mark "prs.approved"}}approved = {{.Approved}}
 # Review Dependabot's PRs.
-dependabot = {{.Dependabot}}
+{{.Mark "prs.dependabot"}}dependabot = {{.Dependabot}}
 # Review a PR that sits on another open PR.
-stacked = {{.Stacked}}
+{{.Mark "prs.stacked"}}stacked = {{.Stacked}}
 # Review a PR whose checks have not passed, and do not wait for them.
-skip_ci = {{.SkipCI}}
+{{.Mark "prs.skip_ci"}}skip_ci = {{.SkipCI}}
 
 [mine]
 # The most fixes one of your PRs gets in a row while nobody else acts on it.
-autofix_cap = {{.AutofixCap}}
+{{.Mark "mine.autofix_cap"}}autofix_cap = {{.AutofixCap}}
 
 [panel]
 # The models that review together, each backend[:model], for example
 # ["claude:opus-4.8", "codex", "opencode:glm-5.2"]. Empty is every backend on
 # PATH. Name at least 2: auto-review approves only when several review.
-panelists = {{list .Panelists}}
+{{.Mark "panel.panelists"}}panelists = {{list .Panelists}}
 # The model that writes the synthesis of ` + "`autoreview panel`" + `.
-synth = {{q .Synth}}
+{{.Mark "panel.synth"}}synth = {{q .Synth}}
 `))
 
 // Render is the settings file for v.

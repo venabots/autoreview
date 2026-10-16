@@ -19,6 +19,9 @@ type File struct {
 	// not there: the first run is that case.
 	Path  string `toml:"-"`
 	Found bool   `toml:"-"`
+	// panelistsNamed says the file names panel.panelists. An empty list and
+	// a missing key decode alike, and only the first is a choice.
+	panelistsNamed bool
 
 	Review Review `toml:"review"`
 	Loop   Loop   `toml:"loop"`
@@ -99,5 +102,53 @@ func Parse(raw []byte, path string) (File, error) {
 	if unknown := md.Undecoded(); len(unknown) > 0 {
 		return File{}, fmt.Errorf("%s sets %s, which is not a setting", path, unknown[0])
 	}
+	f.panelistsNamed = md.IsDefined("panel", "panelists")
 	return f, nil
+}
+
+// keyed is each key with whether the file sets it, in the order the file
+// lists them. A nil field is a key the file leaves out.
+func (f File) keyed() []struct {
+	name string
+	set  bool
+} {
+	return []struct {
+		name string
+		set  bool
+	}{
+		{"review.orchestrator", f.Review.Orchestrator != nil}, {"review.fallback", f.Review.Fallback != nil},
+		{"review.jobs", f.Review.Jobs != nil}, {"review.timeout", f.Review.Timeout != nil},
+		{"review.budget", f.Review.Budget != nil}, {"review.focus", f.Review.Focus != nil},
+		{"review.verdicts", f.Review.Verdicts != nil},
+		{"loop.watch", f.Loop.Watch != nil}, {"loop.rest", f.Loop.Rest != nil},
+		{"loop.max_passes", f.Loop.MaxPasses != nil}, {"loop.max_idle", f.Loop.MaxIdle != nil},
+		{"loop.ci_wait", f.Loop.CIWait != nil},
+		{"prs.approved", f.PRs.Approved != nil}, {"prs.dependabot", f.PRs.Dependabot != nil},
+		{"prs.stacked", f.PRs.Stacked != nil}, {"prs.skip_ci", f.PRs.SkipCI != nil},
+		{"mine.autofix_cap", f.Mine.AutofixCap != nil},
+		{"panel.panelists", f.Panel.Panelists != nil || f.panelistsNamed}, {"panel.synth", f.Panel.Synth != nil},
+	}
+}
+
+// KeyNames is every key a settings file can set, in the order the file
+// lists them.
+func KeyNames() []string {
+	keys := File{}.keyed()
+	names := make([]string, len(keys))
+	for i, k := range keys {
+		names[i] = k.name
+	}
+	return names
+}
+
+// Keys is the keys the file sets. A key it leaves out takes the built-in
+// default, and the setup step writes it back as a comment.
+func (f File) Keys() map[string]bool {
+	set := map[string]bool{}
+	for _, k := range f.keyed() {
+		if k.set {
+			set[k.name] = true
+		}
+	}
+	return set
 }
