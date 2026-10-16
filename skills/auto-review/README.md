@@ -56,16 +56,18 @@ A verdict needs an invocation that asked for one ("auto-review", "approve if cle
 
 The first rule that matches wins:
 
-| #   | When                                                         | Review            | First line of the body                                                          |
-| --- | ------------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------- |
-| 1   | Post-only request                                            | `COMMENT`         | `Comments only. No decision.`                                                   |
-| 2   | Your own PR, or a draft                                      | `COMMENT`         | `No decision: this is my own PR.` / `No decision: this PR is a draft.`          |
-| 3   | The head moved during the review                             | `COMMENT`         | `No decision: the head moved during the review. These comments are for <sha7>.` |
-| 4   | A must-fix or should-fix finding, or a questionable approach | `REQUEST_CHANGES` | `Just a few things I think we should update before this gets in.` (see below)   |
-| 5   | The gate passes                                              | `APPROVE`         | `LGTM` / `LGTM, just some small comments, nothing blocking`                     |
-| 6   | Nothing blocks, but too few reviewers answered               | `COMMENT`         | `No decision: only <k> of <n> reviewers answered.`                              |
+| #   | When                                                         | Review            | First line of the body                                                                            |
+| --- | ------------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------- |
+| 1   | Post-only request                                            | `COMMENT`         | `Comments only. No decision.`                                                                     |
+| 2   | Your own PR, or a draft                                      | `COMMENT`         | `No decision: this is my own PR.` / `No decision: this PR is a draft.`                            |
+| 3   | The head moved during the review                             | `COMMENT`         | `No decision: the head moved during the review. These comments are for <sha7>.`                   |
+| 4   | A must-fix or should-fix finding, or a questionable approach | `REQUEST_CHANGES` | `Just a few things I think we should update before this gets in.` (see below)                     |
+| 5   | The gate passes                                              | `APPROVE`         | `LGTM` / `LGTM, just some small comments, nothing blocking`                                       |
+| 6   | Nothing blocks, but too few reviewers answered               | `COMMENT`         | `Reviewed with <returned>, but <failed> failed, so I'm withholding approval for now.` (see below) |
 
 The line on a request for changes follows what the review asks for. One blocking item gets `Just one thing I think we should update before this gets in.` A questionable approach gets `I think we should take another look at the approach before this gets in.`
+
+The line for rule 6 names each reviewer and what it found, for example `Reviewed with claude (all clear) and codex (all clear), but grok and glm-5.3 both failed, so I'm withholding approval for now.` A bare "2 of 4 reviewers answered" does not tell the author who failed or that a re-run can fix it.
 
 Rule 4 comes before rule 6 on purpose. A short panel that found nothing has not shown that the PR is clean, so it gets no decision. A verified finding shows that the PR needs a change, however many reviewers answered.
 

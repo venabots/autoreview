@@ -408,13 +408,44 @@ findings that cannot be inline.
 | Comment: your own PR          | `No decision: this is my own PR.`                                               |
 | Comment: draft                | `No decision: this PR is a draft.`                                              |
 | Comment: head moved           | `No decision: the head moved during the review. These comments are for <sha7>.` |
-| Comment: coverage short (#1)  | `No decision: only <k> of <n> reviewers answered.`                              |
+| Comment: coverage short (#1)  | built from the panel (see "The coverage line" below)                            |
 | Comment: panel too small (#2) | `No decision: the panel was too small for a verdict.`                           |
 | Comment: Linear unreachable   | `No decision: some findings could not be filed.`                                |
 
 Use those bodies as-is (don't vary the wording — a stable body keeps the
 review auditable). `<sha7>` is the first seven characters of the reviewed
-SHA; `<k>` and `<n>` are the returned and launched panelist counts.
+SHA.
+
+### The coverage line
+
+When coverage is short, the author needs to know who reviewed, what each
+one found, and who failed. A bare count tells them none of that. Build
+the line from the panel, in this shape:
+
+`Reviewed with <returned>, but <failed> failed, so I'm withholding approval for now.`
+
+- **Name** each panelist the way a reader knows it: by its CLI for
+  `claude` and `codex`, and by its model for an `opencode` panelist,
+  without the provider prefix (`zai/glm-5.3` is `glm-5.3`).
+- **`<returned>`** lists each panelist that returned `exit 0`, in launch
+  order, with `(all clear)` when none of the review's comments came from
+  it, or `(small comments only)` when some did. Rule 6 runs only when
+  nothing blocks, so no other label is possible.
+- **`<failed>`** lists each panelist that did not return, in launch order.
+  Put `both` before `failed` for two, and `all` for three or more.
+- Join two items with `and`, and three or more with commas and `and`
+  before the last.
+- When no panelist returned, drop the first clause:
+  `<failed> failed, so I'm withholding approval for now.`
+
+Examples:
+
+- `Reviewed with claude (all clear) and codex (all clear), but grok and glm-5.3 both failed, so I'm withholding approval for now.`
+- `Reviewed with codex (all clear) and claude (small comments only), but glm-5.2 failed, so I'm withholding approval for now.`
+- `Reviewed with claude (all clear), but codex, grok and glm-5.3 all failed, so I'm withholding approval for now.`
+
+The line is still fixed for a given panel result, so a re-run with the
+same result gives the same line.
 
 A request for changes is the one verdict with no line in this table. Hand
 `auto-post-panel-review-comments` the event and no first line. It takes
@@ -528,7 +559,7 @@ review for real (it's read-only) but submit nothing. Write:
   would be submitted). `body` is the first line of the review body, or
   `null` with no review. `coverage` is the returned/launched count (a
   quorum ≥ 75% passes — e.g. `"3/4"`). Examples:
-  `{ "approve": false, "event": "COMMENT", "reason": "coverage 2/4 below 75%", "body": "No decision: only 2 of 4 reviewers answered.", "coverage": "2/4" }`,
+  `{ "approve": false, "event": "COMMENT", "reason": "coverage 2/4 below 75%", "body": "Reviewed with claude (all clear) and codex (all clear), but grok and glm-5.3 both failed, so I'm withholding approval for now.", "coverage": "2/4" }`,
   `{ "approve": false, "event": "REQUEST_CHANGES", "reason": "1 should-fix finding", "body": "Just one thing I think we should update before this gets in.", "coverage": "3/3" }`,
   and on a pass with one panelist lost:
   `{ "approve": true, "event": "APPROVE", "reason": "clean: LOW/polish only, quorum 3/4", "body": "LGTM, just some small comments, nothing blocking", "coverage": "3/4" }`.
