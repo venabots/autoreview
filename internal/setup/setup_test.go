@@ -26,7 +26,7 @@ func (l *lines) Read(p []byte) (int, error) {
 func current() config.Values {
 	return config.Values{
 		Orchestrator: "claude", Fallback: "auto", Jobs: 2, Timeout: 3600, Verdicts: "approve-and-request-changes",
-		Watch: "2m", Rest: "30m", MaxPasses: 3, MaxIdle: 3, CIWait: "30m", AutofixCap: 3, Synth: "claude",
+		Watch: "2m", Rest: "30m", MaxPasses: 3, MaxIdle: 3, CIWait: "30m", Autofix: true, AutofixCap: 3, Synth: "claude",
 		Set: map[string]bool{"review.timeout": true},
 	}
 }
@@ -39,15 +39,16 @@ func ask(t *testing.T, answers ...string) (config.Values, string, error) {
 }
 
 func TestTheFormReturnsTheAnswersAndKeepsWhatItDidNotAsk(t *testing.T) {
-	got, out, err := ask(t, "codex:gpt-5.5", "claude:opus-4.8 codex", "3", "2", "1h", "5m", "5", "4")
+	got, out, err := ask(t, "codex:gpt-5.5", "claude:opus-4.8 codex", "3", "2", "1h", "5m", "n", "5", "4")
 	if err != nil {
 		t.Fatalf("Ask: %v\n%s", err, out)
 	}
 	want := current()
 	want.Orchestrator, want.Panelists, want.Verdicts = "codex:gpt-5.5", []string{"claude:opus-4.8", "codex"}, "comment-only"
 	want.MaxPasses, want.Rest, want.Watch, want.AutofixCap, want.Jobs = 2, "1h", "5m", 5, 4
+	want.Autofix = false
 	want.Set = map[string]bool{"review.orchestrator": true, "panel.panelists": true, "review.verdicts": true, "loop.max_passes": true,
-		"loop.rest": true, "loop.watch": true, "mine.autofix_cap": true, "review.jobs": true, "review.timeout": true}
+		"loop.rest": true, "loop.watch": true, "mine.autofix": true, "mine.autofix_cap": true, "review.jobs": true, "review.timeout": true}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Ask = %+v, want %+v", got, want)
 	}
@@ -58,7 +59,7 @@ func TestTheFormReturnsTheAnswersAndKeepsWhatItDidNotAsk(t *testing.T) {
 
 // A bad answer is asked again, with the reason, and never comes back.
 func TestABadAnswerIsAskedAgain(t *testing.T) {
-	got, out, err := ask(t, "gemini", "claude", "codex", "", "1", "0", "3", "soon", "30m", "2m", "3", "2")
+	got, out, err := ask(t, "gemini", "claude", "codex", "", "1", "0", "3", "soon", "30m", "2m", "y", "3", "2")
 	if err != nil {
 		t.Fatalf("Ask: %v\n%s", err, out)
 	}
@@ -106,7 +107,7 @@ func TestTheChecksMatchTheFlags(t *testing.T) {
 // Enter on a value the form shows keeps it unchosen. Written as a value, a
 // default of today would never change for that person again.
 func TestAnAnswerThatKeepsTheDefaultIsNotAChoice(t *testing.T) {
-	got, out, err := ask(t, "claude", "", "1", "3", "30m", "2m", "3", "2")
+	got, out, err := ask(t, "claude", "", "1", "3", "30m", "2m", "y", "3", "2")
 	if err != nil {
 		t.Fatalf("Ask: %v\n%s", err, out)
 	}

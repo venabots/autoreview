@@ -28,6 +28,7 @@ type Values struct {
 	Stacked    bool
 	SkipCI     bool
 
+	Autofix    bool
 	AutofixCap int
 
 	Panelists []string
@@ -100,6 +101,8 @@ var fileTemplate = template.Must(template.New("config.toml").Funcs(template.Func
 {{.Mark "prs.skip_ci"}}skip_ci = {{.SkipCI}}
 
 [mine]
+# Start the view with autofix on for all your PRs. --once starts it off.
+{{.Mark "mine.autofix"}}autofix = {{.Autofix}}
 # The most fixes one of your PRs gets in a row while nobody else acts on it.
 {{.Mark "mine.autofix_cap"}}autofix_cap = {{.AutofixCap}}
 
