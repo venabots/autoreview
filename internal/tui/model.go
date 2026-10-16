@@ -106,6 +106,8 @@ type Model struct {
 	// the keys.
 	input   textinput.Model
 	editing bool
+	// find is the find line; while it is open, it has the keys.
+	find finder
 
 	text reviewText
 	log  logTail

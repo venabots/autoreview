@@ -110,8 +110,10 @@ number of threads that are still open.
 | `r`   | Reopen the last task in its worktree, if it was kept or is yours |
 | `x x` | Stop the running task. The first `x` asks                        |
 
-On both tabs, `o` opens the PR in the browser, `l` shows the run log, and `?`
-lists every key. A drag in the right pane selects its text and copies it. `m`
+On both tabs, `/` finds a PR: type its number, or words from its title, branch
+or author, and the selection moves as you type. Typing a number starts it too,
+so `2734` goes to PR #2734. `enter` keeps the PR, and `esc` goes back. `o` opens
+the PR in the browser, `l` shows the run log, and `?` lists every key. A drag in the right pane selects its text and copies it. `m`
 gives the mouse back to the terminal, to select text anywhere on the screen.
 `q q` quits: the first `q` asks, because a quit stops every review and task that
 is running. `esc` closes the key list and answers no to a question.
