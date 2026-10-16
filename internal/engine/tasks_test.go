@@ -36,6 +36,13 @@ type trees struct {
 	// hands back the person's own worktree.
 	own    bool
 	borrow bool
+	// asked is every request Prepare had. reopened is every request Reopen
+	// had; reopenErr fails each, and reopenHold keeps one from ending until
+	// it closes.
+	asked      []task.Request
+	reopened   []task.Request
+	reopenErr  error
+	reopenHold chan struct{}
 }
 
 func (f *trees) deps(d *Deps) {
@@ -52,6 +59,7 @@ func (f *trees) deps(d *Deps) {
 			return worktree.Prepared{}, f.prepareErr
 		}
 		f.made = append(f.made, r.PR)
+		f.asked = append(f.asked, r)
 		tree := worktree.Prepared{Path: "/run/worktrees/pr-" + strconv.Itoa(r.PR), Branch: r.Branch, Head: "sha1"}
 		if f.own {
 			tree.Branch, tree.OwnBranch = "autoreview/run-1/pr-"+strconv.Itoa(r.PR), true
@@ -60,6 +68,21 @@ func (f *trees) deps(d *Deps) {
 			tree.Path, tree.Borrowed = "/home/me/work", true
 		}
 		return tree, nil
+	}
+	d.Reopen = func(_ context.Context, r task.Request) (worktree.Prepared, error) {
+		f.mu.Lock()
+		hold := f.reopenHold
+		f.mu.Unlock()
+		if hold != nil {
+			<-hold
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.reopened = append(f.reopened, r)
+		if f.reopenErr != nil {
+			return worktree.Prepared{}, f.reopenErr
+		}
+		return worktree.Prepared{Path: "/run/worktrees/pr-" + strconv.Itoa(r.PR), Branch: r.Branch, Head: "sha2"}, nil
 	}
 	d.Finish = func(_ context.Context, p worktree.Prepared) (string, error) {
 		f.mu.Lock()

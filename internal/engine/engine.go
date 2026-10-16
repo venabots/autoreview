@@ -128,8 +128,11 @@ type Deps struct {
 	// Prepare makes the worktree a task runs in, and Finish gives it back
 	// or says why it is kept. Pushed reads whether a PR's head moved from a
 	// commit. TaskRefusal says why a kind of task cannot run, or is empty.
-	Prepare     func(ctx context.Context, r task.Request) (worktree.Prepared, error)
-	Finish      func(ctx context.Context, p worktree.Prepared) (kept string, err error)
+	Prepare func(ctx context.Context, r task.Request) (worktree.Prepared, error)
+	Finish  func(ctx context.Context, p worktree.Prepared) (kept string, err error)
+	// Reopen makes an ended task's worktree again where it was, so its
+	// session can be resumed. It is nil when the run makes no worktrees.
+	Reopen      func(ctx context.Context, r task.Request) (worktree.Prepared, error)
 	Pushed      func(ctx context.Context, pr int, before string) (string, bool)
 	TaskRefusal func(k task.Kind) string
 	// Marks puts a reaction on a PR while its review runs. It is nil under
@@ -323,6 +326,10 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		return e.taskSettled(w, r, in)
 	case taskGuard:
 		return e.taskGuard(r, in)
+	case ReopenTask:
+		return e.reopenTask(w, r, in.PR)
+	case taskReopened:
+		return e.taskReopened(r, in)
 	}
 	return r
 }
