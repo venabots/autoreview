@@ -310,7 +310,7 @@ func threadsWord(pr mine.PR) word {
 	case open == 0:
 		return word{"none open", plainStyle}
 	case pr.Approved():
-		return word{fmt.Sprintf("%d unresolved, optional now: c answers them", open), plainStyle}
+		return word{fmt.Sprintf("%d unresolved, optional now: f answers them", open), plainStyle}
 	}
 	return word{fmt.Sprintf("%d unresolved", open), yellowStyle}
 }
