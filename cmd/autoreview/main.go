@@ -49,6 +49,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == cli.Setup {
 		return runSetup(args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == cli.Doctor {
+		return runDoctor(args[1:], stdout, stderr)
+	}
 
 	// The flags are read once, with the settings file, so a check that joins
 	// two values sees both. --help and --version are answered before any
