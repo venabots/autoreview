@@ -16,6 +16,8 @@ Usage: autoreview [PR ...] [--watch[=MINUTES]] [--babysit[=MINUTES]] [--once]
                   (one change, several models; see autoreview panel --help)
        autoreview setup
                   (ask for the settings and write them; see Settings below)
+       autoreview doctor [--since WHEN] [--no-probe]
+                  (is the panel answering; see autoreview doctor --help)
        autoreview --help | --version
 
 Run it inside a GitHub checkout. A PR is ready for review when something on
