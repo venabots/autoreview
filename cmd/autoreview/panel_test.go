@@ -364,3 +364,11 @@ func TestThePanelInTheSettingsIsSeatedWhenNoFlagNamesOne(t *testing.T) {
 		t.Errorf("--help with a bad settings file: exit %d", code)
 	}
 }
+
+func TestAnEmptySynthesizerInTheSettingsStopsThePanelAsItStopsAReview(t *testing.T) {
+	b := panelSandbox(t)
+	settingsFile(t, "[panel]\nsynth = \"\"\n")
+	if _, stderr, code := b.panel("--base", "main"); code != 1 || !strings.Contains(stderr, "panel.synth in ") {
+		t.Errorf("an empty synth: exit %d, stderr %q", code, stderr)
+	}
+}

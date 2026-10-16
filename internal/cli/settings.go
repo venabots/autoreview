@@ -24,8 +24,9 @@ type setting struct {
 func settingsOf(f config.File) settings {
 	s := settings{path: f.Path, text: map[string]setting{}, on: map[string]bool{}}
 	text := func(name, key string, v *string) {
-		// An empty value counts as unset, as an empty variable does.
-		if v != nil && *v != "" {
+		// An empty value is a value: each check says whether it means
+		// anything. An empty budget or focus means none.
+		if v != nil {
 			s.text[name] = setting{key: key, value: *v}
 		}
 	}

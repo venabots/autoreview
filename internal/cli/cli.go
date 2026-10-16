@@ -135,6 +135,45 @@ func Parse(args []string, env func(string) string) (Config, error) {
 // run off a terminal loops when --watch or --babysit is given, whatever the
 // file says.
 func ParseWith(args []string, env func(string) string, file config.File) (Config, error) {
+	cfg, err := parseFlags(args, env, file)
+	if err != nil || cfg.Help || cfg.Version {
+		return cfg, err
+	}
+	if err := CheckFile(file); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// CheckFile checks each value the settings file sets, by itself and with
+// no variable, so a bad key stops every run and not only one that no flag
+// or variable replaces it in. A bad variable stays the business of the run
+// that reads it, as it was before the file.
+//
+// The pair of orchestrator and fallback is left to the run that uses the
+// two: a fallback of claude in the file is right for a run whose variable
+// moves the orchestrator to codex, and checked against the default it
+// would clash.
+func CheckFile(file config.File) error {
+	if !file.Found {
+		return nil
+	}
+	alone := file
+	alone.Review.Fallback = nil
+	if _, err := parseFlags(nil, func(string) string { return "" }, alone); err != nil {
+		return err
+	}
+	if file.Review.Fallback == nil {
+		return nil
+	}
+	if _, err := review.ParseFallback(*file.Review.Fallback); err != nil {
+		return fmt.Errorf("review.fallback in %s: %w", file.Path, err)
+	}
+	return nil
+}
+
+// parseFlags reads the arguments with the file's values as fallbacks.
+func parseFlags(args []string, env func(string) string, file config.File) (Config, error) {
 	if err := refuseSpacedValue(args); err != nil {
 		return Config{}, err
 	}

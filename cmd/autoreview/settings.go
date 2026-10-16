@@ -1,8 +1,7 @@
 package main
 
 import (
-	"fmt"
-
+	"github.com/venabots/autoreview/internal/cli"
 	"github.com/venabots/autoreview/internal/config"
 	"github.com/venabots/autoreview/internal/panel"
 )
@@ -19,28 +18,15 @@ func settings(env func(string) string) (config.File, error) {
 }
 
 // panelSettings is the panel the settings file names, for `autoreview
-// panel`. Each spec is checked the way --panelist and --synth check theirs.
+// panel`, read as a review reads it.
 func panelSettings(env func(string) string) (panel.Settings, error) {
 	file, err := settings(env)
 	if err != nil {
 		return panel.Settings{}, err
 	}
-	seated := make([]panel.Spec, 0, len(file.Panel.Panelists))
-	for _, raw := range file.Panel.Panelists {
-		spec, err := panel.ParseSpec(raw, "panelist")
-		if err != nil {
-			return panel.Settings{}, fmt.Errorf("panel.panelists in %s: %w", file.Path, err)
-		}
-		seated = append(seated, spec)
-	}
-	saved := panel.Settings{Panelists: seated}
-	if file.Panel.Synth == nil || *file.Panel.Synth == "" {
-		return saved, nil
-	}
-	synth, err := panel.ParseSpec(*file.Panel.Synth, "synth")
+	seated, synth, err := cli.PanelSpecs(file)
 	if err != nil {
-		return panel.Settings{}, fmt.Errorf("panel.synth in %s: %w", file.Path, err)
+		return panel.Settings{}, err
 	}
-	saved.Synth = &synth
-	return saved, nil
+	return panel.Settings{Panelists: seated, Synth: synth}, nil
 }

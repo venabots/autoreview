@@ -173,3 +173,91 @@ func TestTheFilesSwitchesApplyUnlessTheFlagIsGiven(t *testing.T) {
 		t.Errorf("a flag did not win over the file's switch: %+v", cfg)
 	}
 }
+
+// An empty value is a value the person wrote. Only "no budget" and "no
+// focus" mean something when empty; anywhere else the run would quietly
+// take the default for a key that names another choice.
+func TestAnEmptyValueInTheFileIsAnErrorWhereItMeansNothing(t *testing.T) {
+	cases := []struct {
+		edit func(*config.File)
+		key  string
+	}{
+		{func(f *config.File) { f.Review.Verdicts = ptr("") }, "review.verdicts"},
+		{func(f *config.File) { f.Review.Orchestrator = ptr("") }, "review.orchestrator"},
+		{func(f *config.File) { f.Loop.Watch = ptr("") }, "loop.watch"},
+		{func(f *config.File) { f.Panel.Synth = ptr("") }, "panel.synth"},
+	}
+	for _, c := range cases {
+		_, err := ParseWith(nil, noEnv, withSettings(c.edit))
+		if err == nil || !strings.Contains(err.Error(), c.key+" in "+settingsPath) {
+			t.Errorf("an empty %s: %v, want an error that names it", c.key, err)
+		}
+	}
+}
+
+// A bad value stops the run, as the README says, whether or not a flag or
+// a variable replaces it in this run. A file that is broken is found the
+// first time it is read, not the first time nobody overrides it.
+func TestTheWholeFileIsCheckedWhereAFlagOrAVariableWins(t *testing.T) {
+	cases := []struct {
+		env  map[string]string
+		args []string
+		edit func(*config.File)
+		key  string
+	}{
+		{nil, []string{"-j", "4"}, func(f *config.File) { f.Review.Jobs = ptr(0) }, "review.jobs"},
+		{map[string]string{EnvPanelists: "codex claude"}, nil, func(f *config.File) { f.Panel.Panelists = []string{"gemini"} }, "panel.panelists"},
+		{nil, nil, func(f *config.File) { f.Panel.Synth = ptr("gemini") }, "panel.synth"},
+	}
+	for _, c := range cases {
+		_, err := ParseWith(c.args, envOf(c.env), withSettings(c.edit))
+		if err == nil || !strings.Contains(err.Error(), c.key+" in "+settingsPath) {
+			t.Errorf("%s with %q: %v, want an error that names it", c.key, c.args, err)
+		}
+	}
+	for _, flag := range []string{"--help", "--version"} {
+		if _, err := ParseWith([]string{flag}, noEnv, withSettings(func(f *config.File) { f.Review.Jobs = ptr(0) })); err != nil {
+			t.Errorf("%s with a bad value in the file: %v", flag, err)
+		}
+	}
+}
+
+// The pair of orchestrator and fallback is checked on the two that this run
+// uses. Checked against the defaults, a fallback of claude in the file would
+// clash with the default orchestrator, though this run's variable moves it
+// to codex.
+func TestTheFallbackIsCheckedAgainstTheOrchestratorThisRunUses(t *testing.T) {
+	file := withSettings(func(f *config.File) { f.Review.Fallback = ptr("claude") })
+	if _, err := ParseWith(nil, envOf(map[string]string{EnvOrchestrator: "codex"}), file); err != nil {
+		t.Errorf("codex from the variable with claude as the file's fallback: %v", err)
+	}
+}
+
+// Each value in the file is checked by itself, with no variable: a run
+// whose variable replaces a bad key still stops, and the next run without
+// the variable cannot be the first to find it.
+func TestABadFileValueStopsTheRunWhenAVariableReplacesIt(t *testing.T) {
+	_, err := ParseWith(nil, envOf(map[string]string{EnvJobs: "4"}), withSettings(func(f *config.File) { f.Review.Jobs = ptr(0) }))
+	if err == nil || !strings.Contains(err.Error(), "review.jobs in "+settingsPath) {
+		t.Errorf("review.jobs = 0 under AUTOREVIEW_JOBS=4: %v, want an error that names the key", err)
+	}
+}
+
+// The file's check reads no variable. A bad variable that a flag replaces
+// passes, as it did before the file existed.
+func TestTheFilesCheckDoesNotReadAVariableThatAFlagReplaces(t *testing.T) {
+	file := withSettings(func(*config.File) {})
+	if _, err := ParseWith([]string{"--jobs=4"}, envOf(map[string]string{EnvJobs: "0"}), file); err != nil {
+		t.Errorf("AUTOREVIEW_JOBS=0 with --jobs=4: %v", err)
+	}
+}
+
+func TestCheckFileTakesAFileThatOnlyTheDefaultsMakeClash(t *testing.T) {
+	if err := CheckFile(withSettings(func(f *config.File) { f.Review.Fallback = ptr("claude") })); err != nil {
+		t.Errorf("fallback claude with no orchestrator in the file: %v", err)
+	}
+	err := CheckFile(withSettings(func(f *config.File) { f.Review.Fallback = ptr("gemini") }))
+	if err == nil || !strings.Contains(err.Error(), "review.fallback in "+settingsPath) {
+		t.Errorf("a bad fallback: %v, want an error that names it", err)
+	}
+}
