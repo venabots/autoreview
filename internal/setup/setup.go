@@ -36,6 +36,7 @@ type Terminal struct {
 // answers is the form's text, field by field.
 type answers struct {
 	orchestrator, panel, verdicts, maxPasses, rest, watch, autofixCap, jobs string
+	autofix                                                                 bool
 }
 
 func answersOf(v config.Values) answers {
@@ -46,6 +47,7 @@ func answersOf(v config.Values) answers {
 		maxPasses:    strconv.Itoa(v.MaxPasses),
 		rest:         v.Rest,
 		watch:        v.Watch,
+		autofix:      v.Autofix,
 		autofixCap:   strconv.Itoa(v.AutofixCap),
 		jobs:         strconv.Itoa(v.Jobs),
 	}
@@ -76,6 +78,7 @@ func Ask(current config.Values, path string, term Terminal) (config.Values, erro
 			huh.NewInput().Title("The rest before a reviewed PR is checked again").
 				Description("A bare number is minutes; 30m, 1h and 2d also work.").Value(&a.rest).Validate(interval),
 			huh.NewInput().Title("The wait between two looks at the PR list").Value(&a.watch).Validate(interval),
+			huh.NewConfirm().Title("Autofix your PRs when the view opens").Value(&a.autofix),
 			huh.NewInput().Title("Fixes in a row on one of your PRs while nobody else acts").Value(&a.autofixCap).Validate(upTo(cli.MaxAutofixCap)),
 			huh.NewInput().Title("Reviews that run at once").Value(&a.jobs).Validate(upTo(cli.MaxJobs)),
 		),
@@ -105,6 +108,7 @@ func withAnswers(current config.Values, a answers) config.Values {
 	next.MaxPasses, _ = strconv.Atoi(strings.TrimSpace(a.maxPasses))
 	next.Rest = strings.TrimSpace(a.rest)
 	next.Watch = strings.TrimSpace(a.watch)
+	next.Autofix = a.autofix
 	next.AutofixCap, _ = strconv.Atoi(strings.TrimSpace(a.autofixCap))
 	next.Jobs, _ = strconv.Atoi(strings.TrimSpace(a.jobs))
 	next.Set = chosen(current, next)
@@ -126,6 +130,7 @@ func chosen(current, next config.Values) map[string]bool {
 		"loop.max_passes":     next.MaxPasses != current.MaxPasses,
 		"loop.rest":           next.Rest != current.Rest,
 		"loop.watch":          next.Watch != current.Watch,
+		"mine.autofix":        next.Autofix != current.Autofix,
 		"mine.autofix_cap":    next.AutofixCap != current.AutofixCap,
 		"review.jobs":         next.Jobs != current.Jobs,
 	} {

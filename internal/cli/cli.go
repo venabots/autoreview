@@ -61,6 +61,9 @@ type Config struct {
 	// MaxPasses is how many reviews one PR gets in a run.
 	MaxIdle   int
 	MaxPasses int
+	// NoAutofix starts the view with autofix off for your PRs. Only the
+	// settings file sets it; the zero value is the default, autofix on.
+	NoAutofix bool
 	// AutofixCap is the most fixes one of your PRs gets in a row while
 	// nobody else acts on it. Only the settings file sets it.
 	AutofixCap int
@@ -254,6 +257,7 @@ func withFileSwitches(cfg Config, set settings, given func(string) bool) Config 
 	cfg.Dependabot = switched("dependabot", cfg.Dependabot)
 	cfg.Stacked = switched("stacked", cfg.Stacked)
 	cfg.SkipCI = switched("skip-wait-for-ci", cfg.SkipCI)
+	cfg.NoAutofix = !switched("autofix", true)
 	return cfg
 }
 
