@@ -45,6 +45,9 @@ func sandbox(t *testing.T) (fixtures string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_GH_DIR", fixtures)
 	t.Setenv("FAKE_GH_LOGIN", "me")
+	// A panel set in the person's shell would fill the settings form and
+	// seat the review panel: the tests must see the same on every machine.
+	t.Setenv("PANEL_REVIEW_PANELISTS", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// codex finds its skills under ~/.agents/skills, so the automatic
