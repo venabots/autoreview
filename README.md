@@ -180,6 +180,7 @@ each key has a comment.
 | `review.verdicts`                                                       | `approve-and-request-changes` (the default), `approve-only` or `comment-only`                             |
 | `loop.watch`, `rest`, `max_passes`, `max_idle`, `ci_wait`               | `--watch`, `--babysit`, `--max-passes`, `--max-idle` and `$AUTOREVIEW_CI_WAIT`                            |
 | `prs.approved`, `dependabot`, `stacked`, `skip_ci`                      | `--all`, `--dependabot`, `--stacked` and `--skip-wait-for-ci`. `--all=false` turns one off for a run      |
+| `mine.autofix`                                                          | Whether the view starts with autofix on for all your PRs (default `true`)                                 |
 | `mine.autofix_cap`                                                      | The most fixes in a row on one of your PRs while nobody else acts on it (default 3)                       |
 | `panel.panelists`                                                       | The models that review together, such as `["claude:opus-4.8", "codex"]`. Empty is every backend on `PATH` |
 | `panel.synth`                                                           | The model that writes the synthesis of `autoreview panel`                                                 |

@@ -64,6 +64,8 @@ type PRs struct {
 
 // Mine is what is done to your own PRs.
 type Mine struct {
+	// Autofix says the view starts with autofix on for all your PRs.
+	Autofix *bool `toml:"autofix"`
 	// AutofixCap is the most fixes a PR gets in a row while nobody else
 	// acts on it.
 	AutofixCap *int `toml:"autofix_cap"`
@@ -125,7 +127,7 @@ func (f File) keyed() []struct {
 		{"loop.ci_wait", f.Loop.CIWait != nil},
 		{"prs.approved", f.PRs.Approved != nil}, {"prs.dependabot", f.PRs.Dependabot != nil},
 		{"prs.stacked", f.PRs.Stacked != nil}, {"prs.skip_ci", f.PRs.SkipCI != nil},
-		{"mine.autofix_cap", f.Mine.AutofixCap != nil},
+		{"mine.autofix", f.Mine.Autofix != nil}, {"mine.autofix_cap", f.Mine.AutofixCap != nil},
 		{"panel.panelists", f.Panel.Panelists != nil || f.panelistsNamed}, {"panel.synth", f.Panel.Synth != nil},
 	}
 }
