@@ -19,7 +19,7 @@ import (
 func odd() config.Values {
 	return config.Values{
 		Orchestrator: "codex", Jobs: 7, Verdicts: "approve-only",
-		Watch: "4m", Rest: "45m", MaxPasses: 9, AutofixCap: 6,
+		Watch: "4m", Rest: "45m", MaxPasses: 9, Autofix: false, AutofixCap: 6,
 	}
 }
 
@@ -100,6 +100,7 @@ func TestEachQuestionNamesItsDefault(t *testing.T) {
 		titleMaxPasses:    "Default: 9.",
 		titleRest:         "Default: 45m.",
 		titleWatch:        "Default: 4m.",
+		titleAutofix:      "Default: no.",
 		titleAutofixCap:   "Default: 6.",
 		titleJobs:         "Default: 7.",
 	} {

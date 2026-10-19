@@ -38,6 +38,13 @@ func shellWins(s Start, variable string) string {
 	return "Your shell sets $" + variable + ", which wins over this answer. Remove it from your shell after you save."
 }
 
+func yesNo(on bool) string {
+	if on {
+		return "yes"
+	}
+	return "no"
+}
+
 // verdictWords names a verdict level in the words a summary reads.
 func verdictWords(level string) string {
 	switch level {

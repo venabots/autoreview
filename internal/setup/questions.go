@@ -20,13 +20,14 @@ const (
 	titleMaxPasses    = "Reviews one PR gets in a run"
 	titleRest         = "The rest before a reviewed PR is checked again"
 	titleWatch        = "The wait between two looks at the PR list"
+	titleAutofix      = "Autofix your PRs when the view opens"
 	titleAutofixCap   = "Fixes in a row on one of your PRs while nobody else acts"
 	titleJobs         = "Reviews that run at once"
 )
 
 // questions is how many pages ask something. The summary is one more
 // step.
-const questions = 9
+const questions = 10
 
 // page is one step of the form: one question, what its answer changes,
 // and the field that takes it. Two questions on one screen is what made
@@ -97,6 +98,11 @@ func questionPages(s Start, a *answers) []page {
 			"A bare number is minutes.",
 			defaultIs(d.Watch), shellWins(s, cli.EnvWatch)),
 			huh.NewInput().Title("Wait").Value(&a.watch).Validate(interval)},
+		{titleAutofix, sentences(
+			"Yes starts the view with autofix on for all your PRs: a PR is fixed again each time it changes and needs work.",
+			"No starts it off, and A in the view turns it on. A run with --once always starts it off.",
+			defaultIs(yesNo(d.Autofix))),
+			huh.NewConfirm().Title("Autofix").Affirmative("Yes").Negative("No").Value(&a.autofix)},
 		{titleAutofixCap, sentences(
 			"Autofix stops after this many fixes on one PR, until a person acts on the PR or it comes clean. This stops a fix that does not work from running again and again.",
 			defaultIs(fmt.Sprint(d.AutofixCap))),

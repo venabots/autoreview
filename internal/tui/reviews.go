@@ -43,6 +43,7 @@ const (
 	sectionNext
 	sectionChecks
 	sectionStacked
+	sectionRebase
 	sectionResting
 	sectionCapped
 	sectionFinished
@@ -79,6 +80,8 @@ func waitSection(w queue.Wait) section {
 		return sectionChecks
 	case queue.WaitStacked:
 		return sectionStacked
+	case queue.WaitRebase:
+		return sectionRebase
 	case queue.WaitResting:
 		return sectionResting
 	case queue.WaitCapped:

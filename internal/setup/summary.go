@@ -45,6 +45,7 @@ func summaryText(a answers, final []string) string {
 		{titleMaxPasses, a.maxPasses},
 		{titleRest, a.rest},
 		{titleWatch, a.watch},
+		{titleAutofix, yesNo(a.autofix)},
 		{titleAutofixCap, a.autofixCap},
 		{titleJobs, a.jobs},
 	}

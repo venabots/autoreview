@@ -12,6 +12,7 @@ import (
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/prs"
 	"github.com/venabots/autoreview/internal/queue"
+	"github.com/venabots/autoreview/internal/rebase"
 	"github.com/venabots/autoreview/internal/report"
 	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/sanitize"
@@ -210,6 +211,8 @@ func waitReason(row queue.Row, f facts) string {
 		return "held until its checks pass (checks " + ciWord(row.PR.CI).text + ")" + next
 	case queue.WaitStacked:
 		return stackedReason(row.PR.Parent)
+	case queue.WaitRebase:
+		return rebaseReason(row)
 	case queue.WaitResting:
 		return "resting after its review; it may be reviewed again in " + words.Duration(row.Until.Sub(f.now))
 	case queue.WaitCapped:
@@ -232,9 +235,23 @@ func stackedReason(parent *prs.Parent) string {
 	return fmt.Sprintf("held until #%d lands (%s also in #%d)", parent.Number, words.Count(parent.Shared, "commit"), parent.Number)
 }
 
+// rebaseReason says whom a stale Dependabot PR waits for, and why.
+func rebaseReason(row queue.Row) string {
+	why := words.RebaseReason(row.PR)
+	switch row.Rebase {
+	case rebase.Checking:
+		return "checking whether Dependabot should rebase it"
+	case rebase.WouldAsk:
+		return "a run that posts would ask Dependabot to rebase it: " + why + " (--no-post)"
+	case rebase.OthersCommitted:
+		return "needs a person: somebody other than Dependabot committed to it, so Dependabot will not rebase it"
+	}
+	return "waits for Dependabot to rebase it: " + why + ". Its next push is reviewed as usual"
+}
+
 func waitStyle(w queue.Wait) lipgloss.Style {
 	switch w {
-	case queue.WaitChecks, queue.WaitStacked:
+	case queue.WaitChecks, queue.WaitStacked, queue.WaitRebase:
 		return yellowStyle
 	case queue.WaitSeen, queue.WaitApproved, queue.WaitResting, queue.WaitCapped:
 		return dimStyle
