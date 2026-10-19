@@ -108,6 +108,8 @@ var keys = map[string]tea.KeyPressMsg{
 	"R":      {Code: 'r', Text: "R", Mod: tea.ModShift},
 	"f":      {Code: 'f', Text: "f"},
 	"l":      {Code: 'l', Text: "l"},
+	"/":      {Code: '/', Text: "/"},
+	"8":      {Code: '8', Text: "8"},
 	"enter":  {Code: tea.KeyEnter},
 	"tab":    {Code: tea.KeyTab},
 	"esc":    {Code: tea.KeyEscape},
@@ -162,6 +164,7 @@ func TestTheKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
 		"left": intentFirstTab, "right": intentSecondTab,
 		"o": intentOpen, "m": intentMouse, "q": intentQuit, "?": intentKeys, "x": intentStop, "z": intentNone, "w": intentWatch,
 		"r": intentResume, "R": intentReviewNow, "f": intentFocus, "l": intentLog, "enter": intentNone,
+		"/": intentFind, "8": intentFindNumber,
 		"tab": intentSwitchTab, "esc": intentBack, "space": intentPageDown,
 		"ctrl+c": intentInterrupt, "ctrl+d": intentPageDown, "ctrl+u": intentPageUp,
 	}
