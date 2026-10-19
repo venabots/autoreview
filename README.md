@@ -142,15 +142,17 @@ row keeps the result: `fix pushed`, `fix pushed nothing` or `fix failed`. Your
 PRs are read again at once, so the row also shows what the task left. A task
 that could not start says why in the footer and in the right pane.
 
-Autofix has three limits, and `F` keeps to the last one too:
+Autofix has three limits. `f` and `F` are keys you press, so they keep to none
+of them:
 
 - A fix runs only after the PR changed.
 - At most 3 fixes run in a row while nobody else acts on the PR
   (`mine.autofix_cap` in the [settings](#settings)).
 - An approved PR gets only a fix of its conflicts, because a push can dismiss
   the approval. A PR with conflicts cannot merge, so that push loses nothing.
-  Open threads and a failing build on an approved PR stay for you: `f` still
-  fixes them by hand.
+  Open threads and a failing build on an approved PR stay for you: `f` or `F`
+  fixes them when you press it. The PR's right pane, and `a` when it turns
+  autofix on, say so.
 
 ## Settings
 

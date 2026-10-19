@@ -10,8 +10,9 @@ import (
 	"github.com/venabots/autoreview/internal/words"
 )
 
-// FixAll is "F": one fix on each of your PRs that needs one now, by the
-// rules autofix uses. Unlike autofix, it does not come back.
+// FixAll is "F": one fix on each of your PRs that needs one now, an
+// approved one included, since a person pressed the key. Unlike autofix, it
+// does not come back.
 type FixAll struct{}
 
 func (FixAll) input()   {}
