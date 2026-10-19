@@ -106,6 +106,7 @@ func TestParseRefuses(t *testing.T) {
 		{"the subcommand after a flag", []string{"--all", "stats"}, "stats is a subcommand and goes first: autoreview stats"},
 		{"the subcommand after a PR", []string{"213", "stats"}, "stats is a subcommand and goes first"},
 		{"the panel subcommand after a flag", []string{"--all", "panel"}, "panel is a subcommand and goes first: autoreview panel"},
+		{"the doctor subcommand after a flag", []string{"--all", "doctor"}, "doctor is a subcommand and goes first: autoreview doctor"},
 		{"PR zero", []string{"0"}, `"0" is not a PR number`},
 		{"a signed number", []string{"+5"}, `"+5" is not a PR number`},
 		{"an unknown flag", []string{"--pick"}, "unknown flag: --pick"},

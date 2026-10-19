@@ -18,7 +18,12 @@ import (
 // directory first on PATH. The code under test then starts a real process
 // with a real argv, and no fake script has to be kept in step with it.
 func TestMain(m *testing.M) {
-	switch filepath.Base(os.Args[0]) {
+	name := filepath.Base(os.Args[0])
+	if isFake(name) && len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Printf("%s fake\n", name)
+		os.Exit(0)
+	}
+	switch name {
 	case "gh":
 		os.Exit(fakeGh(os.Args[1:]))
 	case "dash-p":
@@ -31,6 +36,12 @@ func TestMain(m *testing.M) {
 		os.Exit(99)
 	}
 	os.Exit(m.Run())
+}
+
+// isFake says the test binary is running as one of the programs it fakes.
+// Each one answers --version, which autoreview doctor asks of all of them.
+func isFake(name string) bool {
+	return slices.Contains([]string{"gh", "dash-p", "claude", "codex", "opencode"}, name)
 }
 
 // fakeGh answers the calls autoreview makes, from the files in

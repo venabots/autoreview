@@ -285,6 +285,26 @@ reads it back and reports how each panelist model has done.
 autoreview stats --since 7d
 ```
 
+## doctor
+
+A review that loses a panelist still finishes. It posts a comment instead of a
+verdict, and nothing on the screen turns red. `autoreview doctor` finds this:
+
+- It asks each panelist one short question now, through `dash-p`, as a review
+  does. A panelist that does not answer shows the reason in its own words: no
+  credits, a usage limit, or a flag its CLI no longer takes.
+- It reads the last day of the ledger: how often each model answered, what the
+  reviews cost, and which PRs got no verdict while a panelist was missing.
+- It lists the version of `gh`, `dash-p`, `git` and each agent CLI.
+
+It exits 1 when it finds a problem, so cron can tell you.
+
+```sh
+autoreview doctor              # ask the panel, read the last day
+autoreview doctor --since 7d   # a longer window
+autoreview doctor --no-probe   # read the ledger only; spends nothing
+```
+
 ## Requirements
 
 - [`gh`](https://cli.github.com), logged in (`gh auth login`).

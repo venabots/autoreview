@@ -114,6 +114,10 @@ const Panel = "panel"
 // Setup is the subcommand that asks for the settings and writes them.
 const Setup = "setup"
 
+// Doctor is the subcommand that asks the panel now and reads the ledger
+// for reviews that lost a panelist.
+const Doctor = "doctor"
+
 // DefaultWatch is the wait between looks when nobody chose one.
 const DefaultWatch = "2"
 
@@ -347,7 +351,7 @@ func viewFrom(screen, plain bool) (View, error) {
 func prNumbers(args []string) ([]int, error) {
 	numbers := make([]int, 0, len(args))
 	for _, arg := range args {
-		if arg == Stats || arg == Panel || arg == Setup {
+		if arg == Stats || arg == Panel || arg == Setup || arg == Doctor {
 			return nil, fmt.Errorf("%s is a subcommand and goes first: autoreview %s", arg, arg)
 		}
 		n, err := strconv.Atoi(arg)
