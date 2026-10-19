@@ -50,6 +50,9 @@ const tabGap = "  "
 // tab names the authors --author keeps.
 func tabLabels(s *engine.Snapshot) (review, mine string) {
 	mine = tabLabel("Maintain", len(s.Mine), s.MineLooked)
+	if s.MineBots {
+		mine += "· +dependabot "
+	}
 	if n := autofixing(s); n > 0 {
 		mine = fmt.Sprintf("%s· %s ", mine, autofixingText(n))
 	}

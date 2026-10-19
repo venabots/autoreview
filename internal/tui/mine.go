@@ -81,7 +81,7 @@ func mineListRows(rows []mineRow, babysat babysit.State, now time.Time, spin str
 		out[i] = listRow{
 			pr:   row.pr.Number,
 			head: headLine(mineIcon(row, spin), row.pr.Number, mineWord(row, babysat, now)),
-			sub:  subLine(row.pr.Branch, row.pr.Title),
+			sub:  subLine(mineWhat(row.pr), row.pr.Title),
 		}
 	}
 	return out
@@ -130,11 +130,14 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 		titleLine(pr.Number, pr.Title),
 		note(sanitize.Line(pr.Branch), dimStyle),
 		{},
+	}
+	lines = append(lines, botLines(pr)...)
+	lines = append(lines,
 		field("review", reviewersWord(pr)),
 		field("checks", ciWord(pr.CI)),
 		field("threads", threadsWord(pr)),
 		field("merge", mergeWord(pr.Merge)),
-	}
+	)
 	if pr.Draft {
 		lines = append(lines, field("draft", word{"yes", plainStyle}))
 	}

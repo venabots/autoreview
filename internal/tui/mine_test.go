@@ -97,7 +97,7 @@ func TestTheMyPRsKeysSayWhereTheyWorkOnTheReviewTab(t *testing.T) {
 		if len(commands(hs)) != 0 {
 			t.Errorf("%s on the Review tab sent %+v", key, commands(hs))
 		}
-		wantOnScreen(t, m, "F, a and A work on your own PRs: tab shows them")
+		wantOnScreen(t, m, "F, a, A and d work on the Maintain tab: tab shows them")
 	}
 }
 

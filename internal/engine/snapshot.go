@@ -62,6 +62,8 @@ type Snapshot struct {
 	MineLooked bool
 	Mine       []mine.PR
 	MineErr    string
+	// MineBots says Mine holds Dependabot's PRs beside yours.
+	MineBots bool
 
 	// Pass counts the passes the run has started. It is zero until the
 	// first one.

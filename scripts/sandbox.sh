@@ -32,6 +32,7 @@ for name in gh dash-p claude codex; do
 done
 cp "$root/internal/prs/testdata/prs.json" "$sandbox/fixtures/prs.json"
 cp "$root/cmd/autoreview/testdata/mine.json" "$sandbox/fixtures/mine.json"
+cp "$root/cmd/autoreview/testdata/bots.json" "$sandbox/fixtures/bots.json"
 cp "$root/cmd/autoreview/testdata/repo.json" "$sandbox/fixtures/repo.json"
 [ -d "$sandbox/repo/.git" ] || git -C "$sandbox/repo" init --quiet
 
@@ -42,7 +43,8 @@ if [ ! -d "$sandbox/origin" ]; then
   git -C "$sandbox/repo" -c user.name=Sandbox -c user.email=sandbox@example.com \
     commit --quiet --allow-empty -m start
   git -C "$sandbox/repo" remote add origin "$sandbox/origin"
-  git -C "$sandbox/repo" push --quiet origin HEAD:refs/heads/main HEAD:refs/heads/me/my-own-work
+  git -C "$sandbox/repo" push --quiet origin HEAD:refs/heads/main HEAD:refs/heads/me/my-own-work \
+    HEAD:refs/heads/dependabot/npm_and_yarn/left-pad-2.0.0
 fi
 for skill in babysit-pr pr-comment-handler sync-main; do
   mkdir -p "$sandbox/claude/skills/$skill"

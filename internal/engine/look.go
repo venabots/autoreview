@@ -27,8 +27,9 @@ func (e *Engine) look(w workers, r run) run {
 		e.in.put(listed{listing: listing, err: err})
 	})
 	r, asked := mineAsked(r)
+	bots := r.snap.MineBots
 	w.group.Go(func() {
-		list, err := guarded(func() ([]mine.PR, error) { return e.deps.Mine(w.ctx) })
+		list, err := guarded(func() ([]mine.PR, error) { return e.deps.Mine(w.ctx, bots) })
 		e.in.put(mineListed{seq: asked, list: list, err: err})
 	})
 	r.snap.Looking = true

@@ -29,6 +29,8 @@ const (
 	intentAutofix
 	intentAutofixAll
 	intentFixAll
+	// intentBots shows Dependabot's PRs on the Maintain tab, or hides them.
+	intentBots
 	intentWatch
 	intentLog
 	// intentFind is / and intentFindNumber a digit: both open the find
@@ -71,6 +73,7 @@ var keyNames = map[string]intent{
 	"a":         intentAutofix,
 	"A":         intentAutofixAll,
 	"F":         intentFixAll,
+	"d":         intentBots,
 	"w":         intentWatch,
 	"l":         intentLog,
 	"/":         intentFind,
@@ -113,6 +116,7 @@ var helpLines = []keyHelp{
 	{"F", "Maintain: fix each of your PRs that needs it, once"},
 	{"a", "Maintain: autofix the selected PR: fix it again each time it changes; an approved PR gets only its conflicts fixed"},
 	{"A", "Maintain: autofix all your PRs, and any you open later; on when the view opens, A again turns it off"},
+	{"d", "Maintain: show Dependabot's PRs too, to fix them or autofix them; d again hides them"},
 	{"r", "resume the selected review, or your PR's last task, in a new terminal tab"},
 	{"o", "open the selected PR in the browser"},
 	{"x x", "stop the selected review or task; the first x asks"},
@@ -139,7 +143,7 @@ type hint struct {
 func footerHints(shown tab) []hint {
 	if shown == tabMine {
 		return []hint{
-			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "to Review"}, {"o", "open"}, {"j/k", "move"}, {"/", "find"}, {"r", "resume"}, {"x", "stop"},
+			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "to Review"}, {"o", "open"}, {"j/k", "move"}, {"/", "find"}, {"r", "resume"}, {"x", "stop"}, {"d", "dependabot"},
 			{"m", "mouse"}, {"l", "log"}, {"^d/^u", "scroll"},
 		}
 	}

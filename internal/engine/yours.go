@@ -60,8 +60,9 @@ func (e *Engine) refreshMine(w workers, r run) run {
 		return r
 	}
 	r, asked := mineAsked(r)
+	bots := r.snap.MineBots
 	w.group.Go(func() {
-		list, err := guarded(func() ([]mine.PR, error) { return e.deps.Mine(w.ctx) })
+		list, err := guarded(func() ([]mine.PR, error) { return e.deps.Mine(w.ctx, bots) })
 		e.in.put(mineRefreshed{seq: asked, list: list, err: err})
 	})
 	return r
@@ -82,4 +83,20 @@ func mineRefreshedInto(r run, in mineRefreshed) run {
 	r.mineTaken = in.seq
 	r.snap = withMine(r.snap, mineListed{list: in.list})
 	return r
+}
+
+// includeBots puts the bots' PRs on the Maintain tab, or takes them off,
+// and reads the list again at once: a key that changed nothing until the
+// next look, minutes away, would read as a key that does nothing.
+func (e *Engine) includeBots(w workers, r run, on bool) run {
+	if r.snap.MineBots == on {
+		return r
+	}
+	r.snap.MineBots = on
+	if on {
+		e.journal(Noted{Text: "the Maintain tab shows Dependabot's PRs too"})
+	} else {
+		e.journal(Noted{Text: "the Maintain tab shows only your PRs"})
+	}
+	return e.refreshMine(w, r)
 }

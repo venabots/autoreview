@@ -101,7 +101,8 @@ again, or split logins with commas, for more than one person.
 
 **Maintain** lists your own open PRs and what blocks each one: conflicts, failing
 CI, requested changes, open threads. An approved PR reads `approved`, with the
-number of threads that are still open.
+number of threads that are still open. `d` shows Dependabot's open PRs beside
+yours, so you can fix the bumps that break the build: Dependabot never does.
 
 | Key   | What it does                                                     |
 | ----- | ---------------------------------------------------------------- |
@@ -111,6 +112,7 @@ number of threads that are still open.
 | `A`   | Autofix all your PRs, and any you open later. On at the start    |
 | `r`   | Reopen the last task in its worktree, if it was kept or is yours |
 | `x x` | Stop the running task. The first `x` asks                        |
+| `d`   | Show Dependabot's PRs too, or hide them. Off at the start        |
 
 On both tabs, `/` finds a PR: type its number, or words from its title, branch
 or author, and the selection moves as you type. Typing a number starts it too,

@@ -108,7 +108,8 @@ const (
 // Deps is the outside world, as functions, so a test hands in its own.
 type Deps struct {
 	List func(ctx context.Context) (prs.Listing, error)
-	Mine func(ctx context.Context) ([]mine.PR, error)
+	// Mine reads your PRs, and Dependabot's too when bots is set.
+	Mine func(ctx context.Context, bots bool) ([]mine.PR, error)
 
 	// The rest is read only by a run that reviews.
 
@@ -315,6 +316,8 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		r.snap.Focus = in.Text
 	case SetWatch:
 		return e.setWatch(w, r, in.On)
+	case IncludeBots:
+		return e.includeBots(w, r, in.On)
 	case RunTask:
 		return e.requestTask(w, r, in.Request)
 	case Babysit:

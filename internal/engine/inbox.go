@@ -39,6 +39,13 @@ type SetWatch struct{ On bool }
 func (SetWatch) input()   {}
 func (SetWatch) command() {}
 
+// IncludeBots puts Dependabot's PRs on the Maintain tab beside yours, or
+// takes them off.
+type IncludeBots struct{ On bool }
+
+func (IncludeBots) input()   {}
+func (IncludeBots) command() {}
+
 // SetFocus changes what the reviewers are told to look at, for every
 // review that has not started. An empty text tells them nothing.
 type SetFocus struct{ Text string }

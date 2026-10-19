@@ -176,8 +176,8 @@ func deps(cfg cli.Config, rc repo.Context) engine.Deps {
 		List: func(ctx context.Context) (prs.Listing, error) {
 			return prs.List(ctx, gh.Exec, rc.Owner, rc.Name, opts)
 		},
-		Mine: func(ctx context.Context) ([]mine.PR, error) {
-			return mine.List(ctx, gh.Exec, rc.Owner, rc.Name)
+		Mine: func(ctx context.Context, bots bool) ([]mine.PR, error) {
+			return mine.ListWith(ctx, gh.Exec, rc.Owner, rc.Name, bots)
 		},
 	}
 }
