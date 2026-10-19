@@ -47,6 +47,7 @@ const queryHead = `
               baseRefName
               headRefName
               isCrossRepository
+              mergeable
               author { login }
               comments(last:100) { nodes { author { login } updatedAt } }
               reviews(last:100)  { nodes { author { login } submittedAt } }

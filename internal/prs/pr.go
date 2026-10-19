@@ -19,14 +19,22 @@ type PR struct {
 	// A SHA rather than the newest commit date, because a date is not unique:
 	// a force-push that keeps committer dates, or two pushes inside the same
 	// second, would read as no push at all.
-	Head      string
+	Head string
+	// HeadDate is when the newest commit was made. A comment older than it
+	// was written about an older head.
+	HeadDate  string
 	UpdatedAt string
 	Draft     bool
 	// CrossRepo says the head branch lives in a fork.
-	CrossRepo  bool
-	Decision   Decision
-	CI         CI
-	Engagement Engagement
+	CrossRepo bool
+	// Conflicts says GitHub found the PR conflicts with its base.
+	Conflicts bool
+	// OthersCommitted says a person other than the author made a commit on
+	// the branch. Dependabot stops rebasing a branch somebody else changed.
+	OthersCommitted bool
+	Decision        Decision
+	CI              CI
+	Engagement      Engagement
 	// Parent is the open PR this one sits on top of, and nil when it sits on
 	// none. It is worked out over every open PR, hidden ones included. Only
 	// a parent that Holds keeps the PR from its review.

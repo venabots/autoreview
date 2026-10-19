@@ -13,7 +13,7 @@ func values() Values {
 		Focus: `the "fast" path \ and a tab	here`, Verdicts: "approve-only",
 		Watch: "5m", Rest: "1h", MaxPasses: 2, MaxIdle: 7, CIWait: "45m",
 		Approved: true, Dependabot: false, Stacked: true, SkipCI: false,
-		AutofixCap: 5, Panelists: []string{"claude:opus-4.8", "codex"}, Synth: "claude",
+		Autofix: false, AutofixCap: 5, Panelists: []string{"claude:opus-4.8", "codex"}, Synth: "claude",
 		Set: allKeys(),
 	}
 }
@@ -46,7 +46,7 @@ func TestARenderedFileReadsBackAsTheSameValues(t *testing.T) {
 		Budget: *f.Review.Budget, Focus: *f.Review.Focus, Verdicts: *f.Review.Verdicts,
 		Watch: *f.Loop.Watch, Rest: *f.Loop.Rest, MaxPasses: *f.Loop.MaxPasses, MaxIdle: *f.Loop.MaxIdle, CIWait: *f.Loop.CIWait,
 		Approved: *f.PRs.Approved, Dependabot: *f.PRs.Dependabot, Stacked: *f.PRs.Stacked, SkipCI: *f.PRs.SkipCI,
-		AutofixCap: *f.Mine.AutofixCap, Panelists: f.Panel.Panelists, Synth: *f.Panel.Synth,
+		Autofix: *f.Mine.Autofix, AutofixCap: *f.Mine.AutofixCap, Panelists: f.Panel.Panelists, Synth: *f.Panel.Synth,
 		Set: f.Keys(),
 	}
 	if !reflect.DeepEqual(got, v) {

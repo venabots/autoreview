@@ -56,6 +56,8 @@ func Wait(row queue.Row, now time.Time) string {
 		return "CI pending"
 	case queue.WaitStacked:
 		return held(row.PR.Parent)
+	case queue.WaitRebase:
+		return Rebase(row.Rebase)
 	case queue.WaitResting:
 		return "rest " + Duration(row.Until.Sub(now))
 	case queue.WaitCapped:

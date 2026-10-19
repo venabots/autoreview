@@ -19,11 +19,14 @@ type node struct {
 	// The head branch lives in a fork, so its name means nothing to another
 	// PR's base. Absent reads as "same repo": the ordinary case, and the one
 	// the branch names are comparable in.
-	IsCrossRepository bool        `json:"isCrossRepository"`
-	Author            actor       `json:"author"`
-	Comments          commentList `json:"comments"`
-	Reviews           reviewList  `json:"reviews"`
-	Commits           commitList  `json:"commits"`
+	IsCrossRepository bool `json:"isCrossRepository"`
+	// Mergeable is MERGEABLE, CONFLICTING or UNKNOWN. GitHub works it out
+	// in the background, so UNKNOWN is common and is no claim either way.
+	Mergeable string      `json:"mergeable"`
+	Author    actor       `json:"author"`
+	Comments  commentList `json:"comments"`
+	Reviews   reviewList  `json:"reviews"`
+	Commits   commitList  `json:"commits"`
 	// The tip of the branch alone, for its checks.
 	HeadCommit headCommitList `json:"headCommit"`
 	// The GitHub stack the PR is a layer of, and its place in it. Both are
@@ -103,6 +106,28 @@ type headCommit struct {
 
 type rollup struct {
 	State string `json:"state"`
+}
+
+// headDate is when the newest commit was made, and empty with no commits.
+// The list is oldest first, so the newest is the last.
+func (n node) headDate() string {
+	if len(n.Commits.Nodes) == 0 {
+		return ""
+	}
+	return n.Commits.Nodes[len(n.Commits.Nodes)-1].Commit.CommittedDate
+}
+
+// othersCommitted says a person other than the author made one of the
+// commits. A bot's commit has no account GitHub names, so it reads as
+// nobody: only a named person counts, and another bot does not.
+func (n node) othersCommitted() bool {
+	for _, c := range n.Commits.Nodes {
+		login := c.Commit.Author.User.Login
+		if login != "" && login != n.Author.Login && !isBot(login) {
+			return true
+		}
+	}
+	return false
 }
 
 // rollupState is the raw state of the checks on the head commit. A missing

@@ -16,6 +16,7 @@ func TestTheViewAutofixesYourPRsUnlessOnceIsGiven(t *testing.T) {
 	}{
 		{"the view", cli.Config{}, true, true},
 		{"the view with --once", cli.Config{Once: true}, true, false},
+		{"the view with mine.autofix = false", cli.Config{NoAutofix: true}, true, false},
 		{"plain lines under --watch", cli.Config{WatchGiven: true}, false, false},
 		{"plain lines under --babysit", cli.Config{BabysitGiven: true}, false, false},
 		{"one plain pass", cli.Config{}, false, false},
