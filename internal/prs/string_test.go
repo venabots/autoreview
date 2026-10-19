@@ -31,6 +31,7 @@ func TestEveryValueNamesItself(t *testing.T) {
 		{Declared, "declared"},
 		{CarriesTip, "carries tip"},
 		{Overlap, "overlap"},
+		{Native, "GitHub stack"},
 	}
 	for _, c := range cases {
 		if got := c.value.String(); got != c.want {

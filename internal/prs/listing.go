@@ -96,6 +96,7 @@ func toPR(n node, stacked map[int]Parent, opts Options) PR {
 		CI:         CIFromState(n.rollupState()),
 		Engagement: engagement(n, opts.Me),
 		Parent:     parentFor(stacked, n.Number),
+		Layer:      layerOf(n),
 		Hidden:     hiddenReason(n, opts),
 	}
 }

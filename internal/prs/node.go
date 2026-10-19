@@ -26,6 +26,20 @@ type node struct {
 	Commits           commitList  `json:"commits"`
 	// The tip of the branch alone, for its checks.
 	HeadCommit headCommitList `json:"headCommit"`
+	// The GitHub stack the PR is a layer of, and its place in it. Both are
+	// null for a PR in no stack, and absent on a server that has no stacks.
+	Stack      *nativeStack `json:"stack"`
+	StackEntry *nativeEntry `json:"stackEntry"`
+}
+
+type nativeStack struct {
+	Number int `json:"number"`
+	Size   int `json:"size"`
+}
+
+// Position 1 is the layer nearest the base branch.
+type nativeEntry struct {
+	Position int `json:"position"`
 }
 
 // A deleted account answers with a null author, which reads as an empty

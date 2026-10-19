@@ -1,5 +1,6 @@
 {"data":{"repository":{"defaultBranchRef":{"name":"main"},"pullRequests":{"nodes":[
   {"number":9,"headRefName":"alice/add-retry-logic","title":"Add retry logic","isDraft":false,
+   "stack":null,"stackEntry":null,
    "updatedAt":"2026-08-10T10:00:00Z","reviewDecision":null,
    "headRefOid":"sha9",
    "author":{"login":"alice"},
@@ -45,6 +46,7 @@
    "commits":{"nodes":[{"commit":{"committedDate":"2026-08-04T10:00:00Z","author":{"user":{"login":"dependabot"}}}}]}},
 
   {"number":2,"headRefName":"erin/work-in-progress","title":"Work in progress","isDraft":true,
+   "stack":{"number":4,"size":2},"stackEntry":{"position":1},
    "updatedAt":"2026-08-03T10:00:00Z","reviewDecision":null,
    "headRefOid":"sha2",
    "author":{"login":"erin"},

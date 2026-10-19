@@ -28,8 +28,11 @@ type PR struct {
 	CI         CI
 	Engagement Engagement
 	// Parent is the open PR this one sits on top of, and nil when it sits on
-	// none. It is worked out over every open PR, hidden ones included.
+	// none. It is worked out over every open PR, hidden ones included. Only
+	// a parent that Holds keeps the PR from its review.
 	Parent *Parent
+	// Layer is the PR's place in a GitHub stack, and nil when it is in none.
+	Layer *Layer
 	// Hidden is why the sweep leaves this PR out. Ready, Held and Stacked do
 	// not read it: a caller ranges over Listing.Reviewable for the PRs the
 	// sweep may act on.
@@ -42,7 +45,7 @@ type PR struct {
 type Gates struct {
 	// CI holds a PR whose checks have not passed.
 	CI bool
-	// Stack holds a PR sitting on top of another open PR.
+	// Stack holds a PR whose diff carries another open PR's commits.
 	Stack bool
 }
 
@@ -70,9 +73,10 @@ func (p PR) Held(g Gates) bool {
 
 // Stacked says the PR is being left alone for the PR underneath it, when the
 // sweep is gating on that at all. It is only ever said about a PR that would
-// otherwise have been reviewed: a SEEN PR is not being held by anything.
+// otherwise have been reviewed: a SEEN PR is not being held by anything. A
+// layer of a stack is never left alone: its diff is its own.
 func (p PR) Stacked(g Gates) bool {
-	return p.Parent != nil && g.Stack && p.Actionable()
+	return p.Parent != nil && p.Parent.Holds() && g.Stack && p.Actionable()
 }
 
 // Bot says a bot opened the PR. A view dims those rows, and with

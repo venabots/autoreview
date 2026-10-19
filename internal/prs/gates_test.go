@@ -7,7 +7,7 @@ import (
 
 // declaredStack is the stacked fixture in its other shape: #9's base is #8's
 // branch. GitHub already keeps their diffs apart, so they share no commits,
-// but #9's code only makes sense on top of #8's.
+// and #9's diff is its own layer alone.
 func declaredStack(t *testing.T) []node {
 	t.Helper()
 	return change(stackedFixture(t), 9, func(n node) node {
@@ -102,10 +102,10 @@ func TestTheSweepSelection(t *testing.T) {
 			want:  []int{9, 8},
 		},
 		{
-			name:  "a declared stack is held the same way",
+			name:  "a declared stack reviews both layers",
 			nodes: declaredStack,
 			gates: allGates,
-			want:  []int{8},
+			want:  []int{9, 8},
 		},
 		{
 			// The overlap is worked out before a single filter runs. A
@@ -196,7 +196,7 @@ func TestWhatTheStackTestNeedsReachesThePR(t *testing.T) {
 	}
 }
 
-func TestADeclaredStackIsHeldTheSameWay(t *testing.T) {
+func TestADeclaredStackNamesThePRBelow(t *testing.T) {
 	found := classify(declaredStack(t), "main", asMe)
 	nine := find(t, found.PRs, 9)
 	eight := find(t, found.PRs, 8)

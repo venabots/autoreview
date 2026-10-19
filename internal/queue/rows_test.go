@@ -29,16 +29,26 @@ func TestWaitSaysWhyAPRIsNotReviewedNow(t *testing.T) {
 		{"checks still running", pr(9, func(p *prs.PR) { p.CI = prs.CIPending }), bothGates, WaitChecks},
 		{"checks failed", pr(9, func(p *prs.PR) { p.CI = prs.CIFailing }), bothGates, WaitChecks},
 		{"checks failed with the gate off", pr(9, func(p *prs.PR) { p.CI = prs.CIFailing }), prs.Gates{Stack: true}, WaitNext},
-		{"on another PR", pr(9, func(p *prs.PR) { p.Parent = &prs.Parent{Number: 8} }), bothGates, WaitStacked},
-		{"on another PR with the gate off", pr(9, func(p *prs.PR) { p.Parent = &prs.Parent{Number: 8} }), prs.Gates{CI: true}, WaitNext},
+		{"on another PR", pr(9, func(p *prs.PR) { p.Parent = &prs.Parent{Number: 8, Evidence: prs.Overlap, Shared: 2} }), bothGates, WaitStacked},
+		{"on another PR with the gate off", pr(9, func(p *prs.PR) { p.Parent = &prs.Parent{Number: 8, Evidence: prs.Overlap, Shared: 2} }), prs.Gates{CI: true}, WaitNext},
+		{"based on another PR's branch", pr(9, func(p *prs.PR) {
+			p.Parent = &prs.Parent{Number: 8, Evidence: prs.Declared}
+		}), bothGates, WaitNext},
+		{"a layer of a GitHub stack", pr(9, func(p *prs.PR) {
+			p.Parent = &prs.Parent{Number: 8, Evidence: prs.Native}
+			p.Layer = &prs.Layer{Stack: 3, Position: 2, Size: 2}
+		}), bothGates, WaitNext},
+		{"built on another PR's tip", pr(9, func(p *prs.PR) {
+			p.Parent = &prs.Parent{Number: 8, Evidence: prs.CarriesTip, Shared: 2}
+		}), bothGates, WaitStacked},
 		{"stacked outranks failing checks", pr(9, func(p *prs.PR) {
-			p.Parent = &prs.Parent{Number: 8}
+			p.Parent = &prs.Parent{Number: 8, Evidence: prs.Overlap, Shared: 2}
 			p.CI = prs.CIFailing
 		}), bothGates, WaitStacked},
 		{"nothing new", pr(9, func(p *prs.PR) { p.Engagement = prs.Seen }), bothGates, WaitSeen},
 		{"nothing new on a stacked PR", pr(9, func(p *prs.PR) {
 			p.Engagement = prs.Seen
-			p.Parent = &prs.Parent{Number: 8}
+			p.Parent = &prs.Parent{Number: 8, Evidence: prs.Overlap, Shared: 2}
 		}), bothGates, WaitSeen},
 		{"approved and hidden from the sweep", pr(9, func(p *prs.PR) { p.Hidden = prs.HiddenApproved }), bothGates, WaitApproved},
 		{"approved, shown, and nothing new", pr(9, func(p *prs.PR) {
@@ -82,7 +92,7 @@ func TestRowsPutWhatTheRunActsOnFirst(t *testing.T) {
 	listing := prs.Listing{PRs: []prs.PR{
 		pr(1, func(p *prs.PR) { p.Hidden = prs.HiddenApproved }),
 		pr(2, func(p *prs.PR) { p.Engagement = prs.Seen }),
-		pr(3, func(p *prs.PR) { p.Parent = &prs.Parent{Number: 4} }),
+		pr(3, func(p *prs.PR) { p.Parent = &prs.Parent{Number: 4, Evidence: prs.Overlap, Shared: 1} }),
 		pr(4, func(p *prs.PR) { p.CI = prs.CIPending }),
 		pr(5, nil),
 		pr(6, nil),

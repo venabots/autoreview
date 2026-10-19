@@ -130,7 +130,7 @@ func stackedOn(l prs.Listing, pr, under int) prs.Listing {
 	out := prs.Listing{PRs: slices.Clone(l.PRs)}
 	for i := range out.PRs {
 		if out.PRs[i].Number == pr {
-			out.PRs[i].Parent = &prs.Parent{Number: under, Evidence: prs.Declared}
+			out.PRs[i].Parent = &prs.Parent{Number: under, Evidence: prs.Overlap, Shared: 2}
 		}
 	}
 	return out

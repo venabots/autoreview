@@ -50,9 +50,9 @@ func TestParents(t *testing.T) {
 		{
 			// The declared stack. GitHub diffs #16 from #15's branch, so
 			// their commits do not overlap at all: the branch names are the
-			// only thing that says these two are one piece of work. The one
-			// underneath is still reviewed.
-			name: "a PR based on another open PR's branch is held on it",
+			// only thing that says these two are one piece of work. The
+			// relation is information only: neither PR waits on the other.
+			name: "a PR based on another open PR's branch is found on it",
 			prs:  []node{pr(15, "main", "a", "b"), pr(16, "pr15", "c", "d")},
 			want: map[int]Parent{16: {Number: 15, Evidence: Declared}},
 		},
@@ -92,7 +92,7 @@ func TestParents(t *testing.T) {
 			},
 		},
 		{
-			name: "two PRs off one parent are both held and the parent is not",
+			name: "two PRs off one parent both sit on it and the parent sits on nothing",
 			prs:  []node{pr(19, "main", "a", "b"), pr(20, "pr19", "c"), pr(21, "pr19", "d")},
 			want: map[int]Parent{
 				20: {Number: 19, Evidence: Declared},

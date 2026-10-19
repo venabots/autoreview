@@ -33,6 +33,8 @@ func TestTheQueryAsksForWhatThePackageReads(t *testing.T) {
 		{"comments(last:100) { nodes { author { login } updatedAt } }", "engagement reads the comments"},
 		{"reviews(last:100)  { nodes { author { login } submittedAt } }", "engagement reads the reviews"},
 		{"committedDate author { user { login } }", "engagement reads the commits"},
+		{"stack { number size }", "a GitHub stack needs its number and size"},
+		{"stackEntry { position }", "a GitHub stack needs each PR's layer"},
 	}
 	for _, c := range cases {
 		if !strings.Contains(Query, c.want) {
@@ -65,6 +67,74 @@ func TestFetchCallsGhWithV1Argv(t *testing.T) {
 	want := []string{"api", "graphql", "-F", "owner=acme", "-F", "name=widgets", "-f", "query=" + Query}
 	if len(fake.calls) != 1 || !slices.Equal(fake.calls[0], want) {
 		t.Errorf("gh was called with %q, want one call with %q", fake.calls, want)
+	}
+}
+
+// sequence is a gh that answers each call with the next answer in turn.
+type sequence struct {
+	calls   [][]string
+	answers []answer
+}
+
+type answer struct {
+	out []byte
+	err error
+}
+
+func (s *sequence) run(_ context.Context, args ...string) ([]byte, error) {
+	s.calls = append(s.calls, slices.Clone(args))
+	next := s.answers[min(len(s.calls), len(s.answers))-1]
+	return next.out, next.err
+}
+
+func TestAServerWithNoGitHubStacksIsAskedAgainWithoutThem(t *testing.T) {
+	cases := []struct {
+		name    string
+		first   error
+		queries []string
+		wantErr bool
+	}{
+		{
+			name:    "the server has no stack field",
+			first:   errors.New("gh api graphql: gh: Field 'stack' doesn't exist on type 'PullRequest'"),
+			queries: []string{Query, QueryWithoutStacks},
+		},
+		{
+			name:    "the server has no stackEntry field",
+			first:   errors.New("gh api graphql: gh: Field 'stackEntry' doesn't exist on type 'PullRequest'"),
+			queries: []string{Query, QueryWithoutStacks},
+		},
+		{
+			name:    "any other failure is not asked again",
+			first:   errors.New("gh api graphql: gh: API rate limit exceeded"),
+			queries: []string{Query},
+			wantErr: true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fake := &sequence{answers: []answer{{err: c.first}, {out: []byte(`{"data":{}}`)}}}
+			_, err := Fetch(context.Background(), fake.run, "acme", "widgets")
+			if (err != nil) != c.wantErr {
+				t.Fatalf("Fetch error = %v, want an error: %v", err, c.wantErr)
+			}
+			got := make([]string, len(fake.calls))
+			for i, call := range fake.calls {
+				got[i] = strings.TrimPrefix(call[len(call)-1], "query=")
+			}
+			if !slices.Equal(got, c.queries) {
+				t.Errorf("gh was asked %d queries, want %d", len(got), len(c.queries))
+			}
+		})
+	}
+}
+
+func TestTheQueryWithoutStacksAsksForEverythingElse(t *testing.T) {
+	if strings.Contains(QueryWithoutStacks, "stack") {
+		t.Error("the fallback query still asks for a stack field")
+	}
+	if got := strings.Replace(Query, stackFields, "", 1); got != QueryWithoutStacks {
+		t.Error("the two queries differ in more than the stack fields")
 	}
 }
 
@@ -136,6 +206,13 @@ func TestListReadsTheSevenPRFixture(t *testing.T) {
 		t.Fatalf("the list is %v, want %v", numbers(found.PRs), numbers(want))
 	}
 	for i, p := range found.PRs {
+		if p.Number == 2 {
+			// The draft is the bottom layer of a GitHub stack of two.
+			if p.Layer == nil || *p.Layer != (Layer{Stack: 4, Position: 1, Size: 2}) {
+				t.Errorf("#2 has layer %v, want layer 1 of 2 in stack 4", p.Layer)
+			}
+			p.Layer = nil
+		}
 		if p != want[i] {
 			t.Errorf("#%d:\n got %+v\nwant %+v", p.Number, p, want[i])
 		}

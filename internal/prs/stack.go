@@ -4,25 +4,30 @@ import "slices"
 
 // Which open PRs sit on top of other open PRs.
 //
-// Two shapes, and each needs its own test.
+// Three shapes, and each needs its own test. Only the last one holds a PR.
+//
+// A GitHub stack. GitHub names the stack and each PR's layer in it, so that
+// is the answer, with nothing worked out (native.go).
 //
 // A declared stack. The PR's base is another open PR's branch, which is what
-// GitHub's stacked PRs and every stacking tool produce. GitHub diffs it from
-// that branch, so its diff is clean, but its code only makes sense on top of
-// the PR below it, and reviewing it means reading that PR's work for the
-// integration anyway. It is found by the branch names.
+// every stacking tool produces. GitHub diffs it from that branch, and the
+// review diffs it from that branch too, so its diff is its own layer and no
+// other. It is reviewed at once: holding it until the PR below it merges
+// would make each layer of a deep stack wait for every layer under it, which
+// is the wait stacking exists to remove. It is found by the branch names, and
+// shown so that a reader knows the layer below it.
 //
 // An undeclared stack. The branch was cut from another open PR's branch while
 // it was in flight, and still says "base: main". GitHub then serves the diff
 // from where the two branches parted, so that PR's commits are inside this
 // one's diff and reviewing both reads the same code twice. Nothing in the
 // base branch shows this. What shows it is the commits, which the PR list
-// already fetches.
+// already fetches. This one is held until the PR below it lands.
 //
-// Every hold names one PR directly underneath, and rests on evidence about
-// those two PRs alone. Relatedness is never passed along a chain: a PR that
-// shares no work with the one below it would wait for a merge that changes
-// nothing about it.
+// Every relation names one PR directly underneath, and rests on evidence
+// about those two PRs alone. Relatedness is never passed along a chain: a PR
+// that shares no work with the one below it would wait for a merge that
+// changes nothing about it.
 
 // Evidence is how a PR was found to sit on another one, strongest first.
 type Evidence int
@@ -37,6 +42,8 @@ const (
 	// Overlap is two diffs that share commits where neither holds the other's
 	// tip: two branches cut from the same unmerged commit.
 	Overlap
+	// Native is a layer of a GitHub stack, on the layer below it.
+	Native
 )
 
 func (e Evidence) String() string {
@@ -45,6 +52,8 @@ func (e Evidence) String() string {
 		return "declared"
 	case CarriesTip:
 		return "carries tip"
+	case Native:
+		return "GitHub stack"
 	default:
 		return "overlap"
 	}
@@ -55,9 +64,16 @@ type Parent struct {
 	Number   int
 	Evidence Evidence
 	// Shared is how many commits both diffs serve. It is zero for a declared
-	// stack, whose diffs GitHub already keeps apart, and at least one
-	// otherwise: both commit tests need a commit in common.
+	// or GitHub stack, whose diffs GitHub already keeps apart, and at least
+	// one otherwise: both commit tests need a commit in common.
 	Shared int
+}
+
+// Holds says the PR waits for this parent to land. Only shared commits hold
+// one: a layer's diff is its own, but a diff that carries another open PR's
+// commits would have them reviewed twice.
+func (p Parent) Holds() bool {
+	return p.Evidence == CarriesTip || p.Evidence == Overlap
 }
 
 // The index that stands for "sits on no other PR".
@@ -83,7 +99,8 @@ type branch struct {
 }
 
 // parents is every PR sitting on top of another open PR, and which PR that
-// is.
+// is. A layer of a GitHub stack takes GitHub's answer and no other: its
+// branches and commits are not read for it.
 //
 // Every open PR counts, including drafts, approved ones, bots and the user's
 // own. A PR is held by the shape of the branches, not by whether this tool
@@ -101,9 +118,12 @@ func parents(nodes []node, defaultBranch string) map[int]Parent {
 	}
 	on := make([]int, len(branches))
 	for i := range branches {
-		on[i] = below(branches, defaultBranch, i)
+		on[i] = none
+		if layerOf(nodes[i]) == nil {
+			on[i] = below(branches, defaultBranch, i)
+		}
 	}
-	found := map[int]Parent{}
+	found := nativeParents(nodes)
 	for i, j := range breakCircles(branches, on) {
 		if j != none {
 			found[branches[i].number] = parentOf(branches, defaultBranch, i, j)
