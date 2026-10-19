@@ -189,7 +189,7 @@ func TestTheFirstFrameShowsTheRunAndTheFirstPR(t *testing.T) {
 func TestTheTabBarDoesNotExplainTheTabKey(t *testing.T) {
 	m, _ := newModel(t, 120, 30)
 	wantNotOnScreen(t, m, "tab switches")
-	wantOnScreen(t, m, "tab my PRs")
+	wantOnScreen(t, m, "tab to My PRs")
 }
 
 func TestEveryFrameFillsTheScreenExactly(t *testing.T) {
@@ -238,7 +238,7 @@ func TestTabShowsYourPRsAndEachTabKeepsItsSelection(t *testing.T) {
 	wantOnScreen(t, m,
 		"✓ #4 · conflicts", "me/my-own-work", "○ #3 · 2 threads",
 		"#4 My own work", "review    approved by @alice", "merge     conflicts with its base",
-		"tab review",
+		"tab to Review",
 	)
 	wantNotOnScreen(t, m, "@alice alice/retry")
 
@@ -246,7 +246,7 @@ func TestTabShowsYourPRsAndEachTabKeepsItsSelection(t *testing.T) {
 	wantOnScreen(t, m, "#3 Second thing", "threads   2 unresolved", "merge     merges cleanly")
 
 	m = press(t, m, "tab")
-	wantOnScreen(t, m, "#8 Fix the cache", "tab my PRs")
+	wantOnScreen(t, m, "#8 Fix the cache", "tab to My PRs")
 
 	m = press(t, m, "tab")
 	wantOnScreen(t, m, "#3 Second thing")

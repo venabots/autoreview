@@ -15,12 +15,12 @@ func TestAClickOnATabShowsIt(t *testing.T) {
 	}
 
 	m = click(m, 12, 1)
-	wantOnScreen(t, m, "#4 My own work", "tab review")
+	wantOnScreen(t, m, "#4 My own work", "tab to Review")
 	m = click(m, 21, 1)
 	wantOnScreen(t, m, "#4 My own work")
 
 	m = click(m, 9, 1)
-	wantOnScreen(t, m, "#9 Add retry logic", "tab my PRs")
+	wantOnScreen(t, m, "#9 Add retry logic", "tab to My PRs")
 	m = click(m, 0, 1)
 	wantOnScreen(t, m, "#9 Add retry logic")
 
@@ -67,12 +67,12 @@ func TestTheArrowsShowTheTabOnTheirSide(t *testing.T) {
 	m, _ := newModel(t, 120, 30)
 
 	m = press(t, m, "right")
-	wantOnScreen(t, m, "#4 My own work", "tab review")
+	wantOnScreen(t, m, "#4 My own work", "tab to Review")
 	m = press(t, m, "right")
 	wantOnScreen(t, m, "#4 My own work")
 
 	m = press(t, m, "left")
-	wantOnScreen(t, m, "#9 Add retry logic", "tab my PRs")
+	wantOnScreen(t, m, "#9 Add retry logic", "tab to My PRs")
 	m = press(t, m, "left")
 	wantOnScreen(t, m, "#9 Add retry logic")
 }
