@@ -261,3 +261,15 @@ func TestCheckFileTakesAFileThatOnlyTheDefaultsMakeClash(t *testing.T) {
 		t.Errorf("a bad fallback: %v, want an error that names it", err)
 	}
 }
+
+func TestTheFileCanStartTheViewWithAutofixOff(t *testing.T) {
+	if cfg := parse(t); cfg.NoAutofix {
+		t.Error("with no file, autofix is off at the start")
+	}
+	if cfg := parseWith(t, nil, withSettings(func(f *config.File) { f.Mine.Autofix = ptr(false) })); !cfg.NoAutofix {
+		t.Error("mine.autofix = false left autofix on at the start")
+	}
+	if cfg := parseWith(t, nil, withSettings(func(f *config.File) { f.Mine.Autofix = ptr(true) })); cfg.NoAutofix {
+		t.Error("mine.autofix = true turned autofix off at the start")
+	}
+}

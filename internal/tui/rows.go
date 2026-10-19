@@ -9,6 +9,7 @@ import (
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/prs"
 	"github.com/venabots/autoreview/internal/queue"
+	"github.com/venabots/autoreview/internal/rebase"
 	"github.com/venabots/autoreview/internal/sanitize"
 	"github.com/venabots/autoreview/internal/words"
 )
@@ -72,6 +73,13 @@ func waitColor(row queue.Row) lipgloss.Style {
 		}
 		return yellowStyle
 	case queue.WaitStacked:
+		return yellowStyle
+	case queue.WaitRebase:
+		// Dependabot answers by itself; a branch somebody else changed
+		// waits on a person.
+		if row.Rebase == rebase.OthersCommitted {
+			return redStyle
+		}
 		return yellowStyle
 	case queue.WaitSeen, queue.WaitResting, queue.WaitCapped:
 		return dimStyle

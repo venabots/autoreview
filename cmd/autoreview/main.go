@@ -158,7 +158,7 @@ func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 		c.Watch = cfg.Watch.Duration
 		c.Loop = engine.LoopWatch
 		c.Watching = !cfg.Once
-		c.Autofix = screen && !cfg.Once
+		c.Autofix = screen && !cfg.Once && !cfg.NoAutofix
 		c.Rest = cfg.Babysit.Duration
 	case cfg.BabysitGiven:
 		c.Watch = cfg.Babysit.Duration

@@ -15,6 +15,7 @@ import (
 	"github.com/venabots/autoreview/internal/proc"
 	"github.com/venabots/autoreview/internal/prs"
 	"github.com/venabots/autoreview/internal/queue"
+	"github.com/venabots/autoreview/internal/rebase"
 	"github.com/venabots/autoreview/internal/repo"
 	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/rundir"
@@ -142,6 +143,10 @@ type Deps struct {
 	// Marks puts a reaction on a PR while its review runs. It is nil under
 	// --no-post, which promises to leave the PR alone.
 	Marks Marks
+	// Rebase asks Dependabot to rebase a stale PR of its own, when it
+	// should, and says where that stands. It is nil when the run asks
+	// nothing, and then a Dependabot PR is reviewed like any other.
+	Rebase func(ctx context.Context, pr prs.PR) (rebase.State, error)
 	// Journal takes each event as it happens. It must not block: the
 	// engine calls it from its own goroutine. It may be nil.
 	Journal func(Event)
@@ -219,6 +224,9 @@ type run struct {
 	// remembers about each PR it reviewed.
 	listing prs.Listing
 	track   queue.Track
+	// asks is what the run found when it asked about rebasing each
+	// Dependabot PR, for the head it asked about.
+	asks map[int]queue.Ask
 	// idle counts the looks in a row that found nothing to review.
 	// passEnded says a pass ended since the last look: the look straight
 	// after a pass is not idle, it is the first chance to see an answer.
@@ -296,7 +304,10 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		return e.quit(w, r)
 	case listed:
 		r.pending--
-		r = e.withListing(r, in)
+		r = e.askRebases(w, e.withListing(r, in))
+	case rebaseAnswered:
+		r.pending--
+		return e.rebaseAnswered(r, in)
 	case mineListed:
 		r.pending--
 		return e.mineListed(w, r, in)
