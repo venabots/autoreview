@@ -21,8 +21,8 @@ Usage: autoreview [PR ...] [--watch[=MINUTES]] [--babysit[=MINUTES]] [--once]
        autoreview --help | --version
 
 Run it inside a GitHub checkout. A PR is ready for review when something on
-it is new to you, its checks have passed, and it does not sit on another open
-PR.
+it is new to you, its checks have passed, and its diff does not carry another
+open PR's commits. A layer of a stack is reviewed by itself at once.
 
 On a terminal it opens the full-screen view and watches: at each look it
 reviews the PRs that have become ready. R reviews the selected PR now, x x
@@ -92,7 +92,8 @@ end.
   --dependabot, -d    Include Dependabot's PRs.
   --author LOGIN      Review only the PRs that LOGIN opened. Give it again,
                       or split logins with commas, for more than one.
-  --stacked, -s       Do not hold a PR that sits on another open PR.
+  --stacked, -s       Do not hold a PR whose diff carries another open PR's
+                      commits.
   --skip-wait-for-ci  Do not hold a PR whose checks have not passed, and do
                       not wait for them.
   --tui               Open the full-screen view. This is the default on a

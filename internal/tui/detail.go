@@ -73,6 +73,9 @@ func reviewDetail(row reviewRow, f facts, tail followed) []line {
 			field("checks", ciWord(row.listed.PR.CI)),
 			field("activity", engagementWord(row.listed.PR.Engagement)),
 			field("base", word{sanitize.Line(row.listed.PR.Base), plainStyle}))
+		if stack := words.Stack(row.listed.PR); stack != "" {
+			lines = append(lines, field("stack", word{stack, plainStyle}))
+		}
 	}
 	return lines
 }
@@ -222,12 +225,12 @@ func waitReason(row queue.Row, f facts) string {
 	return "ready for review"
 }
 
+// stackedReason is why a PR waits for the one under it: its diff carries
+// that PR's commits. A layer of a stack never waits, so it has no reason
+// here.
 func stackedReason(parent *prs.Parent) string {
 	if parent == nil {
 		return "held until the PR under it lands"
-	}
-	if parent.Evidence == prs.Declared {
-		return fmt.Sprintf("held until #%d lands (its base is #%d's branch)", parent.Number, parent.Number)
 	}
 	return fmt.Sprintf("held until #%d lands (%s also in #%d)", parent.Number, words.Count(parent.Shared, "commit"), parent.Number)
 }

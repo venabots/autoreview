@@ -55,10 +55,7 @@ func Wait(row queue.Row, now time.Time) string {
 		}
 		return "CI pending"
 	case queue.WaitStacked:
-		if row.PR.Parent == nil {
-			return "stacked"
-		}
-		return fmt.Sprintf("on #%d", row.PR.Parent.Number)
+		return held(row.PR.Parent)
 	case queue.WaitResting:
 		return "rest " + Duration(row.Until.Sub(now))
 	case queue.WaitCapped:
@@ -67,6 +64,9 @@ func Wait(row queue.Row, now time.Time) string {
 		return "seen"
 	case queue.WaitApproved:
 		return "approved"
+	}
+	if layer := layerWord(row.PR); layer != "" {
+		return "ready · " + layer
 	}
 	return "ready"
 }

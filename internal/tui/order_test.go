@@ -36,7 +36,7 @@ func TestROnAStackedPRDuringAPassMovesItUnderTheRunningReviews(t *testing.T) {
 	m, hs := reviewingModel(t, 150, 30)
 	snap := reviewing(t)
 	snap.Reviews = append(slices.Clone(snap.Reviews), queue.Row{
-		PR:   prs.PR{Number: 7, Title: "Stack the tables", Author: "erin", Branch: "erin/tables", Base: "bob/cache", Parent: &prs.Parent{Number: 8}},
+		PR:   prs.PR{Number: 7, Title: "Stack the tables", Author: "erin", Branch: "erin/tables", Base: "main", Parent: &prs.Parent{Number: 8, Evidence: prs.Overlap, Shared: 2}},
 		Wait: queue.WaitStacked,
 	})
 	hs.eng.snap = snap

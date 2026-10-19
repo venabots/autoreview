@@ -189,10 +189,10 @@ func TestTheWaitReasonNamesTheParentOfAStackedPR(t *testing.T) {
 		name   string
 		parent *prs.Parent
 		want   string
+		row    string
 	}{
-		{"a declared base", &prs.Parent{Number: 15, Evidence: prs.Declared}, "held until #15 lands (its base is #15's branch)"},
-		{"shared commits", &prs.Parent{Number: 15, Evidence: prs.Overlap, Shared: 3}, "held until #15 lands (3 commits also in #15)"},
-		{"one shared commit", &prs.Parent{Number: 15, Evidence: prs.CarriesTip, Shared: 1}, "held until #15 lands (1 commit also in #15)"},
+		{"shared commits", &prs.Parent{Number: 15, Evidence: prs.Overlap, Shared: 3}, "held until #15 lands (3 commits also in #15)", "○ #9 · shares commits with #15"},
+		{"one shared commit", &prs.Parent{Number: 15, Evidence: prs.CarriesTip, Shared: 1}, "held until #15 lands (1 commit also in #15)", "○ #9 · built on #15"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -201,7 +201,33 @@ func TestTheWaitReasonNamesTheParentOfAStackedPR(t *testing.T) {
 			snap.Reviews[0].Wait = queue.WaitStacked
 			snap.Reviews[0].PR.Parent = c.parent
 			m = send(m, snapshotMsg{snap: snap})
-			wantOnScreen(t, m, c.want, "○ #9 · on #15")
+			wantOnScreen(t, m, c.want, c.row)
+		})
+	}
+}
+
+func TestAPRInAStackShowsItsLayerAndIsReady(t *testing.T) {
+	cases := []struct {
+		name   string
+		parent *prs.Parent
+		layer  *prs.Layer
+		row    string
+		detail string
+	}{
+		{"on another PR's branch", &prs.Parent{Number: 15, Evidence: prs.Declared}, nil,
+			"○ #9 · ready · layer on #15", "stack     on #15 (its base is #15's branch); reviewed by itself"},
+		{"in a GitHub stack", &prs.Parent{Number: 15, Evidence: prs.Native}, &prs.Layer{Stack: 4, Position: 2, Size: 3},
+			"○ #9 · ready · layer 2 of 3", "stack     layer 2 of 3 in GitHub stack #4, on #15; reviewed by itself"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m, _ := newModel(t, 160, 30)
+			snap := snapshot()
+			snap.Reviews[0].Wait = queue.WaitNext
+			snap.Reviews[0].PR.Parent = c.parent
+			snap.Reviews[0].PR.Layer = c.layer
+			m = send(m, snapshotMsg{snap: snap})
+			wantOnScreen(t, m, c.row, c.detail, "ready for review")
 		})
 	}
 }

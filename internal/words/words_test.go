@@ -69,7 +69,13 @@ func TestWait(t *testing.T) {
 		{"ready", queue.Row{Wait: queue.WaitNext}, "ready"},
 		{"checks running", queue.Row{Wait: queue.WaitChecks, PR: prs.PR{CI: prs.CIPending}}, "CI pending"},
 		{"checks failed", queue.Row{Wait: queue.WaitChecks, PR: prs.PR{CI: prs.CIFailing}}, "CI failing"},
-		{"stacked", queue.Row{Wait: queue.WaitStacked, PR: prs.PR{Parent: &prs.Parent{Number: 15}}}, "on #15"},
+		{"sharing commits with an older PR", queue.Row{Wait: queue.WaitStacked, PR: prs.PR{Parent: &prs.Parent{Number: 15, Evidence: prs.Overlap, Shared: 3}}}, "shares commits with #15"},
+		{"built on another PR's tip", queue.Row{Wait: queue.WaitStacked, PR: prs.PR{Parent: &prs.Parent{Number: 15, Evidence: prs.CarriesTip, Shared: 2}}}, "built on #15"},
+		{"ready on another PR's branch", queue.Row{Wait: queue.WaitNext, PR: prs.PR{Parent: &prs.Parent{Number: 15, Evidence: prs.Declared}}}, "ready · layer on #15"},
+		{"ready in a GitHub stack", queue.Row{Wait: queue.WaitNext, PR: prs.PR{
+			Parent: &prs.Parent{Number: 15, Evidence: prs.Native},
+			Layer:  &prs.Layer{Stack: 4, Position: 3, Size: 5},
+		}}, "ready · layer 3 of 5"},
 		{"stacked with no parent named", queue.Row{Wait: queue.WaitStacked}, "stacked"},
 		{"seen", queue.Row{Wait: queue.WaitSeen}, "seen"},
 		{"approved", queue.Row{Wait: queue.WaitApproved}, "approved"},
@@ -80,6 +86,35 @@ func TestWait(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := Wait(c.row, time.Time{}); got != c.want {
 				t.Errorf("Wait = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestStackSaysHowAPRSitsOnAnotherOpenPR(t *testing.T) {
+	cases := []struct {
+		name string
+		pr   prs.PR
+		want string
+	}{
+		{"in no stack", prs.PR{}, ""},
+		{"on another PR's branch", prs.PR{Parent: &prs.Parent{Number: 2784, Evidence: prs.Declared}},
+			"on #2784 (its base is #2784's branch); reviewed by itself"},
+		{"in a GitHub stack", prs.PR{
+			Parent: &prs.Parent{Number: 2784, Evidence: prs.Native},
+			Layer:  &prs.Layer{Stack: 12, Position: 3, Size: 5},
+		}, "layer 3 of 5 in GitHub stack #12, on #2784; reviewed by itself"},
+		{"at the bottom of a GitHub stack", prs.PR{Layer: &prs.Layer{Stack: 12, Position: 1, Size: 5}},
+			"layer 1 of 5 in GitHub stack #12; reviewed by itself"},
+		{"built on another PR's tip", prs.PR{Parent: &prs.Parent{Number: 2731, Evidence: prs.CarriesTip, Shared: 26}},
+			"built on #2731 (26 commits also in #2731)"},
+		{"sharing commits with an older PR", prs.PR{Parent: &prs.Parent{Number: 2731, Evidence: prs.Overlap, Shared: 1}},
+			"shares 1 commit with #2731"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := Stack(c.pr); got != c.want {
+				t.Errorf("Stack = %q, want %q", got, c.want)
 			}
 		})
 	}
