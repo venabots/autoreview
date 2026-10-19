@@ -27,9 +27,9 @@ func Rebase(s rebase.State) string {
 func RebaseNote(pr prs.PR, s rebase.State) string {
 	switch s {
 	case rebase.Asked:
-		return fmt.Sprintf("asked Dependabot to rebase PR #%d: %s", pr.Number, rebaseReason(pr))
+		return fmt.Sprintf("asked Dependabot to rebase PR #%d: %s", pr.Number, RebaseReason(pr))
 	case rebase.WouldAsk:
-		return fmt.Sprintf("would ask Dependabot to rebase PR #%d: %s (--no-post)", pr.Number, rebaseReason(pr))
+		return fmt.Sprintf("would ask Dependabot to rebase PR #%d: %s (--no-post)", pr.Number, RebaseReason(pr))
 	case rebase.AskedBefore:
 		return fmt.Sprintf("PR #%d waits for Dependabot: you asked it to rebase already", pr.Number)
 	case rebase.OthersCommitted:
@@ -38,7 +38,8 @@ func RebaseNote(pr prs.PR, s rebase.State) string {
 	return ""
 }
 
-func rebaseReason(pr prs.PR) string {
+// RebaseReason is why a Dependabot PR needs a rebase.
+func RebaseReason(pr prs.PR) string {
 	if pr.Conflicts {
 		return "it conflicts with " + pr.Base
 	}
