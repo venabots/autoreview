@@ -58,6 +58,9 @@ func clearLeftover(ctx context.Context, git Git, r Request) error {
 	if !exists(r.Path) {
 		return nil
 	}
+	if r.Keep {
+		return fmt.Errorf("PR #%d's worktree at %s is open to resume its session; remove it to run a task on the PR", r.PR, r.Path)
+	}
 	still := fmt.Sprintf("PR #%d's worktree from an earlier task is still at %s", r.PR, r.Path)
 	if !madeHere(r.Path) {
 		return fmt.Errorf("%s", still)

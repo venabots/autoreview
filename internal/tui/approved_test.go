@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/prs"
+	"github.com/venabots/autoreview/internal/task"
 )
 
 func approvedWithThreads(s *engine.Snapshot) {
@@ -24,7 +26,7 @@ func TestAnApprovedPRWithOpenThreadsReadsAsApproved(t *testing.T) {
 	wantOnScreen(t, m,
 		"✓ #4 · approved · 2 threads open",
 		"review    approved by @alice",
-		"threads   2 unresolved, optional now: c answers them",
+		"threads   2 unresolved, optional now: f answers them",
 	)
 }
 
@@ -33,7 +35,36 @@ func TestABabysatPRThatIsApprovedSaysOnlyConflictsGetAFix(t *testing.T) {
 		approvedWithThreads(s)
 		s.Babysit, _ = s.Babysit.Apply(babysit.All(true), s.Mine)
 	})
-	wantOnScreen(t, m, "✓ #4 · autofix · approved · 2 threads open", "autofix   on · approved, so only conflicts get a fix")
+	wantOnScreen(t, m, "✓ #4 · autofix · approved · 2 threads open", "autofix   on · approved, so only conflicts get a fix; f fixes the rest")
+}
+
+func TestAnApprovedPRWithNothingLeftDoesNotPointAtTheFixKey(t *testing.T) {
+	m, _ := onMine(t, func(s *engine.Snapshot) {
+		approvedWithThreads(s)
+		s.Mine[0].ThreadIDs = nil
+		s.Babysit, _ = s.Babysit.Apply(babysit.All(true), s.Mine)
+	})
+	wantOnScreen(t, m, "autofix   on · approved, so only conflicts get a fix")
+	wantNotOnScreen(t, m, "f fixes the rest")
+}
+
+// A fix a person asks for runs on an approved PR. Only autofix holds back.
+func TestFFixesAnApprovedPR(t *testing.T) {
+	m, hs := onMine(t, approvedWithThreads)
+	m = press(t, m, "f")
+	want := []engine.Command{engine.RunTask{Request: task.Request{PR: 4, Kind: task.Fix, Title: "My own work", Branch: "me/my-own-work"}}}
+	if !reflect.DeepEqual(commands(hs), want) {
+		t.Errorf("f sent %+v, want %+v", commands(hs), want)
+	}
+	wantOnScreen(t, m, "fixing PR #4")
+}
+
+// Turning autofix on for an approved PR with work left starts nothing. The
+// flash says why, and which key fixes it now.
+func TestAOnAnApprovedPRSaysWhyNothingStarts(t *testing.T) {
+	m, _ := onMine(t, approvedWithThreads)
+	m = pressMine(t, m, "a")
+	wantOnScreen(t, m, "autofixing PR #4; it is approved, so autofix fixes only its conflicts: f fixes the rest")
 }
 
 func TestAnApprovalWhereNoRuleAsksForOneHasTheApprovedMark(t *testing.T) {

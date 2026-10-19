@@ -9,6 +9,7 @@ import (
 
 	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/engine"
+	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/task"
 	"github.com/venabots/autoreview/internal/words"
 )
@@ -96,7 +97,17 @@ func (m Model) autofixPressed() Model {
 	if err != nil {
 		return m.flashed(err.Error())
 	}
-	return m.babysat(c, fmt.Sprintf("PR #%d", row.pr.Number))
+	return m.babysat(c, fmt.Sprintf("PR #%d", row.pr.Number), autofixSaid(c, row.pr))
+}
+
+// autofixSaid is what turning autofix on or off says. On an approved PR
+// with work left, autofix starts nothing, so it says why and names the key
+// that fixes the PR now.
+func autofixSaid(c babysit.Change, pr mine.PR) string {
+	if c.On && babysit.LeftForAPerson(pr) {
+		return fmt.Sprintf("autofixing PR #%d; it is approved, so autofix fixes only its conflicts: f fixes the rest", pr.Number)
+	}
+	return c.Said()
 }
 
 // autofixAllPressed turns autofix on or off for every PR of yours.
@@ -104,22 +115,23 @@ func (m Model) autofixAllPressed() Model {
 	if m.tab != tabMine {
 		return m.flashed(notMine)
 	}
-	return m.babysat(m.snap.Babysit.ToggleAll(), "your PRs")
+	c := m.snap.Babysit.ToggleAll()
+	return m.babysat(c, "your PRs", c.Said())
 }
 
-// babysat sends a change. Autofix runs the fix, so a fix that is refused
-// refuses autofix too.
-func (m Model) babysat(c babysit.Change, what string) Model {
+// babysat sends a change and flashes said. Autofix runs the fix, so a fix
+// that is refused refuses autofix too.
+func (m Model) babysat(c babysit.Change, what, said string) Model {
 	if why := m.snap.Refusals[task.Fix]; c.On && why != "" {
 		return m.flashed(fmt.Sprintf("not autofixing %s: %s", what, why))
 	}
 	m.eng.Do(engine.Babysit{Change: c})
-	return m.flashed(c.Said())
+	return m.flashed(said)
 }
 
 // resumingTask reopens the selected PR's last task in its worktree. A
 // session belongs to the directory it ran in, so a worktree that was
-// removed leaves nothing to reopen it in.
+// removed is made again first, and the tab opens when it is back.
 func (m Model) resumingTask() (tea.Model, tea.Cmd) {
 	row, m, ok := m.minePicked()
 	if !ok {
@@ -134,10 +146,15 @@ func (m Model) resumingTask() (tea.Model, tea.Cmd) {
 	case sessionOf(*row.task) == "":
 		return m.flashed(fmt.Sprintf("PR #%d's task has no session to resume", pr)), nil
 	case row.task.Kept == "" && !row.task.Yours:
-		return m.flashed(fmt.Sprintf("PR #%d's task worktree is gone; its session was %s", pr, sessionOf(*row.task))), nil
+		return m.reopenPressed(*row.task), nil
 	}
-	command := m.act.ResumeCommand(row.task.Worktree, row.task.Orchestrator.ReopenCommand(sessionOf(*row.task)))
-	return m.flashed(fmt.Sprintf("opening PR #%d's task in a new tab", pr)), m.openTab(pr, "task", command)
+	return m.flashed(fmt.Sprintf("opening PR #%d's task in a new tab", pr)), m.openTab(pr, "task", m.taskCommand(*row.task))
+}
+
+// taskCommand is the line a new tab runs to reopen a task's session in
+// its worktree.
+func (m Model) taskCommand(job engine.Job) string {
+	return m.act.ResumeCommand(job.Worktree, job.Orchestrator.ReopenCommand(sessionOf(job)))
 }
 
 // openTab opens a terminal tab off the update loop: a slow launch must

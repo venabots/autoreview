@@ -85,7 +85,8 @@ func (m Model) took(snap *engine.Snapshot) (tea.Model, tea.Cmd) {
 	if snap.Phase == engine.Done {
 		return m, tea.Quit
 	}
-	cmds := []tea.Cmd{waitForChange(m.eng)}
+	m, opens := m.reopened()
+	cmds := append([]tea.Cmd{waitForChange(m.eng)}, opens...)
 	if m.busy() && !m.spinning {
 		m.spinning = true
 		cmds = append(cmds, m.spin.Tick)
