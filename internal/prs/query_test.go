@@ -96,39 +96,39 @@ func TestListReadsTheSevenPRFixture(t *testing.T) {
 	want := []PR{
 		{
 			Number: 9, Title: "Add retry logic", Author: "alice", Branch: "alice/add-retry-logic",
-			Head: "sha9", UpdatedAt: "2026-08-10T10:00:00Z",
+			Head: "sha9", HeadDate: "2026-08-10T10:00:00Z", UpdatedAt: "2026-08-10T10:00:00Z",
 			Decision: DecisionNone, CI: CIPassing, Engagement: New, Hidden: NotHidden,
 		},
 		{
 			Number: 8, Title: "Fix typo", Author: "bob", Branch: "bob/fix-typo",
-			Head: "sha8", UpdatedAt: "2026-08-09T10:00:00Z",
+			Head: "sha8", HeadDate: "2026-08-09T10:00:00Z", UpdatedAt: "2026-08-09T10:00:00Z",
 			Decision: ChangesRequested, CI: CIPassing, Engagement: New, Hidden: NotHidden,
 		},
 		{
 			Number: 5, Title: "Approved already", Author: "dave", Branch: "dave/approved-already",
-			Head: "sha5", UpdatedAt: "2026-08-06T10:00:00Z",
+			Head: "sha5", HeadDate: "2026-08-06T10:00:00Z", UpdatedAt: "2026-08-06T10:00:00Z",
 			Decision: Approved, CI: CINone, Engagement: New, Hidden: HiddenApproved,
 		},
 		{
 			Number: 3, Title: "Bump lodash", Author: "dependabot", Branch: "dependabot/bump-lodash",
-			Head: "sha3", UpdatedAt: "2026-08-04T10:00:00Z",
+			Head: "sha3", HeadDate: "2026-08-04T10:00:00Z", UpdatedAt: "2026-08-04T10:00:00Z",
 			Decision: DecisionNone, CI: CINone, Engagement: New, Hidden: HiddenBot,
 		},
 		{
 			Number: 2, Title: "Work in progress", Author: "erin", Branch: "erin/work-in-progress",
-			Head: "sha2", UpdatedAt: "2026-08-03T10:00:00Z", Draft: true,
+			Head: "sha2", HeadDate: "2026-08-03T10:00:00Z", UpdatedAt: "2026-08-03T10:00:00Z", Draft: true,
 			Decision: DecisionNone, CI: CINone, Engagement: New, Hidden: HiddenDraft,
 		},
 		{
 			// You commented last.
 			Number: 6, Title: "Refactor client", Author: "carol", Branch: "carol/refactor-client",
-			Head: "sha6", UpdatedAt: "2026-08-08T10:00:00Z",
+			Head: "sha6", HeadDate: "2026-08-07T10:00:00Z", UpdatedAt: "2026-08-08T10:00:00Z",
 			Decision: DecisionNone, CI: CINone, Engagement: Seen, Hidden: NotHidden,
 		},
 		{
 			// The only activity on it is your own.
 			Number: 4, Title: "My own work", Author: "me", Branch: "me/my-own-work",
-			Head: "sha4", UpdatedAt: "2026-08-05T10:00:00Z",
+			Head: "sha4", HeadDate: "2026-08-05T10:00:00Z", UpdatedAt: "2026-08-05T10:00:00Z",
 			Decision: DecisionNone, CI: CINone, Engagement: Seen, Hidden: HiddenOwn,
 		},
 	}
