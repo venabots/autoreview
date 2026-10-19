@@ -46,13 +46,18 @@ func modeText(s *engine.Snapshot) string {
 const tabGap = "  "
 
 // tabLabels names both tabs, each with how many PRs it holds. A list that
-// has not been read has no count: "0" would say there are none.
+// has not been read has no count: "0" would say there are none. The Review
+// tab names the authors --author keeps.
 func tabLabels(s *engine.Snapshot) (review, mine string) {
 	mine = tabLabel("My PRs", len(s.Mine), s.MineLooked)
 	if n := autofixing(s); n > 0 {
 		mine = fmt.Sprintf("%s· %s ", mine, autofixingText(n))
 	}
-	return tabLabel("Review", len(s.Reviews), s.Looked), mine
+	review = tabLabel("Review", len(s.Reviews), s.Looked)
+	if by := words.Authors(s.Authors); by != "" {
+		review = fmt.Sprintf("%s· %s ", review, by)
+	}
+	return review, mine
 }
 
 // autofixing is how many of your PRs autofix watches. The tab label and

@@ -36,6 +36,9 @@ type Config struct {
 	All bool
 	// Dependabot includes Dependabot's PRs.
 	Dependabot bool
+	// Authors keeps only the PRs these logins opened. Empty keeps every
+	// author.
+	Authors []string
 	// Stacked reviews a PR that sits on another open PR.
 	Stacked bool
 	// SkipCI reviews a PR whose checks have not passed.
@@ -181,6 +184,7 @@ func parseFlags(args []string, env func(string) string, file config.File) (Confi
 	var cfg Config
 	var watch, babysit string
 	var screen, plain bool
+	var author []string
 	raw := map[string]*string{}
 	for _, name := range valued {
 		raw[name] = new(string)
@@ -190,6 +194,7 @@ func parseFlags(args []string, env func(string) string, file config.File) (Confi
 	fs.Usage = func() {}
 	fs.BoolVarP(&cfg.All, "all", "a", false, "")
 	fs.BoolVarP(&cfg.Dependabot, "dependabot", "d", false, "")
+	fs.StringArrayVar(&author, "author", nil, "")
 	fs.BoolVarP(&cfg.Stacked, "stacked", "s", false, "")
 	fs.BoolVar(&cfg.SkipCI, "skip-wait-for-ci", false, "")
 	fs.StringVarP(&watch, "watch", "w", "", "")
@@ -220,6 +225,9 @@ func parseFlags(args []string, env func(string) string, file config.File) (Confi
 	}
 	only, err := prNumbers(fs.Args())
 	if err != nil {
+		return Config{}, err
+	}
+	if cfg.Authors, err = authors(author); err != nil {
 		return Config{}, err
 	}
 	set := settingsOf(file)

@@ -29,6 +29,9 @@ type Config struct {
 	Gates prs.Gates
 	// Only limits the run to these PRs. Empty means every PR.
 	Only []int
+	// Authors is whose PRs the review list keeps, for the views to name.
+	// Deps.List filters by it; the engine only passes it on.
+	Authors []string
 	// Watch is the wait between looks. Zero means look once and end.
 	Watch time.Duration
 
@@ -179,7 +182,7 @@ type Engine struct {
 func New(cfg Config, deps Deps) *Engine {
 	e := &Engine{cfg: cfg, deps: deps, in: newInbox(), changed: make(chan struct{}, 1)}
 	e.current.Store(&Snapshot{
-		Phase: Idle, Looking: true, Repo: cfg.Repo, Watch: cfg.Watch, RunDir: deps.Run.Root, Focus: cfg.Focus,
+		Phase: Idle, Looking: true, Repo: cfg.Repo, Authors: cfg.Authors, Watch: cfg.Watch, RunDir: deps.Run.Root, Focus: cfg.Focus,
 		Watching: cfg.Watching, Rest: cfg.Rest, Refusals: e.refusals(),
 	})
 	return e
