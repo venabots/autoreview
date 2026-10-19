@@ -20,6 +20,8 @@ import (
 	"github.com/venabots/autoreview/internal/marks"
 	"github.com/venabots/autoreview/internal/plain"
 	"github.com/venabots/autoreview/internal/proc"
+	"github.com/venabots/autoreview/internal/prs"
+	"github.com/venabots/autoreview/internal/rebase"
 	"github.com/venabots/autoreview/internal/repo"
 	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/rundir"
@@ -100,6 +102,10 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 		return review.Verdict(ctx, gh.Exec, rc.Slug(), pr, rc.Me, since)
 	}
 	deps.Record = recorder(rc)
+	// Under --no-post the run still decides, and says what it would post.
+	deps.Rebase = func(ctx context.Context, pr prs.PR) (rebase.State, error) {
+		return rebase.Check(ctx, gh.Exec, rc.Slug(), rc.Me, pr, !cfg.NoPost)
+	}
 	if !cfg.NoPost {
 		// --no-post promises to leave the PR alone, the reaction too.
 		deps.Marks = marks.New(gh.Exec, rc.Owner, rc.Name)

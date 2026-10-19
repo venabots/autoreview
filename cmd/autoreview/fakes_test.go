@@ -62,6 +62,20 @@ func fakeGh(args []string) int {
 		return serve(dir, "prs.json")
 	case strings.HasPrefix(joined, "api repos/acme/widgets/issues/") && strings.Contains(joined, "/reactions"):
 		return react(args)
+	case strings.HasPrefix(joined, "api repos/acme/widgets/compare/"):
+		// A failing Dependabot PR is behind its base.
+		fmt.Println("3")
+		return 0
+	case strings.HasPrefix(joined, "api --paginate repos/acme/widgets/issues/") && strings.Contains(joined, "/comments"):
+		// The comments that ask Dependabot to rebase, as login and date:
+		// none unless the test wrote them.
+		if _, err := os.Stat(filepath.Join(dir, "rebase-asks.tsv")); err == nil {
+			return serve(dir, "rebase-asks.tsv")
+		}
+		return 0
+	case strings.HasPrefix(joined, "api --method POST repos/acme/widgets/issues/") && strings.HasSuffix(joined, "/comments -f body=@dependabot rebase --silent"):
+		appendLine(filepath.Join(dir, "posted.log"), joined)
+		return 0
 	case len(args) == 7 && joined == "pr view "+args[2]+" --repo acme/widgets --json latestReviews":
 		fmt.Println(latestReviews(args[2]))
 		return 0
