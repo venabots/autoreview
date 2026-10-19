@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/prs"
@@ -61,6 +62,21 @@ func TestABotsPRThatWasPushedToSaysDependabotNoLongerRebasesIt(t *testing.T) {
 	m, _ := onMine(t, withBump(true))
 	m = press(t, m, "g")
 	wantOnScreen(t, m, "pushed to by us: Dependabot no longer rebases it")
+}
+
+// Autofix for all leaves a bot's PR alone, so a on one turns its autofix
+// on: a key that turned it off would read as if it had been on.
+func TestAOnABotsPRTurnsItsAutofixOnWhileAllAreOn(t *testing.T) {
+	m, hs := onMine(t, func(s *engine.Snapshot) {
+		withBump(false)(s)
+		s.Babysit, _ = s.Babysit.Apply(babysit.All(true), s.Mine)
+	})
+	m = press(t, m, "g")
+	wantOnScreen(t, m, "autofix   off")
+	pressMine(t, m, "a")
+	if want := []engine.Command{engine.Babysit{Change: babysit.One(12, true)}}; !reflect.DeepEqual(commands(hs), want) {
+		t.Errorf("a on the bump sent %+v, want %+v", commands(hs), want)
+	}
 }
 
 func TestTheMaintainFooterAndKeyHelpNameD(t *testing.T) {

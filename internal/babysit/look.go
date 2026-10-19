@@ -35,7 +35,7 @@ func (s State) Look(list []mine.PR, busy func(pr int) bool, limit int) (State, [
 	next := State{all: s.all, prs: keepOpen(s.prs, open), watches: keepOpen(s.watches, open)}
 	var due []Due
 	for _, pr := range list {
-		if !next.Babysat(pr.Number) || pr.CrossRepo || (busy != nil && busy(pr.Number)) {
+		if !next.Covers(pr) || (busy != nil && busy(pr.Number)) {
 			continue
 		}
 		w, kind, fix := step(next.watches[pr.Number], pr, limit)

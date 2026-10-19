@@ -54,7 +54,7 @@ func (s State) Toggle(pr mine.PR) (Change, error) {
 	if pr.CrossRepo {
 		return Change{}, ForkError{PR: pr.Number}
 	}
-	return One(pr.Number, !s.Babysat(pr.Number)), nil
+	return One(pr.Number, !s.Covers(pr)), nil
 }
 
 // ToggleAll is the change "B" asks for.
@@ -101,7 +101,7 @@ func (s State) stopOne(pr int, list []mine.PR) State {
 	next := cloneSet(s.prs)
 	if s.all {
 		for _, p := range list {
-			if !p.CrossRepo {
+			if s.Covers(p) {
 				next[p.Number] = true
 			}
 		}

@@ -226,7 +226,7 @@ func TestTheMyPRsFooterNamesItsOwnKeys(t *testing.T) {
 	wantOnScreen(t, m, "f fix", "a autofix")
 	m = press(t, m, "?")
 	got := screen(m)
-	for _, want := range []string{"fix the selected PR once", "autofix all your PRs", "fix each of your PRs that needs it"} {
+	for _, want := range []string{"fix the selected PR once", "autofix all your PRs", "fix each PR on the tab that needs it"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the key help does not say %q", want)
 		}

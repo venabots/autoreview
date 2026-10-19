@@ -6,8 +6,10 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/prs"
+	"github.com/venabots/autoreview/internal/task"
 )
 
 // bump is a Dependabot PR whose build fails.
@@ -63,6 +65,41 @@ func TestIncludingBotsPRsReadsThemAtOnceAndLeavingThemOutDropsThem(t *testing.T)
 		snap = b.eng.Snapshot()
 		if snap.MineBots || slices.Contains(mineNumbers(snap.Mine), 12) {
 			t.Errorf("after leaving them out: MineBots %v, Mine %v; want PR #12 gone", snap.MineBots, mineNumbers(snap.Mine))
+		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
+// The view starts with autofix on for all. Showing the bots' PRs must not
+// start a fix on each failing bump; a on one bump does.
+func TestAutofixForAllLeavesABotsPRAloneUntilAPersonTurnsItOnForIt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f, m := &trees{}, &mineList{}
+		clean := threaded(4)
+		clean.ThreadIDs = nil
+		m.set(clean)
+		m.setBots(bump(12))
+		b := newBench(t, held(setup{deps: m.deps(f), edit: autofixedEvery}))
+		synctest.Wait()
+		b.eng.Do(IncludeBots{On: true})
+		time.Sleep(time.Minute)
+		synctest.Wait()
+
+		if tasks := b.eng.Snapshot().Tasks; len(tasks) != 0 {
+			t.Fatalf("autofix for all started %+v on a bot's PR", tasks)
+		}
+
+		b.eng.Do(Babysit{Change: babysit.One(12, true)})
+		synctest.Wait()
+		if job := taskOf(t, b, 12); job.Task != task.Fix {
+			t.Fatalf("after a on the bump: %+v, want a fix", job)
+		}
+		f.mu.Lock()
+		asked := slices.Clone(f.asked)
+		f.mu.Unlock()
+		if len(asked) != 1 || asked[0].Branch != "dependabot/npm_and_yarn/left-pad-2.0.0" {
+			t.Errorf("the worktrees asked for = %+v, want one on Dependabot's branch", asked)
 		}
 		b.eng.Do(Quit{})
 		<-b.results

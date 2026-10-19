@@ -107,12 +107,13 @@ yours, so you can fix the bumps that break the build: Dependabot never does.
 | Key   | What it does                                                     |
 | ----- | ---------------------------------------------------------------- |
 | `f`   | Fix the selected PR once: conflicts, comments and CI             |
-| `F`   | Fix each of your PRs that needs it, once                         |
+| `F`   | Fix each PR on the tab that needs it, once                       |
 | `a`   | Autofix the PR: fix it again each time it changes and needs it   |
 | `A`   | Autofix all your PRs, and any you open later. On at the start    |
 | `r`   | Reopen the last task in its worktree, if it was kept or is yours |
 | `x x` | Stop the running task. The first `x` asks                        |
-| `d`   | Show Dependabot's PRs too, or hide them. Off at the start        |
+| `d`   | Show Dependabot's PRs too, or hide them. Off at the start. `A`   |
+|       | leaves their autofix off: `a` turns it on for one                |
 
 On both tabs, `/` finds a PR: type its number, or words from its title, branch
 or author, and the selection moves as you type. Typing a number starts it too,

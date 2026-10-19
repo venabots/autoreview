@@ -97,6 +97,18 @@ func (s State) Streak(pr int) int {
 	return s.watches[pr].streak
 }
 
+// Covers says autofix watches pr. Autofix for all covers your own PRs and
+// any you open later, but never a bot's PR: the view starts with it on,
+// and showing Dependabot's PRs must not start a fix on every failing bump
+// at once. A bot's PR is covered only when a person turned it on for that
+// PR. A PR from a fork is never covered: its branch is not on origin.
+func (s State) Covers(pr mine.PR) bool {
+	if pr.CrossRepo {
+		return false
+	}
+	return s.prs[pr.Number] || (s.all && !pr.Bot)
+}
+
 // OnHold says the last look found the PR approved, so until that changes
 // it gets only a fix of its conflicts. A push can dismiss an approval, and
 // only a conflict stops the merge that the approval allows: a person starts
@@ -110,7 +122,7 @@ func (s State) OnHold(pr int) bool {
 func (s State) Listed(list []mine.PR) []Entry {
 	var out []Entry
 	for _, pr := range list {
-		if s.Babysat(pr.Number) && !pr.CrossRepo {
+		if s.Covers(pr) {
 			out = append(out, Entry{PR: pr.Number, Fixes: s.Fixes(pr.Number), Streak: s.Streak(pr.Number)})
 		}
 	}
