@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/venabots/autoreview/internal/prs"
+	"github.com/venabots/autoreview/internal/rebase"
 )
 
 // Wait is why a PR is not being reviewed right now.
@@ -23,6 +24,10 @@ const (
 	WaitChecks
 	// WaitStacked means it sits on another open PR, which is reviewed first.
 	WaitStacked
+	// WaitRebase means it is Dependabot's and stale: the run asked
+	// Dependabot to rebase it, or a person must, because somebody else
+	// committed to it. Its next head is reviewed as usual.
+	WaitRebase
 	// WaitResting means the run reviewed it a short while ago, and gives
 	// its author time to answer before it looks again.
 	WaitResting
@@ -41,6 +46,9 @@ type Row struct {
 	// Until is when a resting PR may be reviewed again. It is zero for
 	// every other wait.
 	Until time.Time
+	// Rebase is where asking Dependabot to rebase stands, for a row that
+	// waits on it. It is rebase.None for every other wait.
+	Rebase rebase.State
 }
 
 // Rows is the review list. It shows every PR the sweep could review, and
