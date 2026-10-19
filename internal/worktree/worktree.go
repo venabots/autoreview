@@ -43,6 +43,9 @@ type Request struct {
 	Branch string
 	// CrossRepo is true for a PR from a fork, whose branch is not on origin.
 	CrossRepo bool
+	// Keep says the worktree at Path was made again for a person to resume
+	// a session in. A task never clears it: the session may be open there.
+	Keep bool
 }
 
 // Prepared is a worktree made for one task.

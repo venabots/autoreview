@@ -24,10 +24,17 @@ type reviewRow struct {
 	listed *queue.Row
 	// job is the newest review of the PR in this run, or nil.
 	job *engine.Job
+	// place is where the PR is on the list the engine starts a pass from,
+	// or -1 when it has left the list.
+	place int
+	// watching says the run looks again by itself, so a reviewed PR that
+	// nothing holds is reviewed again at the next pass.
+	watching bool
 }
 
-// section orders the list: what is happening now first, then what the run
-// acts on next, then what it has done, then what it leaves alone.
+// section orders the list in the order of review: what is happening now
+// first, then what the run acts on next, then what it has done, then what
+// it leaves alone.
 type section int
 
 const (
@@ -43,6 +50,9 @@ const (
 	sectionApproved
 )
 
+// section is where the row sits. A reviewed PR that is due again sits with
+// the rows the next pass starts, not with the reviews that ended: its old
+// verdict must not hide that it is about to be reviewed.
 func (r reviewRow) section() section {
 	if r.job != nil {
 		switch {
@@ -50,10 +60,21 @@ func (r reviewRow) section() section {
 			return sectionQueued
 		case !r.job.State.Settled():
 			return sectionRunning
+		case !r.dueAgain():
+			return sectionFinished
 		}
-		return sectionFinished
 	}
-	switch r.listed.Wait {
+	return waitSection(r.listed.Wait)
+}
+
+// dueAgain says the run reviews the PR again by itself, once what holds it
+// now lets go: nothing holds it, or only its checks or a PR under it.
+func (r reviewRow) dueAgain() bool {
+	return r.watching && r.listed != nil && waitSection(r.listed.Wait) < sectionResting
+}
+
+func waitSection(w queue.Wait) section {
+	switch w {
 	case queue.WaitChecks:
 		return sectionChecks
 	case queue.WaitStacked:
@@ -115,10 +136,11 @@ func reviewRowsOf(s *engine.Snapshot) []reviewRow {
 			return i
 		}
 		at[pr] = len(rows)
-		rows = append(rows, reviewRow{pr: pr})
+		rows = append(rows, reviewRow{pr: pr, place: -1, watching: s.Watching})
 		return len(rows) - 1
 	}
 	// The newest pass first: its review of a PR is newer than any before.
+	// The jobs of the pass come in the order the engine starts them.
 	for _, jobs := range [][]engine.Job{s.Jobs, s.Earlier} {
 		for i := range jobs {
 			if n := add(jobs[i].PR); rows[n].job == nil {
@@ -127,21 +149,27 @@ func reviewRowsOf(s *engine.Snapshot) []reviewRow {
 		}
 	}
 	for i := range s.Reviews {
-		rows[add(s.Reviews[i].PR.Number)].listed = &s.Reviews[i]
+		n := add(s.Reviews[i].PR.Number)
+		rows[n].listed, rows[n].place = &s.Reviews[i], i
 	}
 	slices.SortStableFunc(rows, func(a, b reviewRow) int {
-		return cmp.Or(cmp.Compare(a.section(), b.section()), newestFirst(a, b))
+		return cmp.Or(cmp.Compare(a.section(), b.section()), withinSection(a, b))
 	})
 	return rows
 }
 
-// newestFirst orders the finished reviews by when each ended. Rows of any
-// other section keep the order they came in.
-func newestFirst(a, b reviewRow) int {
-	if a.section() != sectionFinished {
+// withinSection orders the rows of one section. The finished reviews go by
+// when each ended, newest first. The rows that wait go in the order of the
+// list the engine starts its next pass from. The reviews of the pass keep
+// the order they came in, which is the order the engine starts them.
+func withinSection(a, b reviewRow) int {
+	switch a.section() {
+	case sectionRunning, sectionQueued:
 		return 0
+	case sectionFinished:
+		return ended(*b.job).Compare(ended(*a.job))
 	}
-	return ended(*b.job).Compare(ended(*a.job))
+	return cmp.Compare(a.place, b.place)
 }
 
 func ended(job engine.Job) time.Time {
@@ -205,6 +233,9 @@ func afterReview(row reviewRow, now time.Time) string {
 	}
 	switch row.listed.Wait {
 	case queue.WaitResting, queue.WaitCapped:
+		return " · " + words.Wait(*row.listed, now)
+	}
+	if row.dueAgain() {
 		return " · " + words.Wait(*row.listed, now)
 	}
 	return ""

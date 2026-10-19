@@ -155,6 +155,8 @@ func babysatWord(pr mine.PR, s babysit.State) word {
 	switch n := s.Fixes(pr.Number); {
 	case !s.Babysat(pr.Number) || pr.CrossRepo:
 		return word{"off", dimStyle}
+	case babysit.LeftForAPerson(pr):
+		return word{"on · approved, so only conflicts get a fix; f fixes the rest", plainStyle}
 	case pr.Approved():
 		// A push can dismiss the approval, so only a conflict, which stops
 		// the merge anyway, gets a fix by itself.
