@@ -45,13 +45,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case m.editing:
 			return m.typed(msg)
+		case m.find.open:
+			return m.findTyped(msg)
 		case m.modal.kind != modalNone:
 			return m.modalPressed(intentFor(msg))
+		case intentFor(msg) == intentFindNumber:
+			return m.findOpened(msg.Text)
 		}
 		return m.pressed(intentFor(msg))
 	case tea.PasteMsg:
-		if m.editing {
+		switch {
+		case m.editing:
 			return m.pasted(msg)
+		case m.find.open:
+			return m.findPasted(msg)
 		}
 		return m, nil
 	case tea.MouseWheelMsg:
@@ -78,7 +85,8 @@ func (m Model) took(snap *engine.Snapshot) (tea.Model, tea.Cmd) {
 	if snap.Phase == engine.Done {
 		return m, tea.Quit
 	}
-	cmds := []tea.Cmd{waitForChange(m.eng)}
+	m, opens := m.reopened()
+	cmds := append([]tea.Cmd{waitForChange(m.eng)}, opens...)
 	if m.busy() && !m.spinning {
 		m.spinning = true
 		cmds = append(cmds, m.spin.Tick)
@@ -122,6 +130,8 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 	case intentSecondTab:
 		m.tab = tabMine
 		return m.synced(), nil
+	case intentFind:
+		return m.findOpened("")
 	case intentKeys:
 		return m.asking(modal{kind: modalKeys}), nil
 	case intentLog:

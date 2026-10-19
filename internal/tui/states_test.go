@@ -174,9 +174,9 @@ func TestTheFooterDropsHintsThatDoNotFitButNeverTheKeysHint(t *testing.T) {
 			t.Errorf("at %d columns the footer is %q, want it to end with the keys hint", width, footer)
 		}
 	}
-	wide, _ := newModel(t, 160, 30)
+	wide, _ := newModel(t, 175, 30)
 	narrow, _ := newModel(t, 80, 30)
-	wantOnScreen(t, wide, "q quit  j/k move  r resume  o open  R review now  tab my PRs  w watch  m mouse  f focus  x stop  l log  ^d/^u scroll  ? keys")
+	wantOnScreen(t, wide, "q quit  j/k move  / find  r resume  o open  R review now  tab to My PRs  w watch  m mouse  f focus  x stop  l log  ^d/^u scroll  ? keys")
 	wantNotOnScreen(t, narrow, "^d/^u scroll")
 	wantOnScreen(t, narrow, "2 waiting · next look in 1m30s", "q quit", "? keys")
 

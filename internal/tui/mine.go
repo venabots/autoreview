@@ -9,6 +9,7 @@ import (
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/report"
 	"github.com/venabots/autoreview/internal/sanitize"
+	"github.com/venabots/autoreview/internal/words"
 )
 
 // mineRow is one of your PRs: where it stands on GitHub, and the newest
@@ -45,6 +46,33 @@ func (r mineRow) live() bool {
 // spinner.
 func (r mineRow) moving() bool {
 	return r.live() && r.task.State != engine.JobQueued
+}
+
+// tallyTasks counts the newest task on each of your PRs by where it
+// stands, or is empty when no PR has had one.
+func tallyTasks(rows []mineRow) string {
+	running, queued, finished := 0, 0, 0
+	for _, row := range rows {
+		switch {
+		case row.task == nil:
+		case row.task.State.Settled():
+			finished++
+		case row.task.State == engine.JobQueued:
+			queued++
+		default:
+			running++
+		}
+	}
+	parts := []string{}
+	for _, part := range []struct {
+		n    int
+		what string
+	}{{running, "running"}, {queued, "queued"}, {finished, "finished"}} {
+		if part.n > 0 {
+			parts = append(parts, words.Count(part.n, "task")+" "+part.what)
+		}
+	}
+	return joinDots(parts)
 }
 
 func mineListRows(rows []mineRow, babysat babysit.State, now time.Time, spin string) []listRow {
@@ -127,6 +155,8 @@ func babysatWord(pr mine.PR, s babysit.State) word {
 	switch n := s.Fixes(pr.Number); {
 	case !s.Babysat(pr.Number) || pr.CrossRepo:
 		return word{"off", dimStyle}
+	case babysit.LeftForAPerson(pr):
+		return word{"on · approved, so only conflicts get a fix; f fixes the rest", plainStyle}
 	case pr.Approved():
 		// A push can dismiss the approval, so only a conflict, which stops
 		// the merge anyway, gets a fix by itself.

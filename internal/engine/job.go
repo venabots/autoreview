@@ -89,6 +89,13 @@ type Job struct {
 	Worktree string
 	Kept     string
 	Yours    bool
+	// Reopening says the task's worktree, which was removed, is being made
+	// again so its session can be resumed. Reopens counts the tries that
+	// ended, so a reader can tell a new answer from an old one, and
+	// ReopenError says why the last one failed, or is empty.
+	Reopening   bool
+	Reopens     int
+	ReopenError string
 	// Stderr is the file the reviewer writes its stderr to. FollowStderr
 	// says it is the only live record: an override keeps no transcript.
 	Stderr       string

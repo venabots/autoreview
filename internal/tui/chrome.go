@@ -46,13 +46,28 @@ func modeText(s *engine.Snapshot) string {
 const tabGap = "  "
 
 // tabLabels names both tabs, each with how many PRs it holds. A list that
-// has not been read has no count: "0" would say there are none.
+// has not been read has no count: "0" would say there are none. The Review
+// tab names the authors --author keeps.
 func tabLabels(s *engine.Snapshot) (review, mine string) {
 	mine = tabLabel("My PRs", len(s.Mine), s.MineLooked)
-	if n := len(s.Babysit.Listed(s.Mine)); n > 0 {
-		mine = fmt.Sprintf("%s· autofixing %d ", mine, n)
+	if n := autofixing(s); n > 0 {
+		mine = fmt.Sprintf("%s· %s ", mine, autofixingText(n))
 	}
-	return tabLabel("Review", len(s.Reviews), s.Looked), mine
+	review = tabLabel("Review", len(s.Reviews), s.Looked)
+	if by := words.Authors(s.Authors); by != "" {
+		review = fmt.Sprintf("%s· %s ", review, by)
+	}
+	return review, mine
+}
+
+// autofixing is how many of your PRs autofix watches. The tab label and
+// the footer both count it, so they cannot disagree.
+func autofixing(s *engine.Snapshot) int {
+	return len(s.Babysit.Listed(s.Mine))
+}
+
+func autofixingText(n int) string {
+	return fmt.Sprintf("autofixing %d", n)
 }
 
 func tabLabel(name string, n int, counted bool) string {
@@ -89,21 +104,47 @@ func tabAt(x int, review, mine string) (tab, bool) {
 	return tabReview, false
 }
 
-// statusText is the left side of the footer: what the run holds, and what
-// it is doing now. spin is the spinner's frame, shown while the run looks.
-func statusText(s *engine.Snapshot, rows []reviewRow, now time.Time, spin string) word {
+// tally is what the footer says the shown tab holds. Each tab counts its
+// own work: a count of reviews on My PRs reads as if your PRs waited.
+type tally struct {
+	looked  bool
+	reading string
+	summary string
+}
+
+func reviewTally(s *engine.Snapshot, rows []reviewRow) tally {
+	summary := tallyJobs(rows)
+	if summary == "" {
+		summary = "nothing to review"
+	}
+	return tally{looked: s.Looked, reading: "reading the PR list", summary: summary}
+}
+
+func mineTally(s *engine.Snapshot) tally {
+	parts := []string{}
+	if tasks := tallyTasks(mineRowsOf(s)); tasks != "" {
+		parts = append(parts, tasks)
+	}
+	if n := autofixing(s); n > 0 {
+		parts = append(parts, autofixingText(n))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "no task running")
+	}
+	return tally{looked: s.MineLooked, reading: "reading your PRs", summary: joinDots(parts)}
+}
+
+// statusText is the left side of the footer: what the shown tab holds, and
+// what the run is doing now. spin is the spinner's frame, shown while the
+// run looks.
+func statusText(s *engine.Snapshot, t tally, now time.Time, spin string) word {
 	if s.ListErr != "" {
 		return word{"could not read the PR list: " + sanitize.Line(s.ListErr), redStyle}
 	}
-	if !s.Looked {
-		return word{spin + " reading the PR list", dimStyle}
+	if !t.looked {
+		return word{spin + " " + t.reading, dimStyle}
 	}
-	parts := []string{}
-	if summary := tallyJobs(rows); summary != "" {
-		parts = append(parts, summary)
-	} else {
-		parts = append(parts, "nothing to review")
-	}
+	parts := []string{t.summary}
 	switch {
 	case s.Looking:
 		parts = append(parts, spin+" checking the PR list")

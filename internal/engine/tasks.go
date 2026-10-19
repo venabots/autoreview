@@ -107,6 +107,8 @@ func (e *Engine) requestTask(w workers, r run, req task.Request) run {
 		return r
 	case liveTask(r.tasks, req.PR) >= 0:
 		why = "a job on it is already running"
+	case reopening(r.tasks, req.PR):
+		why = "its worktree is being made again"
 	default:
 		why = e.refusal(req.Kind)
 	}
@@ -114,6 +116,7 @@ func (e *Engine) requestTask(w workers, r run, req task.Request) run {
 		e.journal(Noted{Text: fmt.Sprintf("not %s PR #%d: %s", req.Kind.Doing(), req.PR, why)})
 		return r
 	}
+	req.KeepWorktree = keptToResume(r.tasks, req.PR)
 	t := taskJob{request: req, job: job{view: Job{
 		PR: req.PR, Title: req.Title, Author: e.cfg.Repo.Me, Task: req.Kind,
 		State: JobPreparing, Orchestrator: e.cfg.Orchestrator,

@@ -18,10 +18,16 @@ import (
 // in a worktree under the run directory, so a task never touches the
 // checkout you work in, and its result is read back from GitHub.
 func withTasks(d engine.Deps, cfg cli.Config, rc repo.Context, run rundir.Run) engine.Deps {
+	request := func(r task.Request) worktree.Request {
+		return worktree.Request{
+			Root: rc.Root, Path: run.Worktree(r.PR), PR: r.PR, Branch: r.Branch, CrossRepo: r.CrossRepo, Keep: r.KeepWorktree,
+		}
+	}
 	d.Prepare = func(ctx context.Context, r task.Request) (worktree.Prepared, error) {
-		return worktree.Prepare(ctx, worktree.Exec, worktree.Request{
-			Root: rc.Root, Path: run.Worktree(r.PR), PR: r.PR, Branch: r.Branch, CrossRepo: r.CrossRepo,
-		})
+		return worktree.Prepare(ctx, worktree.Exec, request(r))
+	}
+	d.Reopen = func(ctx context.Context, r task.Request) (worktree.Prepared, error) {
+		return worktree.Reopen(ctx, worktree.Exec, request(r))
 	}
 	d.Finish = func(ctx context.Context, p worktree.Prepared) (string, error) {
 		kept, _, err := worktree.Finish(ctx, worktree.Exec, rc.Root, p)

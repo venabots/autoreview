@@ -16,6 +16,8 @@ Usage: autoreview [PR ...] [--watch[=MINUTES]] [--babysit[=MINUTES]] [--once]
                   (one change, several models; see autoreview panel --help)
        autoreview setup
                   (ask for the settings and write them; see Settings below)
+       autoreview doctor [--since WHEN] [--no-probe]
+                  (is the panel answering; see autoreview doctor --help)
        autoreview --help | --version
 
 Run it inside a GitHub checkout. A PR is ready for review when something on
@@ -89,6 +91,8 @@ end.
                       directory, or $AUTOREVIEW_LOG_DIR).
   --all, -a           Treat approved PRs as open for review.
   --dependabot, -d    Include Dependabot's PRs.
+  --author LOGIN      Review only the PRs that LOGIN opened. Give it again,
+                      or split logins with commas, for more than one.
   --stacked, -s       Do not hold a PR that sits on another open PR.
   --skip-wait-for-ci  Do not hold a PR whose checks have not passed, and do
                       not wait for them.

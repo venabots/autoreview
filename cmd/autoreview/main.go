@@ -49,6 +49,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == cli.Setup {
 		return runSetup(args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == cli.Doctor {
+		return runDoctor(args[1:], stdout, stderr)
+	}
 
 	// The flags are read once, with the settings file, so a check that joins
 	// two values sees both. --help and --version are answered before any
@@ -79,6 +82,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		// The message can carry a line gh printed, which can carry text
 		// GitHub sent. It is drawn on a terminal like any other.
+		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
+		return engine.ExitFailed
+	}
+	if err := cli.CheckAuthors(cfg.Authors, rc.Me); err != nil {
 		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
 		return engine.ExitFailed
 	}
@@ -139,6 +146,7 @@ func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 		Repo:       rc,
 		Gates:      prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
 		Only:       cfg.Only,
+		Authors:    cfg.Authors,
 		MaxPasses:  cfg.MaxPasses,
 		MaxIdle:    cfg.MaxIdle,
 		AutofixCap: cfg.AutofixCap,
@@ -163,7 +171,7 @@ func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 }
 
 func deps(cfg cli.Config, rc repo.Context) engine.Deps {
-	opts := prs.Options{Me: rc.Me, All: cfg.All, Dependabot: cfg.Dependabot}
+	opts := prs.Options{Me: rc.Me, All: cfg.All, Dependabot: cfg.Dependabot, Authors: cfg.Authors}
 	return engine.Deps{
 		List: func(ctx context.Context) (prs.Listing, error) {
 			return prs.List(ctx, gh.Exec, rc.Owner, rc.Name, opts)

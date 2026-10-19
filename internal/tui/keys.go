@@ -31,6 +31,10 @@ const (
 	intentFixAll
 	intentWatch
 	intentLog
+	// intentFind is / and intentFindNumber a digit: both open the find
+	// line, the digit with itself typed in it.
+	intentFind
+	intentFindNumber
 	intentMouse
 	intentKeys
 	intentBack
@@ -69,6 +73,17 @@ var keyNames = map[string]intent{
 	"F":         intentFixAll,
 	"w":         intentWatch,
 	"l":         intentLog,
+	"/":         intentFind,
+	"0":         intentFindNumber,
+	"1":         intentFindNumber,
+	"2":         intentFindNumber,
+	"3":         intentFindNumber,
+	"4":         intentFindNumber,
+	"5":         intentFindNumber,
+	"6":         intentFindNumber,
+	"7":         intentFindNumber,
+	"8":         intentFindNumber,
+	"9":         intentFindNumber,
 	"m":         intentMouse,
 	"?":         intentKeys,
 	"esc":       intentBack,
@@ -90,6 +105,7 @@ type keyHelp struct {
 var helpLines = []keyHelp{
 	{"j/k", "move between PRs (or the arrow keys)"},
 	{"g/G", "first or last PR"},
+	{"/", "find a PR by its number, or by words from its title, branch or author; typing a number starts it too"},
 	{"^d/^u", "scroll the right pane (or space and the page keys)"},
 	{"tab", "switch between Review and My PRs (or ←/→, or click one)"},
 	{"R", "review the selected PR now, whatever holds it"},
@@ -117,17 +133,19 @@ type hint struct {
 }
 
 // footerHints are the keys the footer names, most useful first. The footer
-// shows as many as fit. Each tab names only the keys that act on it.
+// shows as many as fit. Each tab names only the keys that act on it. The
+// tab key names the tab it goes to: "tab review" on My PRs read as a key
+// that reviews your PR.
 func footerHints(shown tab) []hint {
 	if shown == tabMine {
 		return []hint{
-			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "review"}, {"o", "open"}, {"j/k", "move"}, {"r", "resume"}, {"x", "stop"},
+			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "to Review"}, {"o", "open"}, {"j/k", "move"}, {"/", "find"}, {"r", "resume"}, {"x", "stop"},
 			{"m", "mouse"}, {"l", "log"}, {"^d/^u", "scroll"},
 		}
 	}
 	return []hint{
-		{"q", "quit"}, {"j/k", "move"}, {"r", "resume"}, {"o", "open"}, {"R", "review now"},
-		{"tab", "my PRs"}, {"w", "watch"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
+		{"q", "quit"}, {"j/k", "move"}, {"/", "find"}, {"r", "resume"}, {"o", "open"}, {"R", "review now"},
+		{"tab", "to My PRs"}, {"w", "watch"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
 	}
 }
 

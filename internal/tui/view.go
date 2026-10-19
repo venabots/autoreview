@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -49,20 +50,34 @@ func (m Model) frame() string {
 	return strings.Join(rows, "\n")
 }
 
-// footer is the last row: the status and the keys, or the focus editor
-// while it is open.
+// footer is the last row: the status and the keys, or the focus editor or
+// the find line while one is open.
 func (m Model) footer() string {
 	w := m.lay.width
-	if !m.editing {
-		return fit(footerLine(m.status(), footerHints(m.tab), w), w).render(false)
+	switch {
+	case m.editing:
+		return editorLine("focus ", m.input, "", "   enter to apply · esc to leave it", w)
+	case m.find.open:
+		return editorLine("/ ", m.find.input, m.find.miss, "   enter keeps it · esc goes back", w)
 	}
-	const label, help = "focus ", "   enter to apply · esc to leave it"
-	// The help is never cut: it is the only place that says how to get
-	// out. A long focus scrolls inside the room that is left.
+	return fit(footerLine(m.status(), footerHints(m.tab), w), w).render(false)
+}
+
+// editorLine is a one-line editor in the footer: its label, what was
+// typed, a note about it, and how to leave. The help is never cut: it is
+// the only place that says how to get out. Long text scrolls inside the
+// room that is left, and the note is cut before the text is.
+func editorLine(label string, input textinput.Model, note, help string, w int) string {
 	room := max(w-len(label)-lipgloss.Width(help)-1, 1)
-	input := m.input
+	if note != "" {
+		room = min(room, max(lipgloss.Width(input.Value())+1, 1))
+	}
 	input.SetWidth(room)
-	left := ansi.Truncate(yellowStyle.Render(label)+input.View(), max(w-lipgloss.Width(help), 0), "")
+	left := yellowStyle.Render(label) + input.View()
+	if note != "" {
+		left += "  " + yellowStyle.Render(sanitize.Line(note))
+	}
+	left = ansi.Truncate(left, max(w-lipgloss.Width(help), 0), "")
 	gap := max(w-lipgloss.Width(left)-lipgloss.Width(help), 0)
 	return ansi.Truncate(left+strings.Repeat(" ", gap)+dimStyle.Render(help), w, "")
 }
@@ -131,7 +146,10 @@ func (m Model) status() word {
 		// merged an hour ago would look as if it still waited on you.
 		return word{"could not read your PRs: " + sanitize.Line(m.snap.MineErr) + "; this list is from the last look", redStyle}
 	}
-	return statusText(m.snap, m.reviews(), m.now, m.spin.View())
+	if m.tab == tabMine {
+		return statusText(m.snap, mineTally(m.snap), m.now, m.spin.View())
+	}
+	return statusText(m.snap, reviewTally(m.snap, m.reviews()), m.now, m.spin.View())
 }
 
 // paneContent is what the right pane shows, and a key that names it.

@@ -87,6 +87,9 @@ type Request struct {
 	Title     string
 	Branch    string
 	CrossRepo bool
+	// KeepWorktree says the PR's worktree was made again for a person to
+	// resume a session in, so the task must not clear it.
+	KeepWorktree bool
 }
 
 // SkillRoots is where an orchestrator finds an installed skill. A task's

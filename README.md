@@ -87,7 +87,9 @@ The last Rust release is the tag `v0.24.0`.
 Two tabs. `tab`, the arrow keys or a click switches between them.
 
 **Review** lists the open PRs and where each one stands: ready, held for CI,
-held under another PR, seen, or approved.
+held under another PR, seen, or approved. With `--author=alice` it lists
+only the PRs alice opened, and the tab says `by @alice`. Give the flag
+again, or split logins with commas, for more than one person.
 
 | Key   | What it does                                            |
 | ----- | ------------------------------------------------------- |
@@ -110,8 +112,10 @@ number of threads that are still open.
 | `r`   | Reopen the last task in its worktree, if it was kept or is yours |
 | `x x` | Stop the running task. The first `x` asks                        |
 
-On both tabs, `o` opens the PR in the browser, `l` shows the run log, and `?`
-lists every key. A drag in the right pane selects its text and copies it. `m`
+On both tabs, `/` finds a PR: type its number, or words from its title, branch
+or author, and the selection moves as you type. Typing a number starts it too,
+so `2734` goes to PR #2734. `enter` keeps the PR, and `esc` goes back. `o` opens
+the PR in the browser, `l` shows the run log, and `?` lists every key. A drag in the right pane selects its text and copies it. `m`
 gives the mouse back to the terminal, to select text anywhere on the screen.
 `q q` quits: the first `q` asks, because a quit stops every review and task that
 is running. `esc` closes the key list and answers no to a question.
@@ -142,15 +146,17 @@ row keeps the result: `fix pushed`, `fix pushed nothing` or `fix failed`. Your
 PRs are read again at once, so the row also shows what the task left. A task
 that could not start says why in the footer and in the right pane.
 
-Autofix has three limits, and `F` keeps to the last one too:
+Autofix has three limits. `f` and `F` are keys you press, so they keep to none
+of them:
 
 - A fix runs only after the PR changed.
 - At most 3 fixes run in a row while nobody else acts on the PR
   (`mine.autofix_cap` in the [settings](#settings)).
 - An approved PR gets only a fix of its conflicts, because a push can dismiss
   the approval. A PR with conflicts cannot merge, so that push loses nothing.
-  Open threads and a failing build on an approved PR stay for you: `f` still
-  fixes them by hand.
+  Open threads and a failing build on an approved PR stay for you: `f` or `F`
+  fixes them when you press it. The PR's right pane, and `a` when it turns
+  autofix on, say so.
 
 ## Settings
 
@@ -245,6 +251,7 @@ review ran to its end.
 ```sh
 autoreview --headless          # one pass, plain lines
 autoreview 213 240             # only these PRs, whatever their state
+autoreview --author=alice      # only the PRs alice opened
 autoreview --no-post           # review, and leave the PR alone
 autoreview --continue          # re-check in the earlier review sessions
 autoreview --babysit=15        # a pass every 15 minutes, until none is left
@@ -277,6 +284,26 @@ reads it back and reports how each panelist model has done.
 
 ```sh
 autoreview stats --since 7d
+```
+
+## doctor
+
+A review that loses a panelist still finishes. It posts a comment instead of a
+verdict, and nothing on the screen turns red. `autoreview doctor` finds this:
+
+- It asks each panelist one short question now, through `dash-p`, as a review
+  does. A panelist that does not answer shows the reason in its own words: no
+  credits, a usage limit, or a flag its CLI no longer takes.
+- It reads the last day of the ledger: how often each model answered, what the
+  reviews cost, and which PRs got no verdict while a panelist was missing.
+- It lists the version of `gh`, `dash-p`, `git` and each agent CLI.
+
+It exits 1 when it finds a problem, so cron can tell you.
+
+```sh
+autoreview doctor              # ask the panel, read the last day
+autoreview doctor --since 7d   # a longer window
+autoreview doctor --no-probe   # read the ledger only; spends nothing
 ```
 
 ## Requirements

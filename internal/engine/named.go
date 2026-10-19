@@ -33,6 +33,8 @@ func whyAbsent(a queue.Absent, truncated bool) string {
 		return "it is not an open PR in this repository"
 	case a.Hidden == prs.HiddenDraft:
 		return "it is a draft"
+	case a.Hidden == prs.HiddenAuthor:
+		return fmt.Sprintf("@%s opened it, and --author leaves it out", a.Author)
 	}
 	return "a bot opened it, and --dependabot reviews those"
 }

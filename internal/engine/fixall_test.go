@@ -16,7 +16,7 @@ func TestFixAllStartsOneFixOnEachPRThatNeedsWorkAndNeverAnother(t *testing.T) {
 		clean := threaded(3)
 		clean.ThreadIDs = nil
 		approved := threaded(5)
-		approved.Review, approved.Merge = mine.ReviewApproved, mine.MergeConflicts
+		approved.Review = mine.ReviewApproved
 		m.set(threaded(4), clean, approved)
 		b := newBench(t, held(setup{deps: m.deps(f), edit: func(c *Config) { watchedEvery(c); c.Jobs = 2 }}))
 		synctest.Wait()
@@ -26,8 +26,8 @@ func TestFixAllStartsOneFixOnEachPRThatNeedsWorkAndNeverAnother(t *testing.T) {
 		if job := taskOf(t, b, 4); job.Task != task.Fix {
 			t.Errorf("the task on PR #4: %+v, want a fix", job)
 		}
-		if job := taskOf(t, b, 5); job.Task != task.Conflicts {
-			t.Errorf("the task on the approved PR #5: %+v, want a conflict fix", job)
+		if job := taskOf(t, b, 5); job.Task != task.Fix {
+			t.Errorf("the task on the approved PR #5: %+v, want a fix: F is pressed by a person", job)
 		}
 		if got := b.reviewer.started(); len(got) != 2 || !slices.Contains(got, 4) || !slices.Contains(got, 5) {
 			t.Errorf("started %v, want PRs #4 and #5", got)
@@ -65,6 +65,29 @@ func TestFixAllIsRefusedWhereAFixWouldBe(t *testing.T) {
 		if want := "not fixing your PRs: --no-post leaves every PR alone"; !slices.Contains(b.notes(), want) {
 			t.Errorf("notes = %q, want %q", b.notes(), want)
 		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
+// A fix a person asks for runs on an approved PR. Only autofix holds back
+// there, because nobody asked it to push.
+func TestAFixAskedForByHandRunsOnAnApprovedPR(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f, m := &trees{}, &mineList{}
+		approved := threaded(4)
+		approved.Review = mine.ReviewApproved
+		m.set(approved)
+		b := newBench(t, held(setup{deps: m.deps(f), edit: watchedEvery}))
+		synctest.Wait()
+
+		b.eng.Do(fixOf(4))
+		synctest.Wait()
+		if job := taskOf(t, b, 4); job.Task != task.Fix || job.State != JobRunning {
+			t.Errorf("the task on the approved PR #4: %+v, want a running fix", job)
+		}
+		b.reviewer.finish(t, 4, 0, "done")
+		synctest.Wait()
 		b.eng.Do(Quit{})
 		<-b.results
 	})
