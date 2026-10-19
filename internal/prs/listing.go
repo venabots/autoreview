@@ -20,6 +20,9 @@ type Options struct {
 	All bool
 	// Dependabot keeps bot PRs in the sweep.
 	Dependabot bool
+	// Authors keeps only the PRs these logins opened. Empty keeps every
+	// author.
+	Authors []string
 }
 
 // Listing is what one fetch found.
@@ -98,7 +101,8 @@ func toPR(n node, stacked map[int]Parent, opts Options) PR {
 }
 
 // displayAuthor names a deleted account the way GitHub does. Only the name
-// shown changes: the own and bot filters read the login GitHub returned.
+// shown changes: the own, author and bot filters read the login GitHub
+// returned.
 func displayAuthor(login string) string {
 	if login == "" {
 		return "ghost"

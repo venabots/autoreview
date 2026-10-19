@@ -45,7 +45,8 @@ type Row struct {
 
 // Rows is the review list. It shows every PR the sweep could review, and
 // the approved ones, so a person can see that an approved PR was read and
-// not lost. Drafts, your own PRs and bots are left out.
+// not lost. Drafts, your own PRs, bots and PRs by someone --author leaves
+// out are left out.
 //
 // only limits the list to the PRs a person named. A named PR is reviewed
 // whatever its state: the person asked for it, so a gate that would hold it
@@ -73,6 +74,9 @@ type Absent struct {
 	Open bool
 	// Hidden is why an open PR is left out.
 	Hidden prs.Hidden
+	// Author is who opened an open PR, so the run can say whom --author
+	// left out.
+	Author string
 }
 
 // Missing is the named PRs that the run shows nowhere, in the order named.
@@ -87,7 +91,7 @@ func Missing(listing prs.Listing, only []int) []Absent {
 		case i < 0:
 			out = append(out, Absent{Number: number})
 		case !shown(listing.PRs[i]) && listing.PRs[i].Hidden != prs.HiddenOwn:
-			out = append(out, Absent{Number: number, Open: true, Hidden: listing.PRs[i].Hidden})
+			out = append(out, Absent{Number: number, Open: true, Hidden: listing.PRs[i].Hidden, Author: listing.PRs[i].Author})
 		}
 	}
 	return out

@@ -32,7 +32,7 @@ func listsText(s *engine.Snapshot) string {
 	var b strings.Builder
 	b.WriteString(sanitize.Line(s.Repo.Slug()) + "\n")
 	if s.Looked {
-		b.WriteString(reviewList(s.Reviews, s.Truncated, s.At))
+		b.WriteString(reviewList(s.Reviews, s.Truncated, s.At, s.Authors))
 	}
 	if s.MineLooked {
 		b.WriteString(mineList(s.Mine))
@@ -51,10 +51,13 @@ func failures(s *engine.Snapshot) string {
 	return b.String()
 }
 
-func reviewList(rows []queue.Row, truncated bool, at time.Time) string {
+func reviewList(rows []queue.Row, truncated bool, at time.Time, authors []string) string {
 	total := words.Count(len(rows), "PR")
 	if truncated {
 		total = fmt.Sprintf("%d+ PRs", len(rows))
+	}
+	if by := words.Authors(authors); by != "" {
+		total += " " + by
 	}
 	cells := make([][]string, len(rows))
 	for i, row := range rows {

@@ -88,6 +88,8 @@ end.
                       directory, or $AUTOREVIEW_LOG_DIR).
   --all, -a           Treat approved PRs as open for review.
   --dependabot, -d    Include Dependabot's PRs.
+  --author LOGIN      Review only the PRs that LOGIN opened. Give it again,
+                      or split logins with commas, for more than one.
   --stacked, -s       Do not hold a PR that sits on another open PR.
   --skip-wait-for-ci  Do not hold a PR whose checks have not passed, and do
                       not wait for them.

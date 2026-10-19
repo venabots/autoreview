@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/venabots/autoreview/internal/sanitize"
+	"github.com/venabots/autoreview/internal/words"
 )
 
 // newestListed is how many open PRs a look reads, on each tab. A PR older
@@ -108,7 +109,7 @@ func (m Model) found() Model {
 	case isNumber && m.startsAPRNumber(query):
 		// More digits may still name a PR: wait for them.
 	case isNumber:
-		m.find.miss = notListedText(number)
+		m.find.miss = notListedText(number, m.snap.Authors)
 	default:
 		m.find.miss = noMatchText(query)
 	}
@@ -195,7 +196,10 @@ func (m Model) startsAPRNumber(query string) bool {
 	return false
 }
 
-func notListedText(pr int) string {
+func notListedText(pr int, authors []string) string {
+	if by := words.Authors(authors); by != "" {
+		return fmt.Sprintf("PR #%d is not on either tab: it may be closed, a draft or a bot's, not %s, or older than the %d newest open PRs", pr, by, newestListed)
+	}
 	return fmt.Sprintf("PR #%d is not on either tab: it may be closed, a draft or a bot's, or older than the %d newest open PRs", pr, newestListed)
 }
 

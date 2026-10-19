@@ -20,6 +20,8 @@ const (
 	// HiddenApproved is a PR that already has its approval, shown only when
 	// Options.All asks.
 	HiddenApproved
+	// HiddenAuthor is a PR that none of Options.Authors opened.
+	HiddenAuthor
 )
 
 func (h Hidden) String() string {
@@ -32,6 +34,8 @@ func (h Hidden) String() string {
 		return "bot"
 	case HiddenApproved:
 		return "approved"
+	case HiddenAuthor:
+		return "other author"
 	default:
 		return "not hidden"
 	}
@@ -46,16 +50,18 @@ func isBot(login string) bool {
 }
 
 // hiddenReason is the first filter that removes the PR, in the order the
-// sweep applies them: draft, own, bot, approved. The order decides what a
-// view says about a PR that two filters would remove, and only the last two
-// have a flag that lifts them, so a flag never uncovers a draft or the
-// user's own PR.
+// sweep applies them: draft, own, author, bot, approved. The order decides
+// what a view says about a PR that two filters would remove, and only the
+// last two have a flag that lifts them, so a flag never uncovers a draft,
+// the user's own PR, or a PR by someone --author leaves out.
 func hiddenReason(n node, opts Options) Hidden {
 	switch {
 	case n.IsDraft:
 		return HiddenDraft
 	case n.Author.Login == opts.Me:
 		return HiddenOwn
+	case !byAuthor(n.Author.Login, opts.Authors):
+		return HiddenAuthor
 	case !opts.Dependabot && isBot(n.Author.Login):
 		return HiddenBot
 	case !opts.All && n.ReviewDecision == "APPROVED":

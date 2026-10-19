@@ -36,6 +36,10 @@ type Snapshot struct {
 	Seq   uint64
 	Phase Phase
 	Repo  repo.Context
+	// Authors is whose PRs the review list keeps, or empty for everyone's.
+	// A view that did not name them would show a short list as if it held
+	// every open PR.
+	Authors []string
 	// Watch is the wait between looks. Zero means the run looks once.
 	Watch time.Duration
 	// Looking is true while the run reads the PR lists from GitHub.

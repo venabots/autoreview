@@ -82,6 +82,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
 		return engine.ExitFailed
 	}
+	if err := cli.CheckAuthors(cfg.Authors, rc.Me); err != nil {
+		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
+		return engine.ExitFailed
+	}
 
 	screen := wantsScreen(cfg.View, stderr)
 	// The first run in the view asks for the settings. A run that prints
@@ -139,6 +143,7 @@ func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 		Repo:       rc,
 		Gates:      prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
 		Only:       cfg.Only,
+		Authors:    cfg.Authors,
 		MaxPasses:  cfg.MaxPasses,
 		MaxIdle:    cfg.MaxIdle,
 		AutofixCap: cfg.AutofixCap,
@@ -163,7 +168,7 @@ func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 }
 
 func deps(cfg cli.Config, rc repo.Context) engine.Deps {
-	opts := prs.Options{Me: rc.Me, All: cfg.All, Dependabot: cfg.Dependabot}
+	opts := prs.Options{Me: rc.Me, All: cfg.All, Dependabot: cfg.Dependabot, Authors: cfg.Authors}
 	return engine.Deps{
 		List: func(ctx context.Context) (prs.Listing, error) {
 			return prs.List(ctx, gh.Exec, rc.Owner, rc.Name, opts)

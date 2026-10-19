@@ -87,7 +87,9 @@ The last Rust release is the tag `v0.24.0`.
 Two tabs. `tab`, the arrow keys or a click switches between them.
 
 **Review** lists the open PRs and where each one stands: ready, held for CI,
-held under another PR, seen, or approved.
+held under another PR, seen, or approved. With `--author=alice` it lists
+only the PRs alice opened, and the tab says `by @alice`. Give the flag
+again, or split logins with commas, for more than one person.
 
 | Key   | What it does                                            |
 | ----- | ------------------------------------------------------- |
@@ -248,6 +250,7 @@ review ran to its end.
 ```sh
 autoreview --headless          # one pass, plain lines
 autoreview 213 240             # only these PRs, whatever their state
+autoreview --author=alice      # only the PRs alice opened
 autoreview --no-post           # review, and leave the PR alone
 autoreview --continue          # re-check in the earlier review sessions
 autoreview --babysit=15        # a pass every 15 minutes, until none is left
