@@ -90,6 +90,9 @@ Two tabs. `tab`, the arrow keys or a click switches between them.
 held under another PR, seen, or approved. With `--author=alice` it lists
 only the PRs alice opened, and the tab says `by @alice`. Give the flag
 again, or split logins with commas, for more than one person.
+With `--dependabot`, a Dependabot PR that conflicts, or whose checks fail after
+its base moved on, is not reviewed: the run comments `@dependabot rebase` once
+for each head, and reviews the PR Dependabot pushes next.
 
 | Key   | What it does                                            |
 | ----- | ------------------------------------------------------- |

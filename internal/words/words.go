@@ -59,6 +59,8 @@ func Wait(row queue.Row, now time.Time) string {
 			return "stacked"
 		}
 		return fmt.Sprintf("on #%d", row.PR.Parent.Number)
+	case queue.WaitRebase:
+		return Rebase(row.Rebase)
 	case queue.WaitResting:
 		return "rest " + Duration(row.Until.Sub(now))
 	case queue.WaitCapped:
