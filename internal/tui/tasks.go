@@ -131,7 +131,7 @@ func (m Model) babysat(c babysit.Change, what, said string) Model {
 
 // resumingTask reopens the selected PR's last task in its worktree. A
 // session belongs to the directory it ran in, so a worktree that was
-// removed leaves nothing to reopen it in.
+// removed is made again first, and the tab opens when it is back.
 func (m Model) resumingTask() (tea.Model, tea.Cmd) {
 	row, m, ok := m.minePicked()
 	if !ok {
@@ -146,10 +146,15 @@ func (m Model) resumingTask() (tea.Model, tea.Cmd) {
 	case sessionOf(*row.task) == "":
 		return m.flashed(fmt.Sprintf("PR #%d's task has no session to resume", pr)), nil
 	case row.task.Kept == "" && !row.task.Yours:
-		return m.flashed(fmt.Sprintf("PR #%d's task worktree is gone; its session was %s", pr, sessionOf(*row.task))), nil
+		return m.reopenPressed(*row.task), nil
 	}
-	command := m.act.ResumeCommand(row.task.Worktree, row.task.Orchestrator.ReopenCommand(sessionOf(*row.task)))
-	return m.flashed(fmt.Sprintf("opening PR #%d's task in a new tab", pr)), m.openTab(pr, "task", command)
+	return m.flashed(fmt.Sprintf("opening PR #%d's task in a new tab", pr)), m.openTab(pr, "task", m.taskCommand(*row.task))
+}
+
+// taskCommand is the line a new tab runs to reopen a task's session in
+// its worktree.
+func (m Model) taskCommand(job engine.Job) string {
+	return m.act.ResumeCommand(job.Worktree, job.Orchestrator.ReopenCommand(sessionOf(job)))
 }
 
 // openTab opens a terminal tab off the update loop: a slow launch must

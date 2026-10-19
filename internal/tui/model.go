@@ -111,6 +111,9 @@ type Model struct {
 	log  logTail
 	// tails follows each running review, by PR.
 	tails map[int]followed
+	// reopens is the removed worktrees r asked to make again, whose tab
+	// opens when the engine says each is back.
+	reopens []reopenWait
 	// dark is true on a dark terminal. It picks the colors of a rendered
 	// review.
 	dark bool

@@ -201,15 +201,15 @@ func TestRResumesATaskInYourOwnWorktree(t *testing.T) {
 }
 
 func TestRSaysWhyATaskCannotBeResumed(t *testing.T) {
-	gone := engine.Job{PR: 4, Task: task.Fix, State: engine.JobDone, Session: "0b5c7d1e-2f3a-4b6c-8d9e-0f1a2b3c4d5e", Worktree: "/wt/pr-4", Orchestrator: review.Claude()}
 	live := engine.Job{PR: 4, Task: task.Fix, State: engine.JobRunning, StartedAt: start}
+	noSession := engine.Job{PR: 4, Task: task.Fix, State: engine.JobFailed, Worktree: "/wt/pr-4", Orchestrator: review.Claude()}
 	cases := []struct {
 		tasks []engine.Job
 		want  string
 	}{
 		{nil, "PR #4 has had no task in this run"},
 		{[]engine.Job{live}, "PR #4 has a task running; resume it when it ends"},
-		{[]engine.Job{gone}, "PR #4's task worktree is gone; its session was 0b5c7d1e-2f3a-4b6c-8d9e-0f1a2b3c4d5e"},
+		{[]engine.Job{noSession}, "PR #4's task has no session to resume"},
 	}
 	for _, c := range cases {
 		m, hs := onMine(t, func(s *engine.Snapshot) { s.Tasks = c.tasks })
