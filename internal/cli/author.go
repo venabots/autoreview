@@ -70,5 +70,5 @@ func CheckAuthors(authors []string, me string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("--author names only you (@%s), and your own PRs are never reviewed: they are on the My PRs tab", me)
+	return fmt.Errorf("--author names only you (@%s), and your own PRs are never reviewed: they are on the Maintain tab", me)
 }

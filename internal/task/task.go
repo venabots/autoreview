@@ -79,7 +79,7 @@ func (k Kind) Tag() string {
 	return ""
 }
 
-// Request is a task a person asked for, with what the My PRs list knew of
+// Request is a task a person asked for, with what the Maintain list knew of
 // the PR at the key press.
 type Request struct {
 	PR        int

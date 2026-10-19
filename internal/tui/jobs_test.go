@@ -271,7 +271,7 @@ func TestFOnMyPRsFixesAndOpensNoEditor(t *testing.T) {
 	m, _ := reviewingModel(t, 150, 30)
 	m = press(t, m, "tab", "f")
 	if m.editing {
-		t.Error("f opened the focus editor on My PRs")
+		t.Error("f opened the focus editor on Maintain")
 	}
 	wantOnScreen(t, m, "fixing PR #4")
 }

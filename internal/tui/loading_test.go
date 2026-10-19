@@ -37,12 +37,12 @@ func TestTheFirstLookShowsASpinnerWhereThePRsWillBe(t *testing.T) {
 	if !strings.HasPrefix(lines[len(lines)-1], "⠋ reading the PR list") {
 		t.Errorf("the footer is %q, want the spinner too", lines[len(lines)-1])
 	}
-	wantOnScreen(t, m, " Review ", " My PRs ")
-	wantNotOnScreen(t, m, " Review 0 ", " My PRs 0 ", "no PRs to show", "you have no open PRs")
+	wantOnScreen(t, m, " Review ", " Maintain ")
+	wantNotOnScreen(t, m, " Review 0 ", " Maintain 0 ", "no PRs to show", "you have no open PRs")
 
 	mine := press(t, m, "tab")
 	if got := strings.Split(screen(mine), "\n")[2]; !strings.HasPrefix(got, "⠋ reading your PRs") {
-		t.Errorf("the first row of My PRs is %q, want the spinner", got)
+		t.Errorf("the first row of Maintain is %q, want the spinner", got)
 	}
 }
 
@@ -53,8 +53,8 @@ func TestOneListCanArriveBeforeTheOther(t *testing.T) {
 	half.MineLooked, half.Mine = false, nil
 	m = send(m, snapshotMsg{snap: half})
 
-	wantOnScreen(t, m, "○ #9 · ready", " Review 4 ", " My PRs ")
-	wantNotOnScreen(t, m, "reading the PR list", " My PRs 0 ")
+	wantOnScreen(t, m, "○ #9 · ready", " Review 4 ", " Maintain ")
+	wantNotOnScreen(t, m, "reading the PR list", " Maintain 0 ")
 	wantOnScreen(t, press(t, m, "tab"), "⠋ reading your PRs")
 }
 

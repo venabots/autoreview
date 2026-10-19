@@ -118,7 +118,7 @@ func TestTheScreenSaysWhatIsNotKnownYet(t *testing.T) {
 		{"your PRs could not be read", func(s *engine.Snapshot) {
 			s.MineLooked, s.Mine, s.MineErr = false, nil, "search is down"
 		}, true, []string{"your PRs could not be read: search is down"}},
-		{"you have no PRs", func(s *engine.Snapshot) { s.Mine = nil }, true, []string{"you have no open PRs in this repo", " My PRs 0 "}},
+		{"you have no PRs", func(s *engine.Snapshot) { s.Mine = nil }, true, []string{"you have no open PRs in this repo", " Maintain 0 "}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -176,7 +176,7 @@ func TestTheFooterDropsHintsThatDoNotFitButNeverTheKeysHint(t *testing.T) {
 	}
 	wide, _ := newModel(t, 175, 30)
 	narrow, _ := newModel(t, 80, 30)
-	wantOnScreen(t, wide, "q quit  j/k move  / find  r resume  o open  R review now  tab to My PRs  w watch  m mouse  f focus  x stop  l log  ^d/^u scroll  ? keys")
+	wantOnScreen(t, wide, "q quit  j/k move  / find  r resume  o open  R review now  tab to Maintain  w watch  m mouse  f focus  x stop  l log  ^d/^u scroll  ? keys")
 	wantNotOnScreen(t, narrow, "^d/^u scroll")
 	wantOnScreen(t, narrow, "2 waiting · next look in 1m30s", "q quit", "? keys")
 

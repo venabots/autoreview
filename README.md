@@ -21,7 +21,7 @@ green again.
   that says why.
 - **It keeps watching.** New PRs and new pushes are reviewed as they arrive. It
   waits for CI to pass first.
-- **It handles your PRs too.** The My PRs tab says what blocks each one. A key
+- **It handles your PRs too.** The Maintain tab says what blocks each one. A key
   runs the fix in a worktree of its own, or in your clean worktree of that PR's
   branch. A checkout with changes of yours is not touched.
 - **It says when it is looking.** A PR carries an eyes reaction while its review
@@ -99,7 +99,7 @@ again, or split logins with commas, for more than one person.
 | `f`   | Type what the reviewers look at in this run (the focus) |
 | `w`   | Stop or start watching for new work                     |
 
-**My PRs** lists your own open PRs and what blocks each one: conflicts, failing
+**Maintain** lists your own open PRs and what blocks each one: conflicts, failing
 CI, requested changes, open threads. An approved PR reads `approved`, with the
 number of threads that are still open.
 
@@ -235,7 +235,7 @@ Use the skills yourself, outside a run:
 npx skills add venabots/autoreview --skill '*' --global
 ```
 
-The keys on the My PRs tab run two skills that are not in this repo:
+The keys on the Maintain tab run two skills that are not in this repo:
 `babysit-pr` and `sync-main`. `babysit-pr` calls `pr-comment-handler` and
 `fix-ci` in turn. They carry your own setup, so you install your own. A key
 whose skill is missing says so and starts nothing.
@@ -312,7 +312,7 @@ autoreview doctor --no-probe   # read the ledger only; spends nothing
   through it. `$DASHP_BIN` names another binary.
 - An orchestrator CLI: `claude` by default, `codex` with `--orchestrator codex`.
   With both installed, a run has its fallback.
-- `git`, for the worktrees of `panel` and of the My PRs tasks.
+- `git`, for the worktrees of `panel` and of the Maintain tasks.
 - `pgrep`, which stops a session being resumed while another process holds it.
   It is standard on macOS, and in `procps` on Linux.
 - For `r`: [Herdr](https://herdr.dev), [cmux](https://cmux.io) or
@@ -330,7 +330,7 @@ autoreview doctor --no-probe   # read the ledger only; spends nothing
 | VERDICT says `commented`                  | No decision: fewer than 75% of the panel answered (often one provider is down), or the head moved during the review. The first line of the review on the PR says why. |
 | VERDICT says `nothing posted`             | The review finished with nothing to submit, or GitHub has no record of a submission. It is not a rejection.                                                           |
 | A codex run refuses to start              | The skills are not in `~/.agents/skills/`. See [Review skills](#review-skills).                                                                                       |
-| A My PRs key says a skill is missing      | `babysit-pr` or `sync-main` is not installed where your orchestrator looks. See [Review skills](#review-skills).                                                      |
+| A Maintain key says a skill is missing      | `babysit-pr` or `sync-main` is not installed where your orchestrator looks. See [Review skills](#review-skills).                                                      |
 | A task says the PR is from a fork         | Its branch is not on `origin`, so no worktree can be made for it here.                                                                                                |
 | You cannot select text in the view        | Drag in the right pane to copy its text. For any other text, press `m` to give the mouse back to the terminal.                                                        |
 | `--continue` reviews fresh                | Another process still holds that session.                                                                                                                             |
@@ -345,7 +345,7 @@ scripts/sandbox.sh --headless   # one plain pass
 
 Nothing reaches GitHub and no agent runs. The top of the script lists the
 variables that change what the fakes do. The sandbox has an origin with your
-PR's branch, so the My PRs keys work there too.
+PR's branch, so the Maintain keys work there too.
 
 ## Build from source
 

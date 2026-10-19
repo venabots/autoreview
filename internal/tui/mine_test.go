@@ -36,7 +36,7 @@ func pressMine(t *testing.T, m Model, names ...string) Model {
 	return m
 }
 
-// onMine is the view on the My PRs tab, with PR #4 selected.
+// onMine is the view on the Maintain tab, with PR #4 selected.
 func onMine(t *testing.T, edit func(*engine.Snapshot)) (Model, *harness) {
 	t.Helper()
 	m, hs := newModel(t, 150, 30)
@@ -58,7 +58,7 @@ func TestTheMyPRsKeysEachAskForTheirTask(t *testing.T) {
 		}
 		wantOnScreen(t, m, kind.Doing()+" PR #4")
 		if m.editing {
-			t.Errorf("%s opened the focus editor on My PRs", key)
+			t.Errorf("%s opened the focus editor on Maintain", key)
 		}
 	}
 }
@@ -147,7 +147,7 @@ func TestARunningTaskShowsInItsRowAndDetail(t *testing.T) {
 	wantOnScreen(t, m,
 		"#4 · fixing 1m12s",
 		"#3 · autofix · 2 threads",
-		" My PRs 2 · autofixing 1 ",
+		" Maintain 2 · autofixing 1 ",
 		"TASK", "task      fix", "state     fixing 1m12s", "worktree  /logs/run-1/worktrees/pr-4",
 		"autofix   off",
 	)

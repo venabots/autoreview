@@ -58,7 +58,7 @@ func TestTheMyPRsFooterCountsYourTasksAndNotTheReviews(t *testing.T) {
 			}
 			for _, review := range []string{"waiting", "nothing to review"} {
 				if strings.Contains(footer, review) {
-					t.Errorf("the My PRs footer %q shows the review count %q", footer, review)
+					t.Errorf("the Maintain footer %q shows the review count %q", footer, review)
 				}
 			}
 		})
@@ -82,7 +82,7 @@ func TestTheReviewFooterStillCountsTheReviews(t *testing.T) {
 func TestTheTabHintNamesTheOtherTabAndNotAnAction(t *testing.T) {
 	review, _ := newModel(t, 160, 30)
 	mine, _ := onMine(t, nil)
-	wantOnScreen(t, review, "tab to My PRs")
+	wantOnScreen(t, review, "tab to Maintain")
 	wantOnScreen(t, mine, "tab to Review")
 	wantNotOnScreen(t, mine, "tab review ")
 }

@@ -45,7 +45,7 @@ type Reviewer struct {
 	Review Review
 }
 
-// PR is one of your PRs, as the My PRs tab shows it.
+// PR is one of your PRs, as the Maintain tab shows it.
 type PR struct {
 	Number int
 	Title  string

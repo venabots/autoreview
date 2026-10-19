@@ -9,22 +9,22 @@ import (
 func TestAClickOnATabShowsIt(t *testing.T) {
 	m, _ := newModel(t, 120, 30)
 	// The tab bar is row 1: " Review 4 " at columns 0-9, two spaces, then
-	// " My PRs 2 " at columns 12-21.
+	// " Maintain 2 " at columns 12-23.
 	click := func(m Model, x, y int) Model {
 		return send(m, tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 	}
 
 	m = click(m, 12, 1)
 	wantOnScreen(t, m, "#4 My own work", "tab to Review")
-	m = click(m, 21, 1)
+	m = click(m, 23, 1)
 	wantOnScreen(t, m, "#4 My own work")
 
 	m = click(m, 9, 1)
-	wantOnScreen(t, m, "#9 Add retry logic", "tab to My PRs")
+	wantOnScreen(t, m, "#9 Add retry logic", "tab to Maintain")
 	m = click(m, 0, 1)
 	wantOnScreen(t, m, "#9 Add retry logic")
 
-	for _, x := range []int{10, 11, 22, 60} {
+	for _, x := range []int{10, 11, 24, 60} {
 		if got := click(m, x, 1); got.tab != tabReview {
 			t.Errorf("a click at column %d of the tab bar, on no tab, changed the tab", x)
 		}
@@ -46,14 +46,14 @@ func TestAClickedTabKeepsItsSelection(t *testing.T) {
 }
 
 func TestTabAtFollowsTheLabelsAsTheyGrow(t *testing.T) {
-	review, mine := " Review 12 ", " My PRs 3 "
+	review, mine := " Review 12 ", " Maintain 3 "
 	cases := []struct {
 		x    int
 		want tab
 		ok   bool
 	}{
 		{0, tabReview, true}, {10, tabReview, true}, {11, 0, false}, {12, 0, false},
-		{13, tabMine, true}, {22, tabMine, true}, {23, 0, false}, {-1, 0, false},
+		{13, tabMine, true}, {24, tabMine, true}, {25, 0, false}, {-1, 0, false},
 	}
 	for _, c := range cases {
 		got, ok := tabAt(c.x, review, mine)
@@ -72,7 +72,7 @@ func TestTheArrowsShowTheTabOnTheirSide(t *testing.T) {
 	wantOnScreen(t, m, "#4 My own work")
 
 	m = press(t, m, "left")
-	wantOnScreen(t, m, "#9 Add retry logic", "tab to My PRs")
+	wantOnScreen(t, m, "#9 Add retry logic", "tab to Maintain")
 	m = press(t, m, "left")
 	wantOnScreen(t, m, "#9 Add retry logic")
 }
@@ -86,5 +86,5 @@ func TestATabShownByAnArrowKeepsItsSelection(t *testing.T) {
 
 func TestTheKeyHelpNamesTheArrows(t *testing.T) {
 	m, _ := newModel(t, 120, 30)
-	wantOnScreen(t, press(t, m, "?"), "switch between Review and My PRs (or ←/→, or click one)")
+	wantOnScreen(t, press(t, m, "?"), "switch between Review and Maintain (or ←/→, or click one)")
 }

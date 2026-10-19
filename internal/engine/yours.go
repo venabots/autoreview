@@ -42,7 +42,7 @@ func (e *Engine) mineListed(w workers, r run, in mineListed) run {
 	if in.err != nil && r.snap.MineLooked {
 		// The first look's failure is in the lists it prints. A later
 		// one would leave a stale list on screen with nothing said.
-		e.journal(Noted{Text: fmt.Sprintf("could not read your PRs (%s); the My PRs tab keeps its last list", in.err)})
+		e.journal(Noted{Text: fmt.Sprintf("could not read your PRs (%s); the Maintain tab keeps its last list", in.err)})
 	}
 	r.snap = withMine(r.snap, in)
 	if in.err != nil {

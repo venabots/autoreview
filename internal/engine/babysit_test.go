@@ -328,7 +328,7 @@ func TestAFailedReadOfYourPRsIsANoteAndKeepsTheLastList(t *testing.T) {
 		if len(snap.Mine) != 1 || snap.MineErr != "gh timed out" {
 			t.Errorf("after a failed read: %d PRs, error %q", len(snap.Mine), snap.MineErr)
 		}
-		if want := "could not read your PRs (gh timed out); the My PRs tab keeps its last list"; !slices.Contains(b.notes(), want) {
+		if want := "could not read your PRs (gh timed out); the Maintain tab keeps its last list"; !slices.Contains(b.notes(), want) {
 			t.Errorf("notes = %q, want %q", b.notes(), want)
 		}
 		b.eng.Do(Quit{})
