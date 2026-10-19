@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/venabots/autoreview/internal/proc"
+	"github.com/venabots/autoreview/internal/prs"
 )
 
 // held is a run under the view: it stays open after its pass.
@@ -124,7 +125,51 @@ func TestReviewNowInAPassPutsAQueuedReviewFirst(t *testing.T) {
 	})
 }
 
-func TestReviewNowInAPassKeepsAPRWithNoReviewForTheNextPass(t *testing.T) {
+// stackedOn is the list with pr held on the PR under it.
+func stackedOn(l prs.Listing, pr, under int) prs.Listing {
+	out := prs.Listing{PRs: slices.Clone(l.PRs)}
+	for i := range out.PRs {
+		if out.PRs[i].Number == pr {
+			out.PRs[i].Parent = &prs.Parent{Number: under, Evidence: prs.Declared}
+		}
+	}
+	return out
+}
+
+func TestReviewNowInAPassAddsAHeldPRToThatPassAheadOfTheReviewsThatWait(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		list := stackedOn(listing(9, 8, 7, 5), 5, 7)
+		b := newBench(t, held(setup{jobs: 1, list: func() (prs.Listing, error) { return list, nil }}))
+		if got := b.reviewer.started(); !slices.Equal(got, []int{9}) {
+			t.Fatalf("started %v, want PR #9 alone: PR #5 sits on PR #7", got)
+		}
+
+		b.eng.Do(ReviewNow{PR: 5})
+		synctest.Wait()
+		s := b.eng.Snapshot()
+		order := []int{}
+		for _, j := range s.Jobs {
+			order = append(order, j.PR)
+		}
+		if s.Pass != 1 || !slices.Equal(order, []int{9, 5, 8, 7}) {
+			t.Fatalf("pass %d ordered %v, want PR #5 in pass 1, ahead of the other reviews that wait", s.Pass, order)
+		}
+		five := b.job(t, 5)
+		if five.State != JobQueued || five.PassDir != s.Jobs[0].PassDir || five.Orchestrator != s.Jobs[0].Orchestrator {
+			t.Errorf("PR #5's job is %+v, want a queued review of pass 1, made as the pass makes its reviews", five)
+		}
+
+		b.reviewer.finish(t, 9, 0, answer(9, "approved"))
+		synctest.Wait()
+		if got := b.reviewer.started(); !slices.Equal(got, []int{9, 5}) {
+			t.Errorf("started %v, want PR #5 in the slot PR #9 freed", got)
+		}
+		b.eng.Do(Quit{})
+		<-b.results
+	})
+}
+
+func TestReviewNowLeavesARunningReviewAloneAndIgnoresAPRNotOnTheList(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		b := newBench(t, held(setup{prs: []int{9}, verdict: nil}))
 		b.eng.Do(ReviewNow{PR: 9})

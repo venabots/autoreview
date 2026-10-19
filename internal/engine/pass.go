@@ -88,18 +88,24 @@ func (e *Engine) startPass(w workers, r run, rows []queue.Row) run {
 	r.snap.Phase = Reviewing
 	r.jobs = make([]job, len(rows))
 	for i, row := range rows {
-		r.jobs[i] = job{head: row.PR.Head, view: Job{
-			PR:           row.PR.Number,
-			Title:        row.PR.Title,
-			Author:       row.PR.Author,
-			State:        JobQueued,
-			Orchestrator: e.cfg.Orchestrator,
-			Verdicts:     e.cfg.Verdicts,
-			PassDir:      pass.Dir,
-		}}
+		r.jobs[i] = e.queued(row, pass.Dir)
 	}
 	e.journal(PassStarted{Pass: r.snap.Pass, Reviews: len(rows), Limit: e.cfg.Jobs, Dir: pass.Dir})
 	return e.fill(w, r)
+}
+
+// queued is a review of the row that waits for a slot in the pass that
+// writes to dir.
+func (e *Engine) queued(row queue.Row, dir string) job {
+	return job{head: row.PR.Head, view: Job{
+		PR:           row.PR.Number,
+		Title:        row.PR.Title,
+		Author:       row.PR.Author,
+		State:        JobQueued,
+		Orchestrator: e.cfg.Orchestrator,
+		Verdicts:     e.cfg.Verdicts,
+		PassDir:      dir,
+	}}
 }
 
 // rest is the run with its work done, ending with code: over, or idle when
@@ -509,9 +515,15 @@ func rowsFor(rows []queue.Row, prs []int) []queue.Row {
 }
 
 // reviewNow reviews one PR a person pointed at, whatever holds it. Idle,
-// the run starts a pass for it. In a pass, a review that waits goes first,
-// and a PR with no review in the pass is kept for the next one. A PR that
-// is being reviewed now is left alone.
+// the run starts a pass for it. In a pass, the PR's review goes ahead of
+// every review that waits, so it takes the next free slot: a PR held out of
+// the pass joins it, rather than wait for every review in it to end. A PR
+// that is being reviewed now is left alone.
+//
+// A PR whose review in this pass has ended is the one case kept for the
+// next pass. The pass keeps one review of a PR, and its files are named by
+// the PR: a second review in the same pass would write over what the first
+// left.
 func (e *Engine) reviewNow(w workers, r run, pr int) run {
 	asked := rowsFor(r.snap.Reviews, []int{pr})
 	if len(asked) == 0 {
@@ -523,7 +535,11 @@ func (e *Engine) reviewNow(w workers, r run, pr int) run {
 	case Reviewing:
 		i := indexOf(r.jobs, pr)
 		switch {
-		case i < 0 || r.jobs[i].view.State.Settled():
+		case i < 0:
+			r.jobs = movedFirst(append(slices.Clone(r.jobs), e.queued(asked[0], r.pass.Dir)), len(r.jobs))
+			e.journal(Noted{Text: fmt.Sprintf("PR #%d joins pass %d, ahead of the reviews that wait", pr, r.snap.Pass)})
+			return e.fill(w, r)
+		case r.jobs[i].view.State.Settled():
 			if !slices.Contains(r.requested, pr) {
 				r.requested = append(slices.Clone(r.requested), pr)
 			}
