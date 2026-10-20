@@ -23,6 +23,10 @@ const queryLimit = 50
 // along on fields this one call was making anyway. A PR with more than 100
 // commits loses its oldest, which can only ever hide an overlap, never invent
 // one.
+//
+// The last review is asked for again, alone, with its body. Its first line
+// says whether it decided, and a body on each of a hundred reviews would
+// make every look pay for text nobody reads.
 const Query = `
       query($owner:String!, $name:String!) {
         repository(owner:$owner, name:$name) {
@@ -42,6 +46,7 @@ const Query = `
               author { login }
               comments(last:100) { nodes { author { login } updatedAt } }
               reviews(last:100)  { nodes { author { login } submittedAt } }
+              lastReview: reviews(last:1) { nodes { author { login } submittedAt body } }
               commits(last:100)  { nodes { commit { oid committedDate author { user { login } } } } }
               headCommit: commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
             }

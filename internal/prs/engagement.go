@@ -9,6 +9,11 @@ const (
 	New Engagement = iota
 	// Updated is a PR where somebody else acted after that person last did.
 	Updated
+	// Undecided is a PR where that person's last word was a review that
+	// gave no verdict for a reason that can pass, such as a panelist that
+	// did not answer. Read as Seen, it would wait for the author, who has
+	// nothing to do, and nobody would review it again.
+	Undecided
 	// Seen is a PR where that person had the last word.
 	Seen
 )
@@ -19,6 +24,8 @@ func (e Engagement) String() string {
 		return "NEW"
 	case Updated:
 		return "UPDATED"
+	case Undecided:
+		return "UNDECIDED"
 	default:
 		return "SEEN"
 	}
@@ -51,9 +58,23 @@ func engagement(n node, me string) Engagement {
 		return New
 	case other > mine:
 		return Updated
+	case lastWordUndecided(n, me, mine):
+		return Undecided
 	default:
 		return Seen
 	}
+}
+
+// lastWordUndecided says the last word that `me` had, at the time mine, was
+// a review that gave no verdict for a reason that can pass. When nobody
+// acted after `me`, that review is the last one on the PR, so the query
+// asks for the last review alone and not for a hundred bodies.
+func lastWordUndecided(n node, me, mine string) bool {
+	if len(n.LastReview.Nodes) == 0 {
+		return false
+	}
+	r := n.LastReview.Nodes[0]
+	return r.Author.Login == me && r.SubmittedAt == mine && undecided(r.Body)
 }
 
 // events is every comment, review and commit on the PR.

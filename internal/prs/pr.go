@@ -54,10 +54,11 @@ type Gates struct {
 	Stack bool
 }
 
-// Actionable says the PR is NEW or UPDATED: something happened that the
-// sweep has not answered.
+// Actionable says the PR is NEW or UPDATED, so something happened that the
+// sweep has not answered, or UNDECIDED, so the sweep's last answer gave no
+// verdict for a reason that can pass.
 func (p PR) Actionable() bool {
-	return p.Engagement == New || p.Engagement == Updated
+	return p.Engagement == New || p.Engagement == Updated || p.Engagement == Undecided
 }
 
 // Ready is what the sweep reviews now: actionable, not sitting on another
