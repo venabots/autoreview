@@ -88,6 +88,16 @@ type node struct {
 			IsResolved bool   `json:"isResolved"`
 		} `json:"nodes"`
 	} `json:"reviewThreads"`
+	// Commits is asked for only by BotQuery.
+	Commits struct {
+		Nodes []struct {
+			Commit struct {
+				Author *struct {
+					Name string `json:"name"`
+				} `json:"author"`
+			} `json:"commit"`
+		} `json:"nodes"`
+	} `json:"commits"`
 	HeadCommit struct {
 		Nodes []struct {
 			Commit struct {
@@ -103,6 +113,20 @@ type node struct {
 // errors array or a missing data path is a failed look, not an empty list:
 // the tab would otherwise say you have no PRs.
 func Parse(raw []byte) ([]PR, error) {
+	nodes, err := parseNodes(raw)
+	if err != nil {
+		return nil, err
+	}
+	list := make([]PR, 0, len(nodes))
+	for _, n := range nodes {
+		list = append(list, n.pr())
+	}
+	return Ranked(list), nil
+}
+
+// parseNodes is the pull requests in a search response, at most limit of
+// them. A node that is not a pull request has no number and is dropped.
+func parseNodes(raw []byte) ([]node, error) {
 	var r response
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return nil, fmt.Errorf("parsing your PRs: %w", err)
@@ -113,14 +137,13 @@ func Parse(raw []byte) ([]PR, error) {
 	if r.Data == nil || r.Data.Search == nil {
 		return nil, errors.New("gh api graphql returned no search results")
 	}
-	list := make([]PR, 0, len(r.Data.Search.Nodes))
+	nodes := make([]node, 0, len(r.Data.Search.Nodes))
 	for _, n := range r.Data.Search.Nodes {
-		if n.Number == nil || len(list) == limit {
-			continue
+		if n.Number != nil && len(nodes) < limit {
+			nodes = append(nodes, n)
 		}
-		list = append(list, n.pr())
 	}
-	return Ranked(list), nil
+	return nodes, nil
 }
 
 func messageOr(msg, fallback string) string {

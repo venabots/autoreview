@@ -195,7 +195,7 @@ func newBench(t *testing.T, s setup) *bench {
 			}
 			return listing(s.prs...), nil
 		},
-		Mine:     func(context.Context) ([]mine.PR, error) { return nil, nil },
+		Mine:     func(context.Context, bool) ([]mine.PR, error) { return nil, nil },
 		Procs:    b.reviewer,
 		Marks:    s.marks,
 		Sessions: s.sessions,

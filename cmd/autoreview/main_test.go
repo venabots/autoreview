@@ -23,11 +23,12 @@ func sandbox(t *testing.T) (fixtures string) {
 		}
 	}
 	fixtures = t.TempDir()
-	// The same three files scripts/sandbox.sh serves, so a person who runs
+	// The same four files scripts/sandbox.sh serves, so a person who runs
 	// the sandbox sees the repo these tests see.
 	for name, from := range map[string]string{
 		"prs.json":  filepath.Join("..", "..", "internal", "prs", "testdata", "prs.json"),
 		"mine.json": filepath.Join("testdata", "mine.json"),
+		"bots.json": filepath.Join("testdata", "bots.json"),
 		"repo.json": filepath.Join("testdata", "repo.json"),
 	} {
 		raw, err := os.ReadFile(from)

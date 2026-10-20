@@ -180,7 +180,7 @@ func TestARunThatReviewsFailsWhenTheListCannotBeRead(t *testing.T) {
 		rev := &reviewer{}
 		eng := New(Config{Review: true, Jobs: 2}, Deps{
 			List:  func(context.Context) (prs.Listing, error) { return prs.Listing{}, errors.New("rate limited") },
-			Mine:  func(context.Context) ([]mine.PR, error) { return nil, nil },
+			Mine:  func(context.Context, bool) ([]mine.PR, error) { return nil, nil },
 			Procs: rev,
 			Run:   run,
 		})

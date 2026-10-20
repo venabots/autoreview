@@ -29,14 +29,16 @@ reviews the PRs that have become ready. R reviews the selected PR now, x x
 stops a review, r reopens a finished review in a new terminal tab, w stops
 or starts watching, and q quits. Press ? in the view for every key.
 
-Your own PRs are never reviewed. tab shows them on the My PRs tab, with what
+Your own PRs are never reviewed. tab shows them on the Maintain tab, with what
 blocks each one. There f fixes the selected PR once: its conflicts, review
 comments and CI, as it needs. F fixes each of your PRs that needs it, once.
 Autofix is on for all of them when the view opens: a PR is fixed again each
 time it changes and needs work. mine.autofix = false in the settings starts
 the view with it off. a turns autofix off or on for the selected PR,
 and A autofixes all of them, or none. An approved PR gets only its conflicts
-fixed by F and by autofix. Each fix runs in a worktree, with the
+fixed by autofix. d shows Dependabot's open PRs there too: f and F fix them
+as they fix yours, and autofix for all leaves them alone until a turns it on
+for one. Each fix runs in a worktree, with the
 babysit-pr and sync-main skills you have installed.
 
 Off a terminal (a pipe, cron, CI), or with --headless, it makes one pass: it

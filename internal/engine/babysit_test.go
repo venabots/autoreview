@@ -21,6 +21,22 @@ type mineList struct {
 	mu   sync.Mutex
 	list []mine.PR
 	err  error
+	// bots is what a read that includes the bots' PRs adds, and reads
+	// counts those reads.
+	bots  []mine.PR
+	reads int
+}
+
+func (m *mineList) setBots(list ...mine.PR) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bots = list
+}
+
+func (m *mineList) botReads() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.reads
 }
 
 func (m *mineList) fail(err error) {
@@ -38,13 +54,17 @@ func (m *mineList) set(list ...mine.PR) {
 func (m *mineList) deps(f *trees) func(*Deps) {
 	return func(d *Deps) {
 		f.deps(d)
-		d.Mine = func(context.Context) ([]mine.PR, error) {
+		d.Mine = func(_ context.Context, bots bool) ([]mine.PR, error) {
 			m.mu.Lock()
 			defer m.mu.Unlock()
 			if m.err != nil {
 				return nil, m.err
 			}
-			return slices.Clone(m.list), nil
+			if !bots {
+				return slices.Clone(m.list), nil
+			}
+			m.reads++
+			return mine.Ranked(append(slices.Clone(m.list), m.bots...)), nil
 		}
 	}
 }
@@ -328,7 +348,7 @@ func TestAFailedReadOfYourPRsIsANoteAndKeepsTheLastList(t *testing.T) {
 		if len(snap.Mine) != 1 || snap.MineErr != "gh timed out" {
 			t.Errorf("after a failed read: %d PRs, error %q", len(snap.Mine), snap.MineErr)
 		}
-		if want := "could not read your PRs (gh timed out); the My PRs tab keeps its last list"; !slices.Contains(b.notes(), want) {
+		if want := "could not read your PRs (gh timed out); the Maintain tab keeps its last list"; !slices.Contains(b.notes(), want) {
 			t.Errorf("notes = %q, want %q", b.notes(), want)
 		}
 		b.eng.Do(Quit{})

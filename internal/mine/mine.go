@@ -45,7 +45,7 @@ type Reviewer struct {
 	Review Review
 }
 
-// PR is one of your PRs, as the My PRs tab shows it.
+// PR is one of your PRs, as the Maintain tab shows it.
 type PR struct {
 	Number int
 	Title  string
@@ -66,6 +66,12 @@ type PR struct {
 	// another is opened in the same minute.
 	ThreadIDs []string
 	Reviewers []Reviewer
+	// Bot marks a Dependabot PR, listed beside yours on the Maintain tab
+	// when you include them.
+	Bot bool
+	// OthersPushed says a commit on a bot's PR is not the bot's. Dependabot
+	// then no longer rebases it, so keeping it up to date is ours.
+	OthersPushed bool
 }
 
 // OpenThreads is how many review threads nobody has resolved.

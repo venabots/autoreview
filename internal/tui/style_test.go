@@ -101,7 +101,7 @@ func listPart(m Model, row int) string {
 
 func TestTheSelectedRowIsOneSolidBarInTheFrame(t *testing.T) {
 	m, _ := newModel(t, 120, 30)
-	for _, tab := range []string{"review", "my PRs"} {
+	for _, tab := range []string{"review", "maintain"} {
 		wantSolidBar(t, "the first line of the selected row on "+tab, listPart(m, 2))
 		wantSolidBar(t, "the second line of the selected row on "+tab, listPart(m, 3))
 
@@ -129,10 +129,10 @@ func TestTheShownTabIsHighlighted(t *testing.T) {
 	m, _ := newModel(t, 120, 30)
 	bar := func(m Model) string { return strings.Split(m.View().Content, "\n")[1] }
 
-	if got := bar(m); !strings.Contains(got, "\x1b[1;7m Review 4 \x1b[m") || !strings.Contains(got, "\x1b[90m My PRs 2 \x1b[m") {
-		t.Errorf("the tab bar is %q, want Review reversed and My PRs dim", got)
+	if got := bar(m); !strings.Contains(got, "\x1b[1;7m Review 4 \x1b[m") || !strings.Contains(got, "\x1b[90m Maintain 2 \x1b[m") {
+		t.Errorf("the tab bar is %q, want Review reversed and Maintain dim", got)
 	}
-	if got := bar(press(t, m, "tab")); !strings.Contains(got, "\x1b[1;7m My PRs 2 \x1b[m") || !strings.Contains(got, "\x1b[90m Review 4 \x1b[m") {
-		t.Errorf("after tab the bar is %q, want My PRs reversed and Review dim", got)
+	if got := bar(press(t, m, "tab")); !strings.Contains(got, "\x1b[1;7m Maintain 2 \x1b[m") || !strings.Contains(got, "\x1b[90m Review 4 \x1b[m") {
+		t.Errorf("after tab the bar is %q, want Maintain reversed and Review dim", got)
 	}
 }

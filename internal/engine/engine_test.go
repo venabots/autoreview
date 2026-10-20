@@ -38,7 +38,7 @@ func (w *world) deps() Deps {
 			n := int(w.lists.Add(1)) - 1
 			return w.list[min(n, len(w.list)-1)]()
 		},
-		Mine: func(context.Context) ([]mine.PR, error) {
+		Mine: func(context.Context, bool) ([]mine.PR, error) {
 			if w.mine == nil {
 				return []mine.PR{{Number: 4}}, nil
 			}
@@ -199,7 +199,7 @@ func TestQuitStopsALookThatHasNotAnswered(t *testing.T) {
 				close(stopped)
 				return prs.Listing{}, ctx.Err()
 			},
-			Mine: func(context.Context) ([]mine.PR, error) { return nil, nil },
+			Mine: func(context.Context, bool) ([]mine.PR, error) { return nil, nil },
 		}
 		eng := New(config(time.Minute), deps)
 		results := make(chan Result, 1)
@@ -227,7 +227,7 @@ func TestALookThatPanicsAnswersWithAnError(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		deps := Deps{
 			List: func(context.Context) (prs.Listing, error) { panic("nil map") },
-			Mine: func(context.Context) ([]mine.PR, error) { return nil, nil },
+			Mine: func(context.Context, bool) ([]mine.PR, error) { return nil, nil },
 		}
 		result := New(config(0), deps).Run()
 

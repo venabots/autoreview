@@ -49,7 +49,10 @@ const tabGap = "  "
 // has not been read has no count: "0" would say there are none. The Review
 // tab names the authors --author keeps.
 func tabLabels(s *engine.Snapshot) (review, mine string) {
-	mine = tabLabel("My PRs", len(s.Mine), s.MineLooked)
+	mine = tabLabel("Maintain", len(s.Mine), s.MineLooked)
+	if s.MineBots {
+		mine += "· +dependabot "
+	}
 	if n := autofixing(s); n > 0 {
 		mine = fmt.Sprintf("%s· %s ", mine, autofixingText(n))
 	}
@@ -105,7 +108,7 @@ func tabAt(x int, review, mine string) (tab, bool) {
 }
 
 // tally is what the footer says the shown tab holds. Each tab counts its
-// own work: a count of reviews on My PRs reads as if your PRs waited.
+// own work: a count of reviews on Maintain reads as if your PRs waited.
 type tally struct {
 	looked  bool
 	reading string

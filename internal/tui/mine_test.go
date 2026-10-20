@@ -36,7 +36,7 @@ func pressMine(t *testing.T, m Model, names ...string) Model {
 	return m
 }
 
-// onMine is the view on the My PRs tab, with PR #4 selected.
+// onMine is the view on the Maintain tab, with PR #4 selected.
 func onMine(t *testing.T, edit func(*engine.Snapshot)) (Model, *harness) {
 	t.Helper()
 	m, hs := newModel(t, 150, 30)
@@ -58,7 +58,7 @@ func TestTheMyPRsKeysEachAskForTheirTask(t *testing.T) {
 		}
 		wantOnScreen(t, m, kind.Doing()+" PR #4")
 		if m.editing {
-			t.Errorf("%s opened the focus editor on My PRs", key)
+			t.Errorf("%s opened the focus editor on Maintain", key)
 		}
 	}
 }
@@ -97,7 +97,7 @@ func TestTheMyPRsKeysSayWhereTheyWorkOnTheReviewTab(t *testing.T) {
 		if len(commands(hs)) != 0 {
 			t.Errorf("%s on the Review tab sent %+v", key, commands(hs))
 		}
-		wantOnScreen(t, m, "F, a and A work on your own PRs: tab shows them")
+		wantOnScreen(t, m, "F, a, A and d work on the Maintain tab: tab shows them")
 	}
 }
 
@@ -147,7 +147,7 @@ func TestARunningTaskShowsInItsRowAndDetail(t *testing.T) {
 	wantOnScreen(t, m,
 		"#4 · fixing 1m12s",
 		"#3 · autofix · 2 threads",
-		" My PRs 2 · autofixing 1 ",
+		" Maintain 2 · autofixing 1 ",
 		"TASK", "task      fix", "state     fixing 1m12s", "worktree  /logs/run-1/worktrees/pr-4",
 		"autofix   off",
 	)
@@ -226,7 +226,7 @@ func TestTheMyPRsFooterNamesItsOwnKeys(t *testing.T) {
 	wantOnScreen(t, m, "f fix", "a autofix")
 	m = press(t, m, "?")
 	got := screen(m)
-	for _, want := range []string{"fix the selected PR once", "autofix all your PRs", "fix each of your PRs that needs it"} {
+	for _, want := range []string{"fix the selected PR once", "autofix all your PRs", "fix each PR on the tab that needs it"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the key help does not say %q", want)
 		}

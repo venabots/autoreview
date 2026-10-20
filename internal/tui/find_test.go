@@ -81,7 +81,7 @@ func TestTheFindLineSelectsTheFirstPRThatMatches(t *testing.T) {
 
 func TestTheShownTabIsSearchedFirst(t *testing.T) {
 	m, _ := finding(t, "tab", "/")
-	// "e" is in titles on both tabs; the first on My PRs wins there.
+	// "e" is in titles on both tabs; the first on Maintain wins there.
 	m = typeText(t, m, "e")
 	wantSelected(t, m, tabMine, 4)
 }
@@ -120,7 +120,7 @@ func TestEscPutsTheSelectionAndTheTabBack(t *testing.T) {
 		t.Fatal("the find line is still open after esc")
 	}
 	if m.cursors[tabMine] != mineBefore {
-		t.Errorf("My PRs has cursor %+v, want it back at %+v", m.cursors[tabMine], mineBefore)
+		t.Errorf("Maintain has cursor %+v, want it back at %+v", m.cursors[tabMine], mineBefore)
 	}
 }
 

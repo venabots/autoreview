@@ -81,7 +81,7 @@ func mineListRows(rows []mineRow, babysat babysit.State, now time.Time, spin str
 		out[i] = listRow{
 			pr:   row.pr.Number,
 			head: headLine(mineIcon(row, spin), row.pr.Number, mineWord(row, babysat, now)),
-			sub:  subLine(row.pr.Branch, row.pr.Title),
+			sub:  subLine(mineWhat(row.pr), row.pr.Title),
 		}
 	}
 	return out
@@ -116,7 +116,7 @@ func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 	case row.task != nil:
 		w.text = report.TaskOutcome(*row.task) + " · " + w.text
 	}
-	if babysat.Babysat(row.pr.Number) && !row.pr.CrossRepo {
+	if babysat.Covers(row.pr) {
 		w.text = "autofix · " + w.text
 	}
 	return w
@@ -130,11 +130,14 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 		titleLine(pr.Number, pr.Title),
 		note(sanitize.Line(pr.Branch), dimStyle),
 		{},
+	}
+	lines = append(lines, botLines(pr)...)
+	lines = append(lines,
 		field("review", reviewersWord(pr)),
 		field("checks", ciWord(pr.CI)),
 		field("threads", threadsWord(pr)),
 		field("merge", mergeWord(pr.Merge)),
-	}
+	)
 	if pr.Draft {
 		lines = append(lines, field("draft", word{"yes", plainStyle}))
 	}
@@ -153,7 +156,7 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 
 func babysatWord(pr mine.PR, s babysit.State) word {
 	switch n := s.Fixes(pr.Number); {
-	case !s.Babysat(pr.Number) || pr.CrossRepo:
+	case !s.Covers(pr):
 		return word{"off", dimStyle}
 	case babysit.LeftForAPerson(pr):
 		return word{"on · approved, so only conflicts get a fix; f fixes the rest", plainStyle}

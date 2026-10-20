@@ -56,6 +56,8 @@ func fakeGh(args []string) int {
 	case joined == "api user --jq .login":
 		fmt.Println(os.Getenv("FAKE_GH_LOGIN"))
 		return 0
+	case strings.HasPrefix(joined, "api graphql ") && strings.Contains(joined, "author:app/dependabot"):
+		return serve(dir, "bots.json")
 	case strings.HasPrefix(joined, "api graphql ") && strings.Contains(joined, "search("):
 		return serve(dir, "mine.json")
 	case strings.HasPrefix(joined, "api graphql -F owner=acme -F name=widgets "):

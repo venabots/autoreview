@@ -29,6 +29,8 @@ const (
 	intentAutofix
 	intentAutofixAll
 	intentFixAll
+	// intentBots shows Dependabot's PRs on the Maintain tab, or hides them.
+	intentBots
 	intentWatch
 	intentLog
 	// intentFind is / and intentFindNumber a digit: both open the find
@@ -71,6 +73,7 @@ var keyNames = map[string]intent{
 	"a":         intentAutofix,
 	"A":         intentAutofixAll,
 	"F":         intentFixAll,
+	"d":         intentBots,
 	"w":         intentWatch,
 	"l":         intentLog,
 	"/":         intentFind,
@@ -107,12 +110,13 @@ var helpLines = []keyHelp{
 	{"g/G", "first or last PR"},
 	{"/", "find a PR by its number, or by words from its title, branch or author; typing a number starts it too"},
 	{"^d/^u", "scroll the right pane (or space and the page keys)"},
-	{"tab", "switch between Review and My PRs (or ←/→, or click one)"},
+	{"tab", "switch between Review and Maintain (or ←/→, or click one)"},
 	{"R", "review the selected PR now, whatever holds it"},
-	{"f", "My PRs: fix the selected PR once: its conflicts, review comments and CI, as it needs"},
-	{"F", "My PRs: fix each of your PRs that needs it, once"},
-	{"a", "My PRs: autofix the selected PR: fix it again each time it changes; an approved PR gets only its conflicts fixed"},
-	{"A", "My PRs: autofix all your PRs, and any you open later; on when the view opens, A again turns it off"},
+	{"f", "Maintain: fix the selected PR once: its conflicts, review comments and CI, as it needs"},
+	{"F", "Maintain: fix each PR on the tab that needs it, once; Dependabot's too while d shows them"},
+	{"a", "Maintain: autofix the selected PR: fix it again each time it changes; an approved PR gets only its conflicts fixed"},
+	{"A", "Maintain: autofix all your PRs, and any you open later, but not Dependabot's; on when the view opens, A again turns it off"},
+	{"d", "Maintain: show Dependabot's PRs too, to fix them or autofix them; d again hides them"},
 	{"r", "resume the selected review, or your PR's last task, in a new terminal tab"},
 	{"o", "open the selected PR in the browser"},
 	{"x x", "stop the selected review or task; the first x asks"},
@@ -134,18 +138,18 @@ type hint struct {
 
 // footerHints are the keys the footer names, most useful first. The footer
 // shows as many as fit. Each tab names only the keys that act on it. The
-// tab key names the tab it goes to: "tab review" on My PRs read as a key
+// tab key names the tab it goes to: "tab review" on Maintain read as a key
 // that reviews your PR.
 func footerHints(shown tab) []hint {
 	if shown == tabMine {
 		return []hint{
-			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "to Review"}, {"o", "open"}, {"j/k", "move"}, {"/", "find"}, {"r", "resume"}, {"x", "stop"},
+			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "to Review"}, {"o", "open"}, {"j/k", "move"}, {"/", "find"}, {"r", "resume"}, {"x", "stop"}, {"d", "dependabot"},
 			{"m", "mouse"}, {"l", "log"}, {"^d/^u", "scroll"},
 		}
 	}
 	return []hint{
 		{"q", "quit"}, {"j/k", "move"}, {"/", "find"}, {"r", "resume"}, {"o", "open"}, {"R", "review now"},
-		{"tab", "to My PRs"}, {"w", "watch"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
+		{"tab", "to Maintain"}, {"w", "watch"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
 	}
 }
 

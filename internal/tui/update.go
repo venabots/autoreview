@@ -166,6 +166,8 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 		return m.autofixAllPressed(), nil
 	case intentFixAll:
 		return m.fixAllPressed(), nil
+	case intentBots:
+		return m.botsPressed(), nil
 	case intentWatch:
 		return m.watchToggled(), nil
 	case intentQuit:

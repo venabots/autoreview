@@ -148,7 +148,7 @@ func TestParseHelpAndVersionSkipTheRest(t *testing.T) {
 }
 
 func TestTheHelpNamesTheMyPRsKeysAndTheirSkills(t *testing.T) {
-	for _, want := range []string{"My PRs tab", "f fixes the selected PR once", "A autofixes all of them", "babysit-pr and sync-main",
+	for _, want := range []string{"Maintain tab", "f fixes the selected PR once", "A autofixes all of them", "babysit-pr and sync-main",
 		"Autofix is on for all of them when the view opens"} {
 		if !strings.Contains(Help, want) {
 			t.Errorf("the help does not say %q", want)

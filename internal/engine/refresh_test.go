@@ -71,7 +71,7 @@ type slowMine struct {
 	release chan struct{}
 }
 
-func (s *slowMine) read(context.Context) ([]mine.PR, error) {
+func (s *slowMine) read(context.Context, bool) ([]mine.PR, error) {
 	s.mu.Lock()
 	list, slow := slices.Clone(s.list), s.armed
 	s.armed = false

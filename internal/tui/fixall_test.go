@@ -51,5 +51,5 @@ func TestFOnTheReviewTabSaysWhereItWorks(t *testing.T) {
 	if len(commands(hs)) != 0 {
 		t.Errorf("F sent %+v from the Review tab", commands(hs))
 	}
-	wantOnScreen(t, m, "work on your own PRs")
+	wantOnScreen(t, m, "work on the Maintain tab")
 }
