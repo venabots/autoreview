@@ -172,8 +172,19 @@ change, and writes them to `~/.config/autoreview/config.toml`
 reads the file. Run `autoreview setup` to change the settings, or edit the file:
 each key has a comment.
 
+The form asks one question on each step, and says what the answer changes and
+its default. `enter` keeps the answer shown, and `shift+tab` goes back one step.
+The panel is a checklist of the models it found: the file's panel, the one in
+`$PANEL_REVIEW_PANELISTS`, the models this machine has run before (with how
+each did), and each backend on `PATH`. A later step adds models that the list
+does not have. The last step shows every answer: save them, go back, or leave
+without saving.
+
 - A flag wins over its `$AUTOREVIEW_*` variable, and a variable wins over the
-  file.
+  file. A question says so when your shell sets its variable.
+- A panel kept from `$PANEL_REVIEW_PANELISTS` is written to the file, so you
+  can remove the variable. A panel kept as `PATH` gave it is not written, so a
+  backend you install later still joins.
 - A bad value or an unknown key stops the run, and the error names the key.
 - The file never makes a run loop by itself. Off a terminal, only `--watch` and
   `--babysit` do that.

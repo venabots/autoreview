@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/venabots/autoreview/internal/cli"
 	"github.com/venabots/autoreview/internal/config"
 )
 
@@ -31,15 +32,34 @@ func current() config.Values {
 	}
 }
 
+// withPanel is v with a panel that the file sets.
+func withPanel(v config.Values, specs ...string) config.Values {
+	next := v
+	next.Panelists = specs
+	next.Set = map[string]bool{"review.timeout": true, "panel.panelists": true}
+	return next
+}
+
+// start is a form with no shell variable, no backend on PATH and no
+// history, so each test adds only what it is about.
+func start() Start {
+	return Start{Current: current(), Defaults: current(), Path: "/home/me/.config/autoreview/config.toml"}
+}
+
 func ask(t *testing.T, answers ...string) (config.Values, string, error) {
 	t.Helper()
+	return askWith(t, start(), answers...)
+}
+
+func askWith(t *testing.T, s Start, answers ...string) (config.Values, string, error) {
+	t.Helper()
 	var out strings.Builder
-	got, err := Ask(current(), "/home/me/.config/autoreview/config.toml", Terminal{In: &lines{rest: answers}, Out: &out, Accessible: true})
+	got, err := Ask(s, Terminal{In: &lines{rest: answers}, Out: &out, Accessible: true})
 	return got, out.String(), err
 }
 
 func TestTheFormReturnsTheAnswersAndKeepsWhatItDidNotAsk(t *testing.T) {
-	got, out, err := ask(t, "codex:gpt-5.5", "claude:opus-4.8 codex", "3", "2", "1h", "5m", "n", "5", "4")
+	got, out, err := ask(t, "codex:gpt-5.5", "0", "claude:opus-4.8 codex", "3", "2", "1h", "5m", "n", "5", "4", save)
 	if err != nil {
 		t.Fatalf("Ask: %v\n%s", err, out)
 	}
@@ -59,7 +79,7 @@ func TestTheFormReturnsTheAnswersAndKeepsWhatItDidNotAsk(t *testing.T) {
 
 // A bad answer is asked again, with the reason, and never comes back.
 func TestABadAnswerIsAskedAgain(t *testing.T) {
-	got, out, err := ask(t, "gemini", "claude", "codex", "", "1", "0", "3", "soon", "30m", "2m", "y", "3", "2")
+	got, out, err := ask(t, "gemini", "claude", "0", "codex", "", "1", "0", "3", "soon", "30m", "2m", "y", "3", "2", save)
 	if err != nil {
 		t.Fatalf("Ask: %v\n%s", err, out)
 	}
@@ -80,7 +100,6 @@ func TestTheChecksMatchTheFlags(t *testing.T) {
 		bad   []string
 	}{
 		{orchestratorBeside("auto", "claude"), []string{"claude", "codex:gpt-5.5"}, []string{"gemini", "codex:"}},
-		{panelists, []string{"", "claude codex", "claude:opus-4.8 opencode:glm-5.2"}, []string{"claude", "claude gemini"}},
 		{upTo(100), []string{"1", " 12 ", "100"}, []string{"0", "-1", "two", "", "101"}},
 		{orchestratorBeside("codex", "claude"), []string{"claude", "codex:gpt-5.5"}, []string{"codex"}},
 		// The agent the form showed is no choice, so it does not clash.
@@ -107,11 +126,51 @@ func TestTheChecksMatchTheFlags(t *testing.T) {
 // Enter on a value the form shows keeps it unchosen. Written as a value, a
 // default of today would never change for that person again.
 func TestAnAnswerThatKeepsTheDefaultIsNotAChoice(t *testing.T) {
-	got, out, err := ask(t, "claude", "", "1", "3", "30m", "2m", "y", "3", "2")
+	got, out, err := ask(t, "claude", "0", "", "1", "3", "30m", "2m", "y", "3", "2", save)
 	if err != nil {
 		t.Fatalf("Ask: %v\n%s", err, out)
 	}
 	if !reflect.DeepEqual(got.Set, map[string]bool{"review.timeout": true}) {
 		t.Errorf("Set = %v, want only the key the file already set", got.Set)
+	}
+}
+
+// The person who sets the panel in the shell keeps it with enter, and the
+// file now carries it: the variable can go.
+func TestAPanelKeptFromTheShellIsWrittenToTheFile(t *testing.T) {
+	s := start()
+	s.Getenv = shell(map[string]string{cli.EnvPanelists: "codex:gpt-5.6-sol opencode:zai/glm-5.3"})
+	got, out, err := askWith(t, s, "claude", "0", "", "1", "3", "30m", "2m", "y", "3", "2", save)
+	if err != nil {
+		t.Fatalf("Ask: %v\n%s", err, out)
+	}
+	if want := []string{"codex:gpt-5.6-sol", "opencode:zai/glm-5.3"}; !reflect.DeepEqual(got.Panelists, want) || !got.Set["panel.panelists"] {
+		t.Errorf("Panelists = %q, Set = %v, want %q chosen", got.Panelists, got.Set, want)
+	}
+}
+
+func TestAPanelKeptFromThePathIsNotWritten(t *testing.T) {
+	s := start()
+	s.LookPath = onPath("codex", "claude")
+	got, out, err := askWith(t, s, "claude", "0", "", "1", "3", "30m", "2m", "y", "3", "2", save)
+	if err != nil {
+		t.Fatalf("Ask: %v\n%s", err, out)
+	}
+	if got.Panelists != nil || got.Set["panel.panelists"] {
+		t.Errorf("Panelists = %q, Set = %v, want the panel left blank", got.Panelists, got.Set)
+	}
+}
+
+func TestAModelUncheckedOnTheChecklistLeavesThePanel(t *testing.T) {
+	s := start()
+	s.LookPath = onPath("codex", "claude", "opencode")
+	// The options are codex, claude, opencode, claude:opus, claude:sonnet;
+	// the first three start checked. 3 unchecks opencode, 4 checks opus.
+	got, out, err := askWith(t, s, "claude", "3", "4", "0", "", "1", "3", "30m", "2m", "y", "3", "2", save)
+	if err != nil {
+		t.Fatalf("Ask: %v\n%s", err, out)
+	}
+	if want := []string{"codex", "claude", "claude:opus"}; !reflect.DeepEqual(got.Panelists, want) || !got.Set["panel.panelists"] {
+		t.Errorf("Panelists = %q, Set = %v, want %q chosen", got.Panelists, got.Set, want)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,7 +14,9 @@ import (
 
 	"github.com/venabots/autoreview/internal/cli"
 	"github.com/venabots/autoreview/internal/config"
+	"github.com/venabots/autoreview/internal/doctor"
 	"github.com/venabots/autoreview/internal/engine"
+	"github.com/venabots/autoreview/internal/ledger"
 	"github.com/venabots/autoreview/internal/sanitize"
 	"github.com/venabots/autoreview/internal/setup"
 )
@@ -74,6 +77,10 @@ func setupEnded(err error, stderr io.Writer) int {
 	case errors.Is(err, setup.ErrAborted):
 		say(stderr, "%s\n", setup.ErrAborted)
 		return engine.ExitInterrupted
+	case errors.Is(err, setup.ErrNotSaved):
+		// The person chose this on the last step: it is no failure.
+		say(stderr, "%s\n", setup.ErrNotSaved)
+		return engine.ExitOK
 	case err != nil:
 		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
 		return engine.ExitFailed
@@ -98,11 +105,11 @@ func onTerminal() bool {
 // variables; the form refuses to choose an agent that is the file's
 // fallback.
 func setUp(file config.File) (config.File, []byte, error) {
-	current, err := valuesOf(file)
+	start, err := formStart(file, os.Getenv)
 	if err != nil {
 		return config.File{}, nil, err
 	}
-	answers, err := setup.Ask(current, file.Path, setup.Terminal{In: os.Stdin, Out: os.Stdout})
+	answers, err := setup.Ask(start, setup.Terminal{In: os.Stdin, Out: os.Stdout})
 	if err != nil {
 		return config.File{}, nil, err
 	}
@@ -118,6 +125,40 @@ func setUp(file config.File) (config.File, []byte, error) {
 		return config.File{}, nil, err
 	}
 	return next, raw, nil
+}
+
+// formStart is what the form starts from: the file, the defaults of a run
+// with no file, the shell, the PATH and the models the ledger has seated.
+// A ledger that cannot be read offers no models, and stops nothing.
+func formStart(file config.File, env func(string) string) (setup.Start, error) {
+	current, err := valuesOf(file)
+	if err != nil {
+		return setup.Start{}, err
+	}
+	defaults, err := valuesOf(config.File{})
+	if err != nil {
+		return setup.Start{}, err
+	}
+	return setup.Start{
+		Current: current, Defaults: defaults, Path: file.Path,
+		Getenv: env, LookPath: exec.LookPath, Seen: seenModels(env),
+	}, nil
+}
+
+func seenModels(env func(string) string) []setup.Seen {
+	path, ok := ledger.Path(env)
+	if !ok {
+		return nil
+	}
+	records, err := ledger.Read(path)
+	if err != nil {
+		return nil
+	}
+	var out []setup.Seen
+	for _, s := range doctor.SeenModels(records) {
+		out = append(out, setup.Seen{Spec: s.Spec, Launched: s.Launched, Answered: s.Answered})
+	}
+	return out
 }
 
 func noEnv(string) string { return "" }
