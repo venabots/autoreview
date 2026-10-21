@@ -177,8 +177,12 @@ func TestAFailedOwnBranchIsUndoneAndYourBranchStays(t *testing.T) {
 	if _, err := Prepare(context.Background(), r.git, fakeRequest()); err == nil {
 		t.Fatal("Prepare made a worktree whose head it could not read")
 	}
-	undo := []call{{root, "worktree remove --force " + wt}, {root, "branch --quiet -d " + own}}
-	if seen := r.seen(); !slices.Equal(seen[len(seen)-2:], undo) {
-		t.Errorf("undo = %v, want %v", seen[len(seen)-2:], undo)
+	undo := []call{
+		{root, "worktree remove --force " + wt},
+		{root, "merge-base --is-ancestor " + own + " origin/me/work"},
+		{root, "branch --quiet -D " + own},
+	}
+	if seen := r.seen(); !slices.Equal(seen[len(seen)-3:], undo) {
+		t.Errorf("undo = %v, want %v", seen[len(seen)-3:], undo)
 	}
 }

@@ -196,7 +196,7 @@ func create(ctx context.Context, git Git, r Request, local, remote string, exist
 			return Prepared{Path: r.Path, Branch: local, Head: head, CreatedBranch: !existed, OwnBranch: local != r.Branch}, nil
 		}
 	}
-	undo(ctx, git, r, local, !existed)
+	undo(ctx, git, r, local, remote, !existed)
 	return Prepared{}, fmt.Errorf("could not make a worktree for PR #%d: %w", r.PR, err)
 }
 
@@ -222,13 +222,20 @@ func finishSetup(ctx context.Context, git Git, r Request, remote string, existed
 }
 
 // undo takes back a worktree that Prepare made and could not finish, and
-// the branch with it when Prepare made that too. Lowercase -d: a branch
-// that appeared between the check and the add is not ours, and -d refuses
-// one that holds anything origin lacks.
-func undo(ctx context.Context, git Git, r Request, local string, createdBranch bool) {
+// the branch with it when Prepare made that too. The branch goes only when
+// origin holds all of it: one that appeared between the check and the add
+// is not ours, and may hold work.
+//
+// git branch -d is not that check. The add can make the branch and then
+// fail to record what it tracks, and -d then compares the branch with your
+// HEAD. It kept the branch, and every later task on the PR was refused.
+func undo(ctx context.Context, git Git, r Request, local, remote string, createdBranch bool) {
 	_, _ = git(ctx, r.Root, "worktree", "remove", "--force", r.Path)
-	if createdBranch {
-		_, _ = git(ctx, r.Root, "branch", "--quiet", "-d", local)
+	if !createdBranch {
+		return
+	}
+	if _, err := git(ctx, r.Root, "merge-base", "--is-ancestor", local, remote); err == nil {
+		_, _ = git(ctx, r.Root, "branch", "--quiet", "-D", local)
 	}
 }
 

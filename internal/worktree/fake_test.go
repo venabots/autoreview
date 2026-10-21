@@ -129,7 +129,7 @@ func TestAnExistingBranchThatAlreadyTracksOriginIsNotRetracked(t *testing.T) {
 
 func TestAFailedStepUndoesTheWorktreeAndOnlyABranchItMade(t *testing.T) {
 	undoWorktree := call{root, "worktree remove --force " + wt}
-	undoBranch := call{root, "branch --quiet -d me/work"}
+	undoBranch := []call{{root, "merge-base --is-ancestor me/work origin/me/work"}, {root, "branch --quiet -D me/work"}}
 	cases := []struct {
 		name    string
 		answers map[string]answer
@@ -140,7 +140,13 @@ func TestAFailedStepUndoesTheWorktreeAndOnlyABranchItMade(t *testing.T) {
 			"rev-parse --verify --quiet refs/heads/me/work":                     {err: errNo},
 			"rev-parse --abbrev-ref me/work@{upstream}":                         {err: errNo},
 			"worktree add --quiet --track -b me/work " + wt + " origin/me/work": {err: errors.New("hook said no")},
-		}, "could not make a worktree for PR #4: hook said no", []call{undoWorktree, undoBranch}},
+		}, "could not make a worktree for PR #4: hook said no", append([]call{undoWorktree}, undoBranch...)},
+		{"the add fails on a branch that holds commits origin lacks", map[string]answer{
+			"rev-parse --verify --quiet refs/heads/me/work":                     {err: errNo},
+			"rev-parse --abbrev-ref me/work@{upstream}":                         {err: errNo},
+			"worktree add --quiet --track -b me/work " + wt + " origin/me/work": {err: errors.New("hook said no")},
+			"merge-base --is-ancestor me/work origin/me/work":                   {err: errNo},
+		}, "could not make a worktree for PR #4: hook said no", []call{undoWorktree, undoBranch[0]}},
 		{"the merge fails on your branch", map[string]answer{
 			"rev-parse --abbrev-ref me/work@{upstream}": {out: "origin/me/work"},
 			"merge --quiet --ff-only origin/me/work":    {err: errNo},
@@ -153,7 +159,7 @@ func TestAFailedStepUndoesTheWorktreeAndOnlyABranchItMade(t *testing.T) {
 			"rev-parse --verify --quiet refs/heads/me/work": {err: errNo},
 			"rev-parse --abbrev-ref me/work@{upstream}":     {err: errNo},
 			"rev-parse HEAD": {err: errNo},
-		}, "could not make a worktree for PR #4: could not read its head: no", []call{undoWorktree, undoBranch}},
+		}, "could not make a worktree for PR #4: could not read its head: no", append([]call{undoWorktree}, undoBranch...)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
