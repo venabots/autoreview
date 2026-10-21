@@ -123,6 +123,9 @@ or author, and the selection moves as you type. Typing a number starts it too,
 so `2734` goes to PR #2734. `enter` keeps the PR, and `esc` goes back. `o` opens
 the PR in the browser, `l` shows the run log, and `?` lists every key. A drag in the right pane selects its text and copies it. `m`
 gives the mouse back to the terminal, to select text anywhere on the screen.
+`e` opens the [settings](#settings) file in `$VISUAL` or `$EDITOR`, and
+checks it when the editor closes. A change applies when autoreview starts
+again. The footer names only the keys you use most on each tab.
 `q q` quits: the first `q` asks, because a quit stops every review and task that
 is running. `esc` closes the key list and answers no to a question.
 

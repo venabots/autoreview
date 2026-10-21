@@ -33,6 +33,8 @@ const (
 	intentBots
 	intentWatch
 	intentLog
+	// intentSettings opens the settings file in the person's editor.
+	intentSettings
 	// intentFind is / and intentFindNumber a digit: both open the find
 	// line, the digit with itself typed in it.
 	intentFind
@@ -76,6 +78,7 @@ var keyNames = map[string]intent{
 	"d":         intentBots,
 	"w":         intentWatch,
 	"l":         intentLog,
+	"e":         intentSettings,
 	"/":         intentFind,
 	"0":         intentFindNumber,
 	"1":         intentFindNumber,
@@ -123,6 +126,7 @@ var helpLines = []keyHelp{
 	{"w", "start or stop watching for new work"},
 	{"f", "Review: type what the reviewers look at (the focus)"},
 	{"l", "show the run log in the right pane; esc puts it away"},
+	{"e", "edit the settings file in $VISUAL or $EDITOR; a change applies when autoreview starts again"},
 	{"drag", "select text in the right pane and copy it"},
 	{"m", "give the mouse back to the terminal, to select anywhere"},
 	{"?", "show these keys; esc closes them"},
