@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/config"
 	"github.com/venabots/autoreview/internal/review"
 )
@@ -70,6 +71,9 @@ type Config struct {
 	// AutofixCap is the most fixes one of your PRs gets in a row while
 	// nobody else acts on it. Only the settings file sets it.
 	AutofixCap int
+	// AutofixApproved is what autofix still fixes on one of your PRs once
+	// it is approved. Only the settings file sets it.
+	AutofixApproved babysit.OnApproved
 	// Verdicts is which events a review may submit. Only the settings file
 	// sets it.
 	Verdicts review.Verdicts

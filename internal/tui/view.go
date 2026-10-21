@@ -214,7 +214,7 @@ func (m Model) mineContent() (string, []line) {
 	}
 	for _, row := range mineRowsOf(m.snap) {
 		if row.pr.Number == pr {
-			return fmt.Sprintf("mine/%d", pr), mineDetail(row, m.snap.Babysit, m.now)
+			return fmt.Sprintf("mine/%d", pr), mineDetail(row, m.snap.Babysit, m.snap.AutofixApproved, m.now)
 		}
 	}
 	return "mine/none", nil

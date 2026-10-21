@@ -45,6 +45,18 @@ func yesNo(on bool) string {
 	return "no"
 }
 
+// onApprovedWords names what autofix fixes on an approved PR in the words
+// a summary reads.
+func onApprovedWords(o string) string {
+	switch o {
+	case "comments":
+		return "conflicts and review comments"
+	case "all":
+		return "everything"
+	}
+	return "only conflicts"
+}
+
 // verdictWords names a verdict level in the words a summary reads.
 func verdictWords(level string) string {
 	switch level {

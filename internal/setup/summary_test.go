@@ -16,7 +16,7 @@ const (
 
 // every answers each page, then the summary with choice.
 func every(choice string) []string {
-	return []string{"codex:gpt-5.5", "0", "claude:opus-4.8 codex", "2", "4", "1h", "5m", "n", "5", "3", choice}
+	return []string{"codex:gpt-5.5", "0", "claude:opus-4.8 codex", "2", "4", "1h", "5m", "n", "5", "2", "3", choice}
 }
 
 func TestTheSummaryListsEveryAnswerBeforeItAsksToSave(t *testing.T) {
@@ -24,7 +24,7 @@ func TestTheSummaryListsEveryAnswerBeforeItAsksToSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ask: %v\n%s", err, out)
 	}
-	summary := out[strings.Index(out, "Step 11 of 11"):]
+	summary := out[strings.Index(out, "Step 12 of 12"):]
 	for _, want := range []string{
 		"The agent that runs each review: codex:gpt-5.5",
 		"The models in the review panel: claude:opus-4.8 codex",
@@ -34,6 +34,7 @@ func TestTheSummaryListsEveryAnswerBeforeItAsksToSave(t *testing.T) {
 		"The wait between two looks at the PR list: 5m",
 		"Autofix your PRs when the view opens: no",
 		"Fixes in a row on one of your PRs while nobody else acts: 5",
+		"What autofix still fixes on one of your PRs once it is approved: conflicts and review comments",
 		"Reviews that run at once: 3",
 		"Save these settings?",
 	} {
@@ -51,12 +52,12 @@ func TestLeavingWithoutSavingWritesNothing(t *testing.T) {
 }
 
 func TestGoingBackAsksEachQuestionAgainFromTheAnswersGiven(t *testing.T) {
-	answers := append(every(back), "claude", "0", "", "1", "2", "30m", "2m", "y", "3", "2", save)
+	answers := append(every(back), "claude", "0", "", "1", "2", "30m", "2m", "y", "3", "1", "2", save)
 	got, out, err := ask(t, answers...)
 	if err != nil {
 		t.Fatalf("Ask: %v\n%s", err, out)
 	}
-	if strings.Count(out, "Step 1 of 11") != 2 {
+	if strings.Count(out, "Step 1 of 12") != 2 {
 		t.Errorf("the form did not start again at step 1:\n%s", out)
 	}
 	// The second round starts from the first one's answers: an empty

@@ -22,12 +22,13 @@ const (
 	titleWatch        = "The wait between two looks at the PR list"
 	titleAutofix      = "Autofix your PRs when the view opens"
 	titleAutofixCap   = "Fixes in a row on one of your PRs while nobody else acts"
+	titleOnApproved   = "What autofix still fixes on one of your PRs once it is approved"
 	titleJobs         = "Reviews that run at once"
 )
 
 // questions is how many pages ask something. The summary is one more
 // step.
-const questions = 10
+const questions = 11
 
 // page is one step of the form: one question, what its answer changes,
 // and the field that takes it. Two questions on one screen is what made
@@ -107,6 +108,15 @@ func questionPages(s Start, a *answers) []page {
 			"Autofix stops after this many fixes on one PR, until a person acts on the PR or it comes clean. This stops a fix that does not work from running again and again.",
 			defaultIs(fmt.Sprint(d.AutofixCap))),
 			huh.NewInput().Title("Fixes in a row").Value(&a.autofixCap).Validate(upTo(cli.MaxAutofixCap))},
+		{titleOnApproved, sentences(
+			"A review can approve a PR and still leave threads open, such as polish. A fix pushes, and on some repos a push dismisses the approval.",
+			"A conflict always gets a fix: the PR cannot merge with one.",
+			defaultIs(onApprovedWords(d.AutofixApproved))),
+			huh.NewSelect[string]().Title("On an approved PR").Options(
+				huh.NewOption("Only conflicts", "conflicts"),
+				huh.NewOption("Conflicts and review comments", "comments"),
+				huh.NewOption("Everything, a red build too", "all"),
+			).Value(&a.autofixApproved)},
 		{titleJobs, sentences(
 			"Each review seats every model in the panel, and one more agent runs it. So 2 reviews with a panel of 3 are about 8 agents at once.",
 			"More reviews at once clear the list sooner, and spend more.",

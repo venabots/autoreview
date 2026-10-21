@@ -53,6 +53,7 @@ func settingsOf(f config.File) settings {
 	number("max-idle", "loop.max_idle", f.Loop.MaxIdle)
 	text("ci-wait", "loop.ci_wait", f.Loop.CIWait)
 	number("autofix-cap", "mine.autofix_cap", f.Mine.AutofixCap)
+	text("autofix-approved", "mine.autofix_approved", f.Mine.AutofixApproved)
 	flag("autofix", f.Mine.Autofix)
 	flag("all", f.PRs.Approved)
 	flag("dependabot", f.PRs.Dependabot)

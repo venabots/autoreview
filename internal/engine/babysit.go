@@ -83,8 +83,8 @@ func babysatWhat(c babysit.Change) string {
 }
 
 // babysitLook starts a fix on each babysat PR that changed and needs work.
-// A PR that is approved gets only a fix of its conflicts, and the log says
-// so once: a babysat PR with a red build that nothing fixes would otherwise
+// A PR that is approved gets only the fixes the setting allows, and the log
+// says so once: a babysat PR with a red build that nothing fixes would otherwise
 // look forgotten. It runs only after a look at your PRs that worked: after
 // a failed one, the list is the last good one, and a fix that just ended
 // would take its state from before the fix.
@@ -94,11 +94,12 @@ func (e *Engine) babysitLook(w workers, r run) run {
 	}
 	busy := func(pr int) bool { return liveTask(r.tasks, pr) >= 0 }
 	before := r.snap.Babysit
-	next, due := before.Look(r.looked, busy, cmp.Or(e.cfg.AutofixCap, babysit.MaxStreak))
+	rules := babysit.Rules{Cap: cmp.Or(e.cfg.AutofixCap, babysit.MaxStreak), OnApproved: e.cfg.AutofixApproved}
+	next, due := before.Look(r.looked, busy, rules)
 	r.snap.Babysit = next
 	for _, pr := range r.looked {
-		if next.OnHold(pr.Number) && !before.OnHold(pr.Number) {
-			e.journal(Noted{Text: fmt.Sprintf("autofix: PR #%d is approved, so only a conflict on it gets a fix until that changes", pr.Number)})
+		if next.OnHold(pr.Number, rules.OnApproved) && !before.OnHold(pr.Number, rules.OnApproved) {
+			e.journal(Noted{Text: fmt.Sprintf("autofix: PR #%d is approved, so only its %s get a fix until that changes", pr.Number, rules.OnApproved.Fixes())})
 		}
 	}
 	for _, d := range due {

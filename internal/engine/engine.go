@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/proc"
 	"github.com/venabots/autoreview/internal/prs"
@@ -60,6 +61,9 @@ type Config struct {
 	// AutofixCap is the most fixes one of your PRs gets in a row while
 	// nobody else acts on it. Zero means babysit.MaxStreak.
 	AutofixCap int
+	// AutofixApproved is what autofix still fixes on one of your PRs once
+	// it is approved.
+	AutofixApproved babysit.OnApproved
 	// Panelists is the panel each review seats, or nil for the one the
 	// review skill picks.
 	Panelists []string
@@ -190,6 +194,7 @@ func New(cfg Config, deps Deps) *Engine {
 	e.current.Store(&Snapshot{
 		Phase: Idle, Looking: true, Repo: cfg.Repo, Authors: cfg.Authors, Watch: cfg.Watch, RunDir: deps.Run.Root, Focus: cfg.Focus,
 		Watching: cfg.Watching, Rest: cfg.Rest, Refusals: e.refusals(),
+		AutofixApproved: cfg.AutofixApproved,
 	})
 	return e
 }

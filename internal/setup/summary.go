@@ -47,6 +47,7 @@ func summaryText(a answers, final []string) string {
 		{titleWatch, a.watch},
 		{titleAutofix, yesNo(a.autofix)},
 		{titleAutofixCap, a.autofixCap},
+		{titleOnApproved, onApprovedWords(a.autofixApproved)},
 		{titleJobs, a.jobs},
 	}
 	out := make([]string, len(lines))

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/venabots/autoreview/internal/babysit"
 	"github.com/venabots/autoreview/internal/config"
 	"github.com/venabots/autoreview/internal/review"
 )
@@ -70,6 +71,21 @@ func TestTheAutofixCapComesFromTheFile(t *testing.T) {
 	_, err := ParseWith(nil, noEnv, withSettings(func(f *config.File) { f.Mine.AutofixCap = ptr(0) }))
 	if want := "mine.autofix_cap in " + settingsPath + ": the autofix cap expects an integer >= 1"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("a cap of 0: %v, want %q", err, want)
+	}
+}
+
+func TestWhatAutofixFixesOnAnApprovedPRComesFromTheFile(t *testing.T) {
+	if cfg := parse(t); cfg.AutofixApproved != babysit.ApprovedConflicts {
+		t.Errorf("the default is %s, want conflicts", cfg.AutofixApproved)
+	}
+	comments := withSettings(func(f *config.File) { f.Mine.AutofixApproved = ptr("comments") })
+	if cfg := parseWith(t, nil, comments); cfg.AutofixApproved != babysit.ApprovedComments {
+		t.Errorf("the setting is %s, want the file's comments", cfg.AutofixApproved)
+	}
+	_, err := ParseWith(nil, noEnv, withSettings(func(f *config.File) { f.Mine.AutofixApproved = ptr("polish") }))
+	want := "mine.autofix_approved in " + settingsPath + `: autofix on an approved PR expects conflicts, comments or all, got "polish"`
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("polish: %v, want %q", err, want)
 	}
 }
 

@@ -140,10 +140,10 @@ func TestBabysittingLeavesAnApprovedPRAloneAndSaysSoOnce(t *testing.T) {
 		if got := b.reviewer.started(); len(got) != 0 {
 			t.Fatalf("started %v: an approved PR was fixed", got)
 		}
-		if !b.eng.Snapshot().Babysit.OnHold(4) {
+		if !b.eng.Snapshot().Babysit.OnHold(4, babysit.ApprovedConflicts) {
 			t.Error("the snapshot does not say PR #4 is on hold")
 		}
-		const said = "autofix: PR #4 is approved, so only a conflict on it gets a fix until that changes"
+		const said = "autofix: PR #4 is approved, so only its conflicts get a fix until that changes"
 		if n := len(slices.DeleteFunc(b.notes(), func(note string) bool { return note != said })); n != 1 {
 			t.Errorf("the hold was noted %d times in %q, want once", n, b.notes())
 		}

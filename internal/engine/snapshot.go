@@ -80,6 +80,9 @@ type Snapshot struct {
 	// It is worked out once when the run starts and is never changed, so
 	// the view can refuse a key before it sends anything.
 	Refusals map[task.Kind]string
+	// AutofixApproved is what autofix still fixes on an approved PR, so
+	// the view says the same as the run does.
+	AutofixApproved babysit.OnApproved
 	// NotStarted says, by PR, why the last task asked for on it never ran:
 	// its worktree could not be made. The entry goes when a task starts on
 	// the PR. Without it, only the run log would say why a key did nothing.

@@ -178,7 +178,7 @@ func TestAThreadOpenedWhileTheFixRunsIsNewWorkAfterIt(t *testing.T) {
 	s, due := look(babysitting(4), pr(4))
 	wantDue(t, due, []int{4}, "the first look")
 	two := with(pr(4), func(p *mine.PR) { p.ThreadIDs = []string{"t1", "t2"} })
-	s, busy := s.Look([]mine.PR{two}, func(int) bool { return true }, MaxStreak)
+	s, busy := s.Look([]mine.PR{two}, func(int) bool { return true }, Rules{Cap: MaxStreak})
 	wantKinds(t, busy, nil, "the fix is running")
 	s = s.Finished(4)
 	_, due = look(s, head(two, "sha-fix"))
@@ -264,7 +264,7 @@ func TestAPRFromAForkIsNeverScheduled(t *testing.T) {
 
 func TestABusyPRWaitsAndAClosedOneLeaves(t *testing.T) {
 	s := babysitting(4)
-	s, busy := s.Look([]mine.PR{pr(4)}, func(n int) bool { return n == 4 }, MaxStreak)
+	s, busy := s.Look([]mine.PR{pr(4)}, func(n int) bool { return n == 4 }, Rules{Cap: MaxStreak})
 	wantKinds(t, busy, nil, "a job on it is running")
 	s, due := look(s, pr(4))
 	wantDue(t, due, []int{4}, "it is fixed at the next look")

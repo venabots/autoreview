@@ -124,7 +124,7 @@ func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 
 // mineDetail is the right pane for one of your PRs: where it stands, then
 // whether it is babysat, then its task.
-func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
+func mineDetail(row mineRow, babysat babysit.State, o babysit.OnApproved, now time.Time) []line {
 	pr := row.pr
 	lines := []line{
 		titleLine(pr.Number, pr.Title),
@@ -144,7 +144,7 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 	if pr.CrossRepo {
 		lines = append(lines, field("from", word{"a fork", plainStyle}))
 	}
-	lines = append(lines, field("autofix", babysatWord(pr, babysat)))
+	lines = append(lines, field("autofix", babysatWord(pr, babysat, o)))
 	if row.notStarted != "" {
 		lines = append(lines, line{}, note(sanitize.Line(row.notStarted), redStyle))
 	}
@@ -154,16 +154,17 @@ func mineDetail(row mineRow, babysat babysit.State, now time.Time) []line {
 	return lines
 }
 
-func babysatWord(pr mine.PR, s babysit.State) word {
+func babysatWord(pr mine.PR, s babysit.State, o babysit.OnApproved) word {
+	held := "on · approved, so only " + o.Fixes() + " get a fix"
 	switch n := s.Fixes(pr.Number); {
 	case !s.Covers(pr):
 		return word{"off", dimStyle}
-	case babysit.LeftForAPerson(pr):
-		return word{"on · approved, so only conflicts get a fix; f fixes the rest", plainStyle}
-	case pr.Approved():
-		// A push can dismiss the approval, so only a conflict, which stops
-		// the merge anyway, gets a fix by itself.
-		return word{"on · approved, so only conflicts get a fix", plainStyle}
+	case babysit.LeftForAPerson(pr, o):
+		return word{held + "; f fixes the rest", plainStyle}
+	case o.HoldsBack(pr):
+		// A push can dismiss the approval, so only what the person chose
+		// gets a fix by itself.
+		return word{held, plainStyle}
 	case n == 1:
 		return word{"on · 1 fix so far", plainStyle}
 	case n > 1:
