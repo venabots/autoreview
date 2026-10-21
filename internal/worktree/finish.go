@@ -21,6 +21,8 @@ import (
 // -d, not -D: -d refuses a branch that is not fully pushed, which the
 // checks before it already ruled out, so a refusal there loses nothing.
 func Finish(ctx context.Context, git Git, root string, p Prepared) (Kept, bool, error) {
+	repoLock.Lock()
+	defer repoLock.Unlock()
 	why, err := heldWork(ctx, git, p.Path)
 	if err != nil {
 		return keptOnError(p, err)

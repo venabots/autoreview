@@ -8,7 +8,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+// repoLock lets one task at a time change the person's repo. Making a
+// worktree on a new branch writes .git/config, and git refuses a second
+// writer at once instead of waiting: two tasks that started together left
+// one of them with "could not lock config file" and no worktree.
+var repoLock sync.Mutex
 
 // Prepare makes the worktree for a task on r.PR, or says why not. The error
 // is for the footer, so it names the PR, and it is a sentence a person
@@ -18,6 +25,12 @@ import (
 // take as an option, and nothing is fetched for a PR that would be refused
 // anyway.
 func Prepare(ctx context.Context, git Git, r Request) (Prepared, error) {
+	repoLock.Lock()
+	defer repoLock.Unlock()
+	return prepare(ctx, git, r)
+}
+
+func prepare(ctx context.Context, git Git, r Request) (Prepared, error) {
 	if err := refuseBeforeGit(r); err != nil {
 		return Prepared{}, err
 	}
