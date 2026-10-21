@@ -137,20 +137,15 @@ type hint struct {
 }
 
 // footerHints are the keys the footer names, most useful first. The footer
-// shows as many as fit. Each tab names only the keys that act on it. The
-// tab key names the tab it goes to: "tab review" on Maintain read as a key
-// that reviews your PR.
+// shows as many as fit. Each tab names only the few keys a person reaches
+// for on it, and ? names the rest: a footer that named every key was read
+// as none. The tab key names the tab it goes to: "tab review" on Maintain
+// read as a key that reviews your PR.
 func footerHints(shown tab) []hint {
 	if shown == tabMine {
-		return []hint{
-			{"q", "quit"}, {"f", "fix"}, {"F", "fix all"}, {"a", "autofix"}, {"A", "autofix all"}, {"tab", "to Review"}, {"o", "open"}, {"j/k", "move"}, {"/", "find"}, {"r", "resume"}, {"x", "stop"}, {"d", "dependabot"},
-			{"m", "mouse"}, {"l", "log"}, {"^d/^u", "scroll"},
-		}
+		return []hint{{"q", "quit"}, {"f", "fix"}, {"a", "autofix"}, {"o", "open"}, {"/", "find"}, {"tab", "to Review"}}
 	}
-	return []hint{
-		{"q", "quit"}, {"j/k", "move"}, {"/", "find"}, {"r", "resume"}, {"o", "open"}, {"R", "review now"},
-		{"tab", "to Maintain"}, {"w", "watch"}, {"m", "mouse"}, {"f", "focus"}, {"x", "stop"}, {"l", "log"}, {"^d/^u", "scroll"},
-	}
+	return []hint{{"q", "quit"}, {"R", "review now"}, {"o", "open"}, {"/", "find"}, {"tab", "to Maintain"}}
 }
 
 // keysHint is always the last hint and is never cut: it is how a person

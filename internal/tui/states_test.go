@@ -176,8 +176,8 @@ func TestTheFooterDropsHintsThatDoNotFitButNeverTheKeysHint(t *testing.T) {
 	}
 	wide, _ := newModel(t, 175, 30)
 	narrow, _ := newModel(t, 80, 30)
-	wantOnScreen(t, wide, "q quit  j/k move  / find  r resume  o open  R review now  tab to Maintain  w watch  m mouse  f focus  x stop  l log  ^d/^u scroll  ? keys")
-	wantNotOnScreen(t, narrow, "^d/^u scroll")
+	wantOnScreen(t, wide, "q quit  R review now  o open  / find  tab to Maintain  ? keys")
+	wantNotOnScreen(t, narrow, "tab to Maintain")
 	wantOnScreen(t, narrow, "2 waiting · next look in 1m30s", "q quit", "? keys")
 
 	tiny, _ := newModel(t, 20, 30)

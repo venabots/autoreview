@@ -79,10 +79,8 @@ func TestAOnABotsPRTurnsItsAutofixOnWhileAllAreOn(t *testing.T) {
 	}
 }
 
-func TestTheMaintainFooterAndKeyHelpNameD(t *testing.T) {
+func TestTheKeyHelpNamesD(t *testing.T) {
 	m, _ := newModel(t, 250, 30)
-	m = press(t, m, "tab")
-	wantOnScreen(t, m, "d dependabot")
-	m = press(t, m, "?")
+	m = press(t, m, "tab", "?")
 	wantOnScreen(t, m, "show Dependabot's PRs too")
 }

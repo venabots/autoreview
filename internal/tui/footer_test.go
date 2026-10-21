@@ -86,3 +86,23 @@ func TestTheTabHintNamesTheOtherTabAndNotAnAction(t *testing.T) {
 	wantOnScreen(t, mine, "tab to Review")
 	wantNotOnScreen(t, mine, "tab review ")
 }
+
+// A footer that named fifteen keys was read as none. It names the few a
+// person reaches for, and ? names the rest.
+func TestTheFooterNamesOnlyTheKeysMostUsedOnEachTab(t *testing.T) {
+	review, _ := newModel(t, 250, 30)
+	mine, _ := onMine(t, nil)
+	cases := []struct {
+		tab  string
+		m    Model
+		want string
+	}{
+		{"Review", review, "q quit  R review now  o open  / find  tab to Maintain  ? keys"},
+		{"Maintain", mine, "q quit  f fix  a autofix  o open  / find  tab to Review  ? keys"},
+	}
+	for _, c := range cases {
+		if footer := footerOf(c.m); !strings.HasSuffix(footer, c.want) {
+			t.Errorf("the %s footer is %q, want it to end %q", c.tab, footer, c.want)
+		}
+	}
+}
