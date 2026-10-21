@@ -154,6 +154,8 @@ func Engagement(e prs.Engagement) string {
 		return "new to you"
 	case prs.Updated:
 		return "changed since you last engaged"
+	case prs.Undecided:
+		return "your last review gave no verdict, so it runs again"
 	}
 	return "nothing new since you last engaged"
 }

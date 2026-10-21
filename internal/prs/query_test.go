@@ -32,6 +32,7 @@ func TestTheQueryAsksForWhatThePackageReads(t *testing.T) {
 		{"reviewDecision", "the approved filter needs the decision"},
 		{"comments(last:100) { nodes { author { login } updatedAt } }", "engagement reads the comments"},
 		{"reviews(last:100)  { nodes { author { login } submittedAt } }", "engagement reads the reviews"},
+		{"lastReview: reviews(last:1) { nodes { author { login } submittedAt body } }", "a review with no verdict is read from the last review's body"},
 		{"committedDate author { user { login } }", "engagement reads the commits"},
 	}
 	for _, c := range cases {

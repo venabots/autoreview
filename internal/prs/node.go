@@ -26,7 +26,10 @@ type node struct {
 	Author    actor       `json:"author"`
 	Comments  commentList `json:"comments"`
 	Reviews   reviewList  `json:"reviews"`
-	Commits   commitList  `json:"commits"`
+	// LastReview is the newest review with its body, which tells a review
+	// that decided from one that could not.
+	LastReview lastReviewList `json:"lastReview"`
+	Commits    commitList     `json:"commits"`
 	// The tip of the branch alone, for its checks.
 	HeadCommit headCommitList `json:"headCommit"`
 }
@@ -53,6 +56,16 @@ type reviewList struct {
 type reviewNode struct {
 	Author      actor  `json:"author"`
 	SubmittedAt string `json:"submittedAt"`
+}
+
+type lastReviewList struct {
+	Nodes []lastReviewNode `json:"nodes"`
+}
+
+type lastReviewNode struct {
+	Author      actor  `json:"author"`
+	SubmittedAt string `json:"submittedAt"`
+	Body        string `json:"body"`
 }
 
 type commitList struct {

@@ -133,6 +133,7 @@ func TestTheWordsForEachField(t *testing.T) {
 		{"merge unknown", Merge(mine.MergeUnknown), "not worked out yet"},
 		{"new", Engagement(prs.New), "new to you"},
 		{"updated", Engagement(prs.Updated), "changed since you last engaged"},
+		{"undecided", Engagement(prs.Undecided), "your last review gave no verdict, so it runs again"},
 		{"seen", Engagement(prs.Seen), "nothing new since you last engaged"},
 	}
 	for _, c := range cases {
