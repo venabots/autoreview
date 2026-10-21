@@ -15,6 +15,8 @@ import (
 // worktree, where it never ran; the borrow would also move your worktree
 // up to origin for nothing.
 func Reopen(ctx context.Context, git Git, r Request) (Prepared, error) {
+	repoLock.Lock()
+	defer repoLock.Unlock()
 	if err := refuseBeforeGit(r); err != nil {
 		return Prepared{}, err
 	}
@@ -28,5 +30,5 @@ func Reopen(ctx context.Context, git Git, r Request) (Prepared, error) {
 	if at != "" {
 		return Prepared{}, fmt.Errorf("PR #%d's branch %s is checked out at %s, so its worktree cannot be made again at %s", r.PR, r.Branch, at, r.Path)
 	}
-	return Prepare(ctx, git, r)
+	return prepare(ctx, git, r)
 }

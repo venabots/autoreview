@@ -60,21 +60,22 @@ type answers struct {
 	picked []string
 	added  string
 
-	verdicts, maxPasses, rest, watch, autofixCap, jobs string
-	autofix                                            bool
+	verdicts, maxPasses, rest, watch, autofixCap, autofixApproved, jobs string
+	autofix                                                             bool
 }
 
 func answersOf(v config.Values) answers {
 	return answers{
-		orchestrator: v.Orchestrator,
-		picked:       slices.Clone(v.Panelists),
-		verdicts:     v.Verdicts,
-		maxPasses:    strconv.Itoa(v.MaxPasses),
-		rest:         v.Rest,
-		watch:        v.Watch,
-		autofix:      v.Autofix,
-		autofixCap:   strconv.Itoa(v.AutofixCap),
-		jobs:         strconv.Itoa(v.Jobs),
+		orchestrator:    v.Orchestrator,
+		picked:          slices.Clone(v.Panelists),
+		verdicts:        v.Verdicts,
+		maxPasses:       strconv.Itoa(v.MaxPasses),
+		rest:            v.Rest,
+		watch:           v.Watch,
+		autofix:         v.Autofix,
+		autofixCap:      strconv.Itoa(v.AutofixCap),
+		autofixApproved: v.AutofixApproved,
+		jobs:            strconv.Itoa(v.Jobs),
 	}
 }
 
@@ -127,6 +128,7 @@ func withAnswers(current config.Values, a answers, panel []string) config.Values
 	next.Watch = strings.TrimSpace(a.watch)
 	next.Autofix = a.autofix
 	next.AutofixCap, _ = strconv.Atoi(strings.TrimSpace(a.autofixCap))
+	next.AutofixApproved = a.autofixApproved
 	next.Jobs, _ = strconv.Atoi(strings.TrimSpace(a.jobs))
 	next.Set = chosen(current, next)
 	return next
@@ -141,15 +143,16 @@ func chosen(current, next config.Values) map[string]bool {
 		set = map[string]bool{}
 	}
 	for key, changed := range map[string]bool{
-		"review.orchestrator": next.Orchestrator != current.Orchestrator,
-		"panel.panelists":     !slices.Equal(next.Panelists, current.Panelists),
-		"review.verdicts":     next.Verdicts != current.Verdicts,
-		"loop.max_passes":     next.MaxPasses != current.MaxPasses,
-		"loop.rest":           next.Rest != current.Rest,
-		"loop.watch":          next.Watch != current.Watch,
-		"mine.autofix":        next.Autofix != current.Autofix,
-		"mine.autofix_cap":    next.AutofixCap != current.AutofixCap,
-		"review.jobs":         next.Jobs != current.Jobs,
+		"review.orchestrator":   next.Orchestrator != current.Orchestrator,
+		"panel.panelists":       !slices.Equal(next.Panelists, current.Panelists),
+		"review.verdicts":       next.Verdicts != current.Verdicts,
+		"loop.max_passes":       next.MaxPasses != current.MaxPasses,
+		"loop.rest":             next.Rest != current.Rest,
+		"loop.watch":            next.Watch != current.Watch,
+		"mine.autofix":          next.Autofix != current.Autofix,
+		"mine.autofix_cap":      next.AutofixCap != current.AutofixCap,
+		"mine.autofix_approved": next.AutofixApproved != current.AutofixApproved,
+		"review.jobs":           next.Jobs != current.Jobs,
 	} {
 		if changed {
 			set[key] = true

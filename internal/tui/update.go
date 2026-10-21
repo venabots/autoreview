@@ -41,6 +41,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.flashed(openedText(msg)), nil
 	case resumedMsg:
 		return m.flashed(resumedText(msg)), nil
+	case settingsEditedMsg:
+		return m.flashed(settingsEditedText(msg)), nil
 	case tea.KeyPressMsg:
 		switch {
 		case m.editing:
@@ -170,6 +172,8 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 		return m.botsPressed(), nil
 	case intentWatch:
 		return m.watchToggled(), nil
+	case intentSettings:
+		return m.editingSettings()
 	case intentQuit:
 		return m.quitPressed(), nil
 	case intentInterrupt:

@@ -28,8 +28,9 @@ type Values struct {
 	Stacked    bool
 	SkipCI     bool
 
-	Autofix    bool
-	AutofixCap int
+	Autofix         bool
+	AutofixCap      int
+	AutofixApproved string
 
 	Panelists []string
 	Synth     string
@@ -105,6 +106,11 @@ var fileTemplate = template.Must(template.New("config.toml").Funcs(template.Func
 {{.Mark "mine.autofix"}}autofix = {{.Autofix}}
 # The most fixes one of your PRs gets in a row while nobody else acts on it.
 {{.Mark "mine.autofix_cap"}}autofix_cap = {{.AutofixCap}}
+# What autofix still fixes on one of your PRs once it is approved: conflicts,
+# comments (conflicts and open review threads, such as polish the approval
+# left), or all (a red build too). A fix pushes, and on some repos a push
+# dismisses the approval.
+{{.Mark "mine.autofix_approved"}}autofix_approved = {{q .AutofixApproved}}
 
 [panel]
 # The models that review together, each backend[:model], for example

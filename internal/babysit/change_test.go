@@ -125,8 +125,8 @@ func TestNoMethodChangesItsReceiverOrItsList(t *testing.T) {
 	}
 	want := snapshot(before)
 	steps := map[string]func(){
-		"Look":         func() { before.Look([]mine.PR{head(pr(4), "sha2")}, nil, MaxStreak) },
-		"Look closing": func() { before.Look(nil, nil, MaxStreak) },
+		"Look":         func() { before.Look([]mine.PR{head(pr(4), "sha2")}, nil, Rules{Cap: MaxStreak}) },
+		"Look closing": func() { before.Look(nil, nil, Rules{Cap: MaxStreak}) },
 		"Finished":     func() { before.Finished(4) },
 		"Apply one on": func() { _, _ = before.Apply(One(6, true), list) },
 		"Apply one off": func() {
@@ -149,7 +149,7 @@ func TestNoMethodChangesItsReceiverOrItsList(t *testing.T) {
 		t.Error("a method changed the list it was given")
 	}
 	settled := before.Finished(4)
-	settled.Look(list, nil, MaxStreak)
+	settled.Look(list, nil, Rules{Cap: MaxStreak})
 	if !settled.watches[4].settle {
 		t.Error("Look cleared the settle flag on its receiver")
 	}

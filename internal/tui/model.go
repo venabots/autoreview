@@ -43,6 +43,12 @@ type Actions struct {
 	// Copy puts text on the system clipboard. It may be nil: the view
 	// also asks the terminal to do it.
 	Copy func(ctx context.Context, text string) error
+	// EditSettings opens the settings file in the person's editor, in this
+	// terminal, and is the command that waits for the editor to close. The
+	// view stops drawing until then. done hears why the editor or the file
+	// it left failed, or nil. EditSettings is nil when the run has no
+	// settings file.
+	EditSettings func(done tea.ExecCallback) tea.Cmd
 }
 
 type tab int

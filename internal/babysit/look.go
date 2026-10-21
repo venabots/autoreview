@@ -8,7 +8,7 @@ import (
 )
 
 // Due is one PR to fix now, and the task it gets: a full fix, or only a fix
-// of its conflicts when it is approved.
+// of its conflicts when it is approved and the rules allow no more.
 type Due struct {
 	PR   int
 	Kind task.Kind
@@ -23,11 +23,9 @@ type Due struct {
 // after a look that failed: the list would be the last good one, and a fix
 // that just ended would take its state from before the fix.
 //
-// limit is the most fixes a PR gets in a row while nobody else acts: the
-// person's setting, MaxStreak when they chose none. It is an argument and
-// not a field, because a change of babysitting makes a new State and must
-// not take the cap back to its default.
-func (s State) Look(list []mine.PR, busy func(pr int) bool, limit int) (State, []Due) {
+// rules.Cap is the most fixes a PR gets in a row while nobody else acts:
+// the person's setting, MaxStreak when they chose none.
+func (s State) Look(list []mine.PR, busy func(pr int) bool, rules Rules) (State, []Due) {
 	open := map[int]bool{}
 	for _, pr := range list {
 		open[pr.Number] = true
@@ -38,7 +36,7 @@ func (s State) Look(list []mine.PR, busy func(pr int) bool, limit int) (State, [
 		if !next.Covers(pr) || (busy != nil && busy(pr.Number)) {
 			continue
 		}
-		w, kind, fix := step(next.watches[pr.Number], pr, limit)
+		w, kind, fix := step(next.watches[pr.Number], pr, rules)
 		next.watches[pr.Number] = w
 		if fix {
 			due = append(due, Due{PR: pr.Number, Kind: kind})

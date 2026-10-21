@@ -44,7 +44,7 @@ type watch struct {
 
 // step is one look at one babysat PR that has no job running: the PR's next
 // watch, and the fix it gets now, if any.
-func step(w watch, pr mine.PR, limit int) (watch, task.Kind, bool) {
+func step(w watch, pr mine.PR, rules Rules) (watch, task.Kind, bool) {
 	threads := idSet(pr.ThreadIDs)
 	approved := pr.Approved()
 	acted := w.seen && (hasNew(threads, w.threads) || decidedAgain(w, pr.Review, approved))
@@ -60,39 +60,25 @@ func step(w watch, pr mine.PR, limit int) (watch, task.Kind, bool) {
 	// Somebody acting during the fix is new work, and is not swallowed by
 	// the look that records what the fix left.
 	if next.settle && !acted {
-		return settle(next, now, settled, limit)
+		return settle(next, now, settled, rules)
 	}
 	next.settle, next.waited = false, 0
 	changed := !next.hasBaseline || next.baseline != now
-	kind, allowed := fixFor(approved, pr.Merge)
+	kind, allowed := fixFor(rules.OnApproved, approved, pr.Merge, pr.OpenThreads())
 	// An approved PR that gets no fix keeps its baseline, so what changed
 	// under the approval is still a change on the day the approval goes.
-	if NeedsWork(pr) && (changed || acted) && next.streak < limit && allowed {
+	if NeedsWork(pr) && (changed || acted) && next.streak < rules.Cap && allowed {
 		next.baseline, next.hasBaseline = now, true
 		return started(next), kind, true
 	}
 	return next, task.Review, false
 }
 
-// fixFor is the task a babysat PR that needs work may get. An approved PR
-// gets only a fix of its conflicts: it cannot merge with them, so a push
-// that dismisses the approval loses nothing a person still has. A thread
-// or a red build on it stays for a person.
-func fixFor(approved bool, merge mine.Merge) (task.Kind, bool) {
-	switch {
-	case !approved:
-		return task.Fix, true
-	case merge == mine.MergeConflicts:
-		return task.Conflicts, true
-	}
-	return task.Review, false
-}
-
 // settle is the first look after a fix. It records what the fix left without
 // acting on it. Checks still running and a merge GitHub has not worked out
 // are not what the fix left, so the look waits for them, up to SettleLooks:
 // otherwise their settling would read as a change.
-func settle(w watch, now fingerprint, settled bool, limit int) (watch, task.Kind, bool) {
+func settle(w watch, now fingerprint, settled bool, rules Rules) (watch, task.Kind, bool) {
 	next := w
 	if !settled && next.waited < SettleLooks {
 		next.waited++
@@ -101,8 +87,8 @@ func settle(w watch, now fingerprint, settled bool, limit int) (watch, task.Kind
 	next.settle, next.waited = false, 0
 	broke := next.hasBaseline && fixBroke(next.baseline, now)
 	next.baseline, next.hasBaseline = now, true
-	kind, allowed := fixFor(next.approved, now.merge)
-	if broke && next.streak < limit && allowed {
+	kind, allowed := fixFor(rules.OnApproved, next.approved, now.merge, len(next.threads))
+	if broke && next.streak < rules.Cap && allowed {
 		return started(next), kind, true
 	}
 	return next, task.Review, false

@@ -1,6 +1,11 @@
 package cli
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/venabots/autoreview/internal/babysit"
+)
 
 // The variables that set the loop's defaults.
 const (
@@ -53,5 +58,19 @@ func withLoopFlags(cfg Config, raw map[string]*string, babysit string, given fun
 	if cfg.AutofixCap, err = countOf("the autofix cap", value, 1, MaxAutofixCap); err != nil {
 		return Config{}, told(err)
 	}
+	if cfg.AutofixApproved, err = autofixApproved(set); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// autofixApproved is what autofix still fixes on an approved PR. It has no
+// flag and no variable.
+func autofixApproved(set settings) (babysit.OnApproved, error) {
+	value, told := set.pick("autofix-approved", "", false, "", babysit.ApprovedConflicts.String())
+	o, err := babysit.ParseOnApproved(value)
+	if err != nil {
+		return o, told(fmt.Errorf("autofix on an approved PR %w", err))
+	}
+	return o, nil
 }

@@ -74,3 +74,43 @@ func TestAnApprovalWhereNoRuleAsksForOneHasTheApprovedMark(t *testing.T) {
 	})
 	wantOnScreen(t, m, "✓ #4 · approved")
 }
+
+// The view says what the run does: under comments or all, the threads on
+// an approved PR are autofix's to fix, and the row does not send the
+// person to f for them.
+func TestTheAutofixLineFollowsWhatAutofixFixesOnAnApprovedPR(t *testing.T) {
+	cases := []struct {
+		o        babysit.OnApproved
+		redBuild bool
+		want     string
+		not      string
+	}{
+		{babysit.ApprovedComments, false, "autofix   on", "approved, so only"},
+		{babysit.ApprovedComments, true, "autofix   on · approved, so only conflicts and review comments get a fix; f fixes the rest", ""},
+		{babysit.ApprovedAll, true, "autofix   on", "approved, so only"},
+	}
+	for _, c := range cases {
+		m, _ := onMine(t, func(s *engine.Snapshot) {
+			approvedWithThreads(s)
+			if c.redBuild {
+				s.Mine[0].ThreadIDs, s.Mine[0].CI = nil, prs.CIFailing
+			}
+			s.AutofixApproved = c.o
+			s.Babysit, _ = s.Babysit.Apply(babysit.All(true), s.Mine)
+		})
+		wantOnScreen(t, m, c.want)
+		if c.not != "" {
+			wantNotOnScreen(t, m, c.not)
+		}
+	}
+}
+
+func TestAOnAnApprovedPRThatAutofixWillFixSaysNothingOfF(t *testing.T) {
+	m, _ := onMine(t, func(s *engine.Snapshot) {
+		approvedWithThreads(s)
+		s.AutofixApproved = babysit.ApprovedComments
+	})
+	m = pressMine(t, m, "a")
+	wantNotOnScreen(t, m, "f fixes the rest")
+	wantOnScreen(t, m, "autofix")
+}

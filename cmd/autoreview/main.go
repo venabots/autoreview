@@ -143,15 +143,16 @@ func wantsScreen(view cli.View, stderr io.Writer) bool {
 //     still running.
 func engineConfig(cfg cli.Config, rc repo.Context, screen bool) engine.Config {
 	c := engine.Config{
-		Repo:       rc,
-		Gates:      prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
-		Only:       cfg.Only,
-		Authors:    cfg.Authors,
-		MaxPasses:  cfg.MaxPasses,
-		MaxIdle:    cfg.MaxIdle,
-		AutofixCap: cfg.AutofixCap,
-		Panelists:  cfg.Panelists,
-		Verdicts:   cfg.Verdicts,
+		Repo:            rc,
+		Gates:           prs.Gates{CI: !cfg.SkipCI, Stack: !cfg.Stacked},
+		Only:            cfg.Only,
+		Authors:         cfg.Authors,
+		MaxPasses:       cfg.MaxPasses,
+		MaxIdle:         cfg.MaxIdle,
+		AutofixCap:      cfg.AutofixCap,
+		AutofixApproved: cfg.AutofixApproved,
+		Panelists:       cfg.Panelists,
+		Verdicts:        cfg.Verdicts,
 	}
 	switch {
 	case screen || cfg.WatchGiven:
@@ -199,7 +200,8 @@ func git(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 // actions is what the view can do outside itself: open a PR in the
-// browser, and reopen a review in a new terminal tab.
+// browser, reopen a review in a new terminal tab, and open the settings
+// file in the person's editor.
 func actions(rc repo.Context) tui.Actions {
 	return tui.Actions{
 		Open: func(ctx context.Context, pr int) error {
@@ -217,5 +219,6 @@ func actions(rc repo.Context) tui.Actions {
 		Copy: func(ctx context.Context, text string) error {
 			return clipboard.Copy(ctx, exec.LookPath, os.Getenv, clipboard.Exec, text)
 		},
+		EditSettings: editSettings(os.Getenv),
 	}
 }

@@ -66,7 +66,7 @@ func TestAutofixLeavesTheWorkOnAnApprovedPRForAPerson(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := LeftForAPerson(c.pr); got != c.want {
+			if got := LeftForAPerson(c.pr, ApprovedConflicts); got != c.want {
 				t.Errorf("LeftForAPerson = %v, want %v", got, c.want)
 			}
 		})

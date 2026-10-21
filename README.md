@@ -123,6 +123,9 @@ or author, and the selection moves as you type. Typing a number starts it too,
 so `2734` goes to PR #2734. `enter` keeps the PR, and `esc` goes back. `o` opens
 the PR in the browser, `l` shows the run log, and `?` lists every key. A drag in the right pane selects its text and copies it. `m`
 gives the mouse back to the terminal, to select text anywhere on the screen.
+`e` opens the [settings](#settings) file in `$VISUAL` or `$EDITOR`, and
+checks it when the editor closes. A change applies when autoreview starts
+again. The footer names only the keys you use most on each tab.
 `q q` quits: the first `q` asks, because a quit stops every review and task that
 is running. `esc` closes the key list and answers no to a question.
 
@@ -162,7 +165,9 @@ of them:
   the approval. A PR with conflicts cannot merge, so that push loses nothing.
   Open threads and a failing build on an approved PR stay for you: `f` or `F`
   fixes them when you press it. The PR's right pane, and `a` when it turns
-  autofix on, say so.
+  autofix on, say so. To have autofix fix the threads too, such as polish a
+  review left with its approval, set `mine.autofix_approved = "comments"`.
+  `"all"` fixes a failing build on an approved PR too.
 
 ## Settings
 
@@ -199,6 +204,7 @@ without saving.
 | `prs.approved`, `dependabot`, `stacked`, `skip_ci`                      | `--all`, `--dependabot`, `--stacked` and `--skip-wait-for-ci`. `--all=false` turns one off for a run      |
 | `mine.autofix`                                                          | Whether the view starts with autofix on for all your PRs (default `true`)                                 |
 | `mine.autofix_cap`                                                      | The most fixes in a row on one of your PRs while nobody else acts on it (default 3)                       |
+| `mine.autofix_approved`                                                 | What autofix still fixes on an approved PR: `conflicts` (the default), `comments` or `all`                |
 | `panel.panelists`                                                       | The models that review together, such as `["claude:opus-4.8", "codex"]`. Empty is every backend on `PATH` |
 | `panel.synth`                                                           | The model that writes the synthesis of `autoreview panel`                                                 |
 

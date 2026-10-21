@@ -69,6 +69,9 @@ type Mine struct {
 	// AutofixCap is the most fixes a PR gets in a row while nobody else
 	// acts on it.
 	AutofixCap *int `toml:"autofix_cap"`
+	// AutofixApproved is what autofix still fixes on an approved PR:
+	// conflicts, comments or all.
+	AutofixApproved *string `toml:"autofix_approved"`
 }
 
 // Panel is the models that review together. Each one is written
@@ -128,6 +131,7 @@ func (f File) keyed() []struct {
 		{"prs.approved", f.PRs.Approved != nil}, {"prs.dependabot", f.PRs.Dependabot != nil},
 		{"prs.stacked", f.PRs.Stacked != nil}, {"prs.skip_ci", f.PRs.SkipCI != nil},
 		{"mine.autofix", f.Mine.Autofix != nil}, {"mine.autofix_cap", f.Mine.AutofixCap != nil},
+		{"mine.autofix_approved", f.Mine.AutofixApproved != nil},
 		{"panel.panelists", f.Panel.Panelists != nil || f.panelistsNamed}, {"panel.synth", f.Panel.Synth != nil},
 	}
 }

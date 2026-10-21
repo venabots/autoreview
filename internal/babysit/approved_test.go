@@ -29,13 +29,13 @@ func TestAnApprovedPRGetsNoFix(t *testing.T) {
 		})
 		s, due := look(babysitting(4), approved)
 		wantDue(t, due, nil, "approved, with "+c.name)
-		if !s.OnHold(4) {
+		if !s.OnHold(4, ApprovedConflicts) {
 			t.Errorf("approved, with %s: the PR is not on hold", c.name)
 		}
 		_, due = look(s, head(approved, "sha2"))
 		wantDue(t, due, nil, "approved and changed, with "+c.name)
 	}
-	if s, _ := look(babysitting(4), pr(4)); s.OnHold(4) {
+	if s, _ := look(babysitting(4), pr(4)); s.OnHold(4, ApprovedConflicts) {
 		t.Error("a PR nobody approved is on hold")
 	}
 }
@@ -114,7 +114,7 @@ func TestAPRThatLosesItsApprovalIsFixedAgain(t *testing.T) {
 	asked := with(pr(4), func(p *mine.PR) { p.Review = mine.ReviewChangesRequested })
 	s, due := look(s, asked)
 	wantDue(t, due, []int{4}, "a reviewer asked for changes after the approval")
-	if s.OnHold(4) {
+	if s.OnHold(4, ApprovedConflicts) {
 		t.Error("the PR is still on hold")
 	}
 

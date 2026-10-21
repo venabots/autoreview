@@ -97,15 +97,15 @@ func (m Model) autofixPressed() Model {
 	if err != nil {
 		return m.flashed(err.Error())
 	}
-	return m.babysat(c, fmt.Sprintf("PR #%d", row.pr.Number), autofixSaid(c, row.pr))
+	return m.babysat(c, fmt.Sprintf("PR #%d", row.pr.Number), autofixSaid(c, row.pr, m.snap.AutofixApproved))
 }
 
 // autofixSaid is what turning autofix on or off says. On an approved PR
 // with work left, autofix starts nothing, so it says why and names the key
 // that fixes the PR now.
-func autofixSaid(c babysit.Change, pr mine.PR) string {
-	if c.On && babysit.LeftForAPerson(pr) {
-		return fmt.Sprintf("autofixing PR #%d; it is approved, so autofix fixes only its conflicts: f fixes the rest", pr.Number)
+func autofixSaid(c babysit.Change, pr mine.PR, o babysit.OnApproved) string {
+	if c.On && babysit.LeftForAPerson(pr, o) {
+		return fmt.Sprintf("autofixing PR #%d; it is approved, so autofix fixes only its %s: f fixes the rest", pr.Number, o.Fixes())
 	}
 	return c.Said()
 }
