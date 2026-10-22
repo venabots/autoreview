@@ -125,7 +125,9 @@ the PR in the browser, `l` shows the run log, and `?` lists every key. A drag in
 gives the mouse back to the terminal, to select text anywhere on the screen.
 `e` opens the [settings](#settings) file in `$VISUAL` or `$EDITOR`, and
 checks it when the editor closes. A change applies when autoreview starts
-again. The footer names only the keys you use most on each tab.
+again. The footer names only the keys you use most on each tab. `ctrl+r`
+reads both PR lists from GitHub now, not at the next look, so a PR you just
+merged, closed or pushed to shows at once.
 `q q` quits: the first `q` asks, because a quit stops every review and task that
 is running. `esc` closes the key list and answers no to a question.
 
@@ -154,6 +156,11 @@ While a task runs, its row says so. When it ends, the footer says how, and the
 row keeps the result: `fix pushed`, `fix pushed nothing` or `fix failed`. Your
 PRs are read again at once, so the row also shows what the task left. A task
 that could not start says why in the footer and in the right pane.
+
+A task can end with nothing pushed on purpose. It then says why, and when the
+PR needs you, the row says so in yellow: `should close` when the PR should be
+closed, for example because its base already has the change, or `needs you`
+when a person must decide. The right pane and the summary say why.
 
 Autofix has three limits. `f` and `F` are keys you press, so they keep to none
 of them:

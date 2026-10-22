@@ -338,7 +338,9 @@ func TestAFocusIsAnOptionTheSkillsUnderstand(t *testing.T) {
 	}
 }
 
-func TestATaskRunsItsSkillAndNothingElse(t *testing.T) {
+// A task runs its skill, and is asked for its own report and nothing a
+// review gets: no review trailer, no staged skills, no focus.
+func TestATaskRunsItsSkillAndIsAskedOnlyForItsReport(t *testing.T) {
 	r := Request{
 		PR: 4, Orchestrator: Claude(), Task: "babysit-pr", Focus: "be strict", SkillsDir: "/run/agent",
 		Override: "my-review", Dashp: "dash-p", Dir: "/run/worktrees/pr-4", Meta: "/m.json",
@@ -352,14 +354,17 @@ func TestATaskRunsItsSkillAndNothingElse(t *testing.T) {
 	if !strings.HasSuffix(args, "--session-id 0d0d0d0d-1111-4222-8333-444455556666 -- /babysit-pr 4") {
 		t.Errorf("argv ends %q, want the pinned session and the skill alone", args[max(len(args)-80, 0):])
 	}
-	for _, unwanted := range []string{"--append-system-prompt", "--add-dir", "--focus"} {
+	if !slices.Contains(spec.Args, "--append-system-prompt="+TaskTrailerInstruction) {
+		t.Errorf("a claude task was not asked for its report: %s", args)
+	}
+	for _, unwanted := range []string{"--append-system-prompt=" + TrailerInstruction, "--add-dir", "--focus"} {
 		if strings.Contains(args, unwanted) {
 			t.Errorf("a task was sent %s: %s", unwanted, args)
 		}
 	}
 	r.Orchestrator = Orchestrator{Backend: "codex"}
-	if got := SpecFor(r).Args; got[len(got)-1] != "$babysit-pr 4" {
-		t.Errorf("a codex task's prompt is %q, want the skill and no trailer request", got[len(got)-1])
+	if got := SpecFor(r).Args; got[len(got)-1] != "$babysit-pr 4\n\n"+TaskTrailerInstruction {
+		t.Errorf("a codex task's prompt is %q, want the skill, then the request for its report", got[len(got)-1])
 	}
 }
 

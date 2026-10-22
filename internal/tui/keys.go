@@ -35,6 +35,8 @@ const (
 	intentLog
 	// intentSettings opens the settings file in the person's editor.
 	intentSettings
+	// intentLookNow reads the PR lists from GitHub now.
+	intentLookNow
 	// intentFind is / and intentFindNumber a digit: both open the find
 	// line, the digit with itself typed in it.
 	intentFind
@@ -62,6 +64,7 @@ var keyNames = map[string]intent{
 	"pgdown":    intentPageDown,
 	"space":     intentPageDown,
 	"ctrl+u":    intentPageUp,
+	"ctrl+r":    intentLookNow,
 	"pgup":      intentPageUp,
 	"tab":       intentSwitchTab,
 	"shift+tab": intentSwitchTab,
@@ -124,6 +127,7 @@ var helpLines = []keyHelp{
 	{"o", "open the selected PR in the browser"},
 	{"x x", "stop the selected review or task; the first x asks"},
 	{"w", "start or stop watching for new work"},
+	{"^r", "read the PR lists from GitHub now, not at the next look"},
 	{"f", "Review: type what the reviewers look at (the focus)"},
 	{"l", "show the run log in the right pane; esc puts it away"},
 	{"e", "edit the settings file in $VISUAL or $EDITOR; a change applies when autoreview starts again"},

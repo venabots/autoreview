@@ -332,6 +332,8 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		r.snap.Focus = in.Text
 	case SetWatch:
 		return e.setWatch(w, r, in.On)
+	case LookNow:
+		return e.lookNow(w, r)
 	case IncludeBots:
 		return e.includeBots(w, r, in.On)
 	case RunTask:
