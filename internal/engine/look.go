@@ -38,6 +38,17 @@ func (e *Engine) look(w workers, r run) run {
 	return r
 }
 
+// lookNow starts a look at once. The timer is stopped, so the look it had
+// set does not follow this one; the look sets the next one when it ends.
+// A look under way already answers the ask.
+func (e *Engine) lookNow(w workers, r run) run {
+	if r.snap.Looking || r.snap.Phase == Stopping || r.snap.Phase == Done {
+		return r
+	}
+	w.timer.Stop()
+	return e.look(w, r)
+}
+
 // guarded turns a panic in a look into that look's error.
 func guarded[T any](read func() (T, error)) (value T, err error) {
 	defer func() {

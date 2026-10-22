@@ -174,6 +174,8 @@ func (m Model) pressed(in intent) (tea.Model, tea.Cmd) {
 		return m.watchToggled(), nil
 	case intentSettings:
 		return m.editingSettings()
+	case intentLookNow:
+		return m.lookingNow(), nil
 	case intentQuit:
 		return m.quitPressed(), nil
 	case intentInterrupt:

@@ -125,7 +125,9 @@ the PR in the browser, `l` shows the run log, and `?` lists every key. A drag in
 gives the mouse back to the terminal, to select text anywhere on the screen.
 `e` opens the [settings](#settings) file in `$VISUAL` or `$EDITOR`, and
 checks it when the editor closes. A change applies when autoreview starts
-again. The footer names only the keys you use most on each tab.
+again. The footer names only the keys you use most on each tab. `ctrl+r`
+reads both PR lists from GitHub now, not at the next look, so a PR you just
+merged, closed or pushed to shows at once.
 `q q` quits: the first `q` asks, because a quit stops every review and task that
 is running. `esc` closes the key list and answers no to a question.
 
