@@ -105,6 +105,9 @@ func taskResultLine(job engine.Job) string {
 	if pushed == "" {
 		pushed = "unknown"
 	}
+	if why := report.TaskWhy(job); why != "" {
+		pushed += "; " + why
+	}
 	switch job.State {
 	case engine.JobTimedOut:
 		return fmt.Sprintf("TIMEOUT #%d (%s, %s): %s", job.PR, job.Task.Tag(), took, pushed)

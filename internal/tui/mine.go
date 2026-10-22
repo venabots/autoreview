@@ -113,6 +113,8 @@ func mineWord(row mineRow, babysat babysit.State, now time.Time) word {
 	switch {
 	case row.notStarted != "":
 		w.text = "did not start · " + w.text
+	case row.task != nil && report.TaskAdvice(*row.task) != "":
+		w = word{report.TaskOutcome(*row.task) + " · " + w.text, yellowStyle}
 	case row.task != nil:
 		w.text = report.TaskOutcome(*row.task) + " · " + w.text
 	}
@@ -186,6 +188,7 @@ func taskLines(job engine.Job, live bool, now time.Time) []line {
 	if job.Verdict != "" {
 		lines = append(lines, field("branch", word{job.Verdict, plainStyle}))
 	}
+	lines = append(lines, reportLines(job)...)
 	if job.Worktree != "" {
 		where := job.Worktree
 		switch {
@@ -212,4 +215,21 @@ func sessionOf(job engine.Job) string {
 		return job.Session
 	}
 	return job.Follow
+}
+
+// reportLines is what the task said of how it ended: the advice, such as
+// "should close", and why. Without them a task that chose not to push read
+// as one that did nothing.
+func reportLines(job engine.Job) []line {
+	if job.TaskTrailer == nil {
+		return nil
+	}
+	lines := []line{}
+	if advice := report.TaskAdvice(job); advice != "" {
+		lines = append(lines, field("advice", word{advice, yellowStyle}))
+	}
+	if job.TaskTrailer.Why != "" {
+		lines = append(lines, field("why", word{job.TaskTrailer.Why, plainStyle}))
+	}
+	return lines
 }

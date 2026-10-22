@@ -184,8 +184,8 @@ func dashpArgs(r Request) []string {
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
 	}
-	if o.SupportsSystemPrompt() && r.Task == "" {
-		args = append(args, "--append-system-prompt="+TrailerInstruction)
+	if o.SupportsSystemPrompt() {
+		args = append(args, "--append-system-prompt="+trailerInstruction(r))
 	}
 	if r.SkillsDir != "" && o.DiscoversStagedSkills() && r.Task == "" {
 		args = append(args, "--add-dir="+r.SkillsDir)
@@ -205,10 +205,20 @@ func dashpArgs(r Request) []string {
 // the skill line as a paragraph of its own. The skill line stays first and
 // alone, so it is read as the instruction.
 func dashpPrompt(r Request) string {
-	if r.Orchestrator.SupportsSystemPrompt() || r.Task != "" {
+	if r.Orchestrator.SupportsSystemPrompt() {
 		return Prompt(r)
 	}
-	return Prompt(r) + "\n\n" + TrailerInstruction
+	return Prompt(r) + "\n\n" + trailerInstruction(r)
+}
+
+// trailerInstruction asks a review for the review trailer, and a task for
+// the task trailer: a task posts no review, so the review trailer's
+// questions have no answer there.
+func trailerInstruction(r Request) string {
+	if r.Task != "" {
+		return TaskTrailerInstruction
+	}
+	return TrailerInstruction
 }
 
 // sentFlag is the session flag that reaches the reviewer. It is FlagNone

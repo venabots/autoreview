@@ -63,6 +63,10 @@ type Job struct {
 	Verdict string
 	// Trailer is what the reviewer reported about its own review, or nil.
 	Trailer *review.Trailer
+	// TaskTrailer is a task's own report of how it ended, such as a PR
+	// that should be closed, or nil when it wrote none. It is never set
+	// on a review.
+	TaskTrailer *review.TaskTrailer
 	// Cost is what the review spent, or nil when the harness did not say.
 	Cost *float64
 	// Model is the model the harness ran, or empty.
