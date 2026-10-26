@@ -60,7 +60,9 @@ func (m Model) footer() string {
 	case m.find.open:
 		return editorLine("/ ", m.find.input, m.find.miss, "   enter keeps it · esc goes back", w)
 	}
-	return fit(footerLine(m.status(), footerHints(m.tab), w), w).render(false)
+	status := m.status()
+	left := append(healthMark(m.snap.Health), styled(status.text, status.style))
+	return fit(footerLine(left, footerHints(m.tab), w), w).render(false)
 }
 
 // editorLine is a one-line editor in the footer: its label, what was

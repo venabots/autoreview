@@ -160,11 +160,11 @@ func statusText(s *engine.Snapshot, t tally, now time.Time, spin string) word {
 // hintGap is the least space between the status and the hints.
 const hintGap = 2
 
-// footerLine puts the status on the left and the key hints on the right.
+// footerLine puts the health mark and the status on the left, and the key
+// hints on the right.
 // It shows as many hints as fit beside the status, in order. The last hint
 // is always shown: on a screen too narrow for both, the status is cut.
-func footerLine(status word, hints []hint, width int) line {
-	left := line{styled(status.text, status.style)}
+func footerLine(left line, hints []hint, width int) line {
 	right := hintLine(fittingHints(hints, width-left.width()-hintGap))
 	room := max(width-right.width()-hintGap, 0)
 	return append(append(fit(left, room), text(strings.Repeat(" ", hintGap))), right...)

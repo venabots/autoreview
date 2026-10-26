@@ -137,6 +137,9 @@ type Deps struct {
 	// Prepare makes the worktree a task runs in, and Finish gives it back
 	// or says why it is kept. Pushed reads whether a PR's head moved from a
 	// commit. TaskRefusal says why a kind of task cannot run, or is empty.
+	// Doctor says what `autoreview doctor` would say now. It may be nil:
+	// the run then asks nothing, and the view shows no health.
+	Doctor  func(ctx context.Context) Health
 	Prepare func(ctx context.Context, r task.Request) (worktree.Prepared, error)
 	Finish  func(ctx context.Context, p worktree.Prepared) (kept string, err error)
 	// Reopen makes an ended task's worktree again where it was, so its
@@ -284,6 +287,7 @@ func (e *Engine) Run() Result {
 	defer timer.Stop()
 	w := workers{ctx: ctx, group: &group, timer: timer}
 
+	e.startDoctor(w)
 	r := e.look(w, e.autofixAtStart(w, run{snap: *e.Snapshot()}))
 	e.publish(r)
 	for r.snap.Phase != Done {
@@ -352,6 +356,8 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		return e.taskGuard(r, in)
 	case ReopenTask:
 		return e.reopenTask(w, r, in.PR)
+	case doctorChecked:
+		return e.doctorChecked(r, in)
 	case taskReopened:
 		return e.taskReopened(r, in)
 	}

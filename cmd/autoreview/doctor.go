@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/venabots/autoreview/internal/doctor"
+	"github.com/venabots/autoreview/internal/engine"
 	"github.com/venabots/autoreview/internal/proc"
 	"github.com/venabots/autoreview/internal/sanitize"
 )
@@ -40,21 +41,42 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		return doctor.ExitProblem
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
+	d := doctorDeps(ctx, file.Panel.Panelists, dir)
+	d.Stdout, d.Stderr = stdout, stderr
+	return doctor.Run(ctx, args, d)
+}
+
+// doctorDeps is the real world the doctor reads, with its probe's files in
+// dir.
+func doctorDeps(ctx context.Context, panelists []string, dir string) doctor.Deps {
 	dashp, err := findDashp()
 	if err != nil {
 		dashp = "dash-p"
 	}
 	prober := doctor.Prober{Starter: proc.OS{}, Dashp: dashp, Dir: dir, Timeout: probeTimeout}
-	return doctor.Run(ctx, args, doctor.Deps{
+	return doctor.Deps{
 		Env:       os.Getenv,
 		Now:       time.Now(),
-		Panelists: file.Panel.Panelists,
+		Panelists: panelists,
 		Has:       onPath,
 		Probe:     prober.Probe,
 		Version:   func(name string) (string, bool) { return versionOf(ctx, name, dashp) },
-		Stdout:    stdout,
-		Stderr:    stderr,
-	})
+	}
+}
+
+// doctorHealth is what `autoreview doctor` would say now, for the view's
+// footer. Each check gets a temporary directory of its own, as the
+// subcommand does, so no panelist reads the checkout.
+func doctorHealth(panelists []string) func(context.Context) engine.Health {
+	return func(ctx context.Context) engine.Health {
+		dir, err := os.MkdirTemp("", "autoreview-doctor.")
+		if err != nil {
+			return engine.Health{Problems: []string{"the doctor could not make a temporary directory"}}
+		}
+		defer func() { _ = os.RemoveAll(dir) }()
+		s := doctor.Diagnose(ctx, doctorDeps(ctx, panelists, dir))
+		return engine.Health{Seated: s.Seated, Answering: s.Answering, Problems: s.Problems, Blocking: s.Blocking}
+	}
 }
 
 func onPath(name string) bool {
