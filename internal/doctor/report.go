@@ -51,8 +51,11 @@ func (r report) problems() []string {
 		out = append(out, words.Count(n, "PR")+" got no verdict")
 	}
 	for _, t := range r.tools {
-		if t.Required && !t.Found {
+		switch {
+		case t.Required && !t.Found:
 			out = append(out, t.Name+" is not installed")
+		case t.TooOld:
+			out = append(out, fmt.Sprintf("%s %s is older than %s, which autoreview needs", t.Name, versionIn(t.Version), t.Min))
 		}
 	}
 	return out
@@ -170,8 +173,11 @@ func writeTools(b *strings.Builder, tools []Tool) {
 	width := widest(names)
 	for _, t := range tools {
 		said := sanitize.Line(t.Version)
-		if !t.Found {
+		switch {
+		case !t.Found:
 			said = "not installed"
+		case t.TooOld:
+			said += " (autoreview needs " + t.Min + " or later)"
 		}
 		fmt.Fprintf(b, "  %-*s  %s\n", width, t.Name, said)
 	}
