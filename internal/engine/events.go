@@ -49,6 +49,12 @@ type Noted struct {
 // Interrupted says the run was told to stop while reviews were running.
 type Interrupted struct{}
 
+// HealthChanged says the doctor's problems changed: one appeared, one
+// cleared, or all did. Before is the zero Health at the first answer.
+type HealthChanged struct {
+	Before, After Health
+}
+
 func (Looked) event()          {}
 func (NothingToReview) event() {}
 func (PassStarted) event()     {}
@@ -57,3 +63,4 @@ func (JobFinished) event()     {}
 func (JobRetrying) event()     {}
 func (Noted) event()           {}
 func (Interrupted) event()     {}
+func (HealthChanged) event()   {}
