@@ -80,6 +80,9 @@ type Snapshot struct {
 	// It is worked out once when the run starts and is never changed, so
 	// the view can refuse a key before it sends anything.
 	Refusals map[task.Kind]string
+	// Health is the doctor's last answer, or nil before the first one and
+	// in a run that asks none.
+	Health *Health
 	// AutofixApproved is what autofix still fixes on an approved PR, so
 	// the view says the same as the run does.
 	AutofixApproved babysit.OnApproved

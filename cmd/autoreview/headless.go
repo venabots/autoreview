@@ -111,8 +111,11 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 		deps.Marks = marks.New(gh.Exec, rc.Owner, rc.Name)
 	}
 	if held {
-		// Tasks start only from keys, so only the view has them.
+		// Tasks start only from keys, so only the view has them. The
+		// doctor costs a probe of each panelist, and only the view has a
+		// footer to show it in.
 		deps = withTasks(deps, cfg, rc, prepared.run)
+		deps.Doctor = doctorHealth(cfg.Panelists)
 	}
 
 	config := engineConfig(cfg, rc, held)

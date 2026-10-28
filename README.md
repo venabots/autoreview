@@ -344,6 +344,12 @@ verdict, and nothing on the screen turns red. `autoreview doctor` finds this:
 
 It exits 1 when it finds a problem, so cron can tell you.
 
+The view asks the doctor too, when it opens and every 30 minutes, and shows
+its answer at the bottom left of the footer: `● panel 4/4` in green when all is
+clear, yellow when there is a problem but a review can still approve, and red
+when reviews cannot approve or cannot start. The run log (`l`) names each
+problem when it appears and when it clears.
+
 ```sh
 autoreview doctor              # ask the panel, read the last day
 autoreview doctor --since 7d   # a longer window
