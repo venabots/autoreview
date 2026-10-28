@@ -289,3 +289,29 @@ func TestTheFileCanStartTheViewWithAutofixOff(t *testing.T) {
 		t.Error("mine.autofix = true turned autofix off at the start")
 	}
 }
+
+// Alerts go to Herdr unless the file says otherwise. An empty list turns
+// them off, and a channel autoreview does not know is an error that names
+// the key, not an alert that goes nowhere.
+func TestAlertsGoWhereTheFileSays(t *testing.T) {
+	if cfg := parse(t); !slices.Equal(cfg.Notify, []string{"herdr"}) {
+		t.Errorf("the default channels are %q, want herdr", cfg.Notify)
+	}
+	off := withSettings(func(f *config.File) { f.Notify.Channels = []string{} })
+	if cfg := parseWith(t, nil, off); len(cfg.Notify) != 0 {
+		t.Errorf("an empty list sent alerts to %q", cfg.Notify)
+	}
+	_, err := ParseWith(nil, noEnv, withSettings(func(f *config.File) { f.Notify.Channels = []string{"pager"} }))
+	want := "notify.channels in " + settingsPath + `: "pager" is not a channel; the channels are herdr`
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("pager: %v, want %q", err, want)
+	}
+}
+
+func TestEveryChannelTheFileCanNameIsOneTheRunKnows(t *testing.T) {
+	for _, c := range Channels {
+		if _, err := notifyChannels(config.File{Path: settingsPath, Notify: config.Notify{Channels: []string{c}}}); err != nil {
+			t.Errorf("%s: %v", c, err)
+		}
+	}
+}

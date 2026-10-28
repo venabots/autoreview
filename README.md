@@ -228,6 +228,7 @@ without saving.
 | `mine.autofix_approved` | What autofix still fixes on an approved PR: `conflicts`, `comments` (open review threads too) or `all` (a red build too) | `conflicts`                   |                           |
 | `panel.panelists`       | The models that review together, such as `["claude:opus-4.8", "codex"]`. Name at least 2                                 | every backend on `PATH`       | `$PANEL_REVIEW_PANELISTS` |
 | `panel.synth`           | The model that writes the synthesis of `autoreview panel`                                                                | `claude`                      |                           |
+| `notify.channels`       | Where alerts go: `herdr`. An empty list turns alerts off                                                                 | `["herdr"]`                   |                           |
 
 **Verdicts.** `approve-only` makes a review that would request changes a comment
 review with the same findings. `comment-only` makes every review a comment

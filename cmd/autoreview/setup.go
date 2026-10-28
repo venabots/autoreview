@@ -201,7 +201,8 @@ func valuesOf(file config.File) (config.Values, error) {
 		Watch:    cfg.Watch.Text, Rest: cfg.Babysit.Text, MaxPasses: cfg.MaxPasses, MaxIdle: cfg.MaxIdle, CIWait: cfg.CIWait.Text,
 		Approved: cfg.All, Dependabot: cfg.Dependabot, Stacked: cfg.Stacked, SkipCI: cfg.SkipCI,
 		Autofix: !cfg.NoAutofix, AutofixCap: cfg.AutofixCap, AutofixApproved: cfg.AutofixApproved.String(), Panelists: file.Panel.Panelists, Synth: synth,
-		Set: file.Keys(),
+		NotifyChannels: cfg.Notify,
+		Set:            file.Keys(),
 	}, nil
 }
 

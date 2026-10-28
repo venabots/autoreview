@@ -81,6 +81,8 @@ type Config struct {
 	// for the one panel-review.sh picks: $PANEL_REVIEW_PANELISTS, or every
 	// backend on PATH.
 	Panelists []string
+	// Notify is each channel an alert goes to. Empty turns alerts off.
+	Notify []string
 	// NoPost reviews and leaves the PR alone.
 	NoPost bool
 	// Continue resumes a PR's earlier review session.
@@ -250,6 +252,9 @@ func parseFlags(args []string, env func(string) string, file config.File) (Confi
 	cfg.View, cfg.Only, cfg.Watch = view, only, interval
 	given := func(name string) bool { return fs.Changed(name) }
 	cfg = withFileSwitches(cfg, set, given)
+	if cfg.Notify, err = notifyChannels(file); err != nil {
+		return Config{}, err
+	}
 	if cfg.Panelists, err = panelists(file, env); err != nil {
 		return Config{}, err
 	}
