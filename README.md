@@ -359,8 +359,10 @@ autoreview doctor --no-probe   # read the ledger only; spends nothing
 ## Requirements
 
 - [`gh`](https://cli.github.com), logged in (`gh auth login`).
-- [`dash-p`](https://github.com/venabots/dash-p). Every built-in review runs
-  through it. `$DASHP_BIN` names another binary.
+- [`dash-p`](https://github.com/venabots/dash-p) 0.5.0 or later. Every built-in
+  review runs through it. An older one starts opencode 2.x outside its working
+  directory, and `autoreview doctor` says so. `$DASHP_BIN` names another
+  binary.
 - An orchestrator CLI: `claude` by default, `codex` with `--orchestrator codex`.
   With both installed, a run has its fallback.
 - `git`, for the worktrees of `panel` and of the Maintain tasks.
