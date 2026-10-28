@@ -40,6 +40,7 @@ type taskReaped struct {
 	exit    proc.Exit
 	elapsed time.Duration
 	meta    *review.Meta
+	trailer *review.TaskTrailer
 }
 
 type taskSettled struct {
@@ -221,7 +222,7 @@ func (e *Engine) startTask(w workers, r run, i int) run {
 	w.group.Go(func() {
 		exit := started.Wait()
 		elapsed := time.Since(f.view.StartedAt)
-		e.in.put(taskReaped{pr: pr, exit: exit, elapsed: elapsed, meta: readMeta(f)})
+		e.in.put(taskReaped{pr: pr, exit: exit, elapsed: elapsed, meta: readMeta(f), trailer: readTaskTrailer(f.spec.Stdout)})
 		e.in.put(e.taskOutcome(w.ctx, pr, before, tree))
 	})
 	e.journal(JobStarted{Job: t.view})
@@ -278,7 +279,18 @@ func (e *Engine) taskReaped(w workers, r run, in taskReaped) run {
 	t.view.State = JobFinishing
 	t.view.Elapsed = in.elapsed
 	t.view = withMeta(t.view, t.plan, in.meta, false)
+	t.view.TaskTrailer = in.trailer
 	return e.fill(w, withTask(r, i, t))
+}
+
+// readTaskTrailer is the report a task ended with, or nil when it wrote
+// none. It reads a file, so it runs off the engine's goroutine.
+func readTaskTrailer(stdout string) *review.TaskTrailer {
+	t, ok := review.ReadTaskTrailer(stdout)
+	if !ok {
+		return nil
+	}
+	return &t
 }
 
 func (e *Engine) taskGuard(r run, in taskGuard) run {

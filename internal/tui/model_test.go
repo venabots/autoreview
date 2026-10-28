@@ -122,6 +122,7 @@ var keys = map[string]tea.KeyPressMsg{
 	"ctrl+c": {Code: 'c', Mod: tea.ModCtrl},
 	"ctrl+d": {Code: 'd', Mod: tea.ModCtrl},
 	"ctrl+u": {Code: 'u', Mod: tea.ModCtrl},
+	"ctrl+r": {Code: 'r', Mod: tea.ModCtrl},
 }
 
 func press(t *testing.T, m Model, names ...string) Model {
@@ -168,7 +169,7 @@ func TestTheKeyNamesMatchWhatBubbleTeaSends(t *testing.T) {
 		"r": intentResume, "R": intentReviewNow, "f": intentFocus, "l": intentLog, "enter": intentNone,
 		"/": intentFind, "8": intentFindNumber, "d": intentBots, "e": intentSettings,
 		"tab": intentSwitchTab, "esc": intentBack, "space": intentPageDown,
-		"ctrl+c": intentInterrupt, "ctrl+d": intentPageDown, "ctrl+u": intentPageUp,
+		"ctrl+c": intentInterrupt, "ctrl+d": intentPageDown, "ctrl+u": intentPageUp, "ctrl+r": intentLookNow,
 	}
 	for name, key := range keys {
 		if got := intentFor(key); got != want[name] {

@@ -136,17 +136,24 @@ type block struct {
 
 // lastBlock finds the last block in text that parses.
 func lastBlock(text string) (block, bool) {
+	start, end, trailer, ok := lastFenced(text, trailerTag, decodeTrailer)
+	return block{start: start, end: end, trailer: trailer}, ok
+}
+
+// lastFenced finds the last block in text that opens with tag and whose
+// body decodes: text[start:end] is the block with both fences.
+func lastFenced[T any](text, tag string, decode func(string) (T, bool)) (start, end int, value T, ok bool) {
 	searchEnd := len(text)
 	for {
-		start := strings.LastIndex(text[:searchEnd], trailerTag)
+		start = strings.LastIndex(text[:searchEnd], tag)
 		if start < 0 {
-			return block{}, false
+			return 0, 0, value, false
 		}
-		bodyStart := start + len(trailerTag)
+		bodyStart := start + len(tag)
 		if length := strings.Index(text[bodyStart:], fence); length >= 0 {
 			bodyEnd := bodyStart + length
-			if trailer, ok := decodeTrailer(text[bodyStart:bodyEnd]); ok {
-				return block{start: start, end: bodyEnd + len(fence), trailer: trailer}, true
+			if v, ok := decode(text[bodyStart:bodyEnd]); ok {
+				return start, bodyEnd + len(fence), v, true
 			}
 		}
 		searchEnd = start

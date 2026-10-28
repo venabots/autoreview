@@ -46,6 +46,14 @@ type IncludeBots struct{ On bool }
 func (IncludeBots) input()   {}
 func (IncludeBots) command() {}
 
+// LookNow reads the review list and your PRs from GitHub now, and not at
+// the next look. A person who just merged, pushed or closed a PR there
+// would otherwise wait out the watch interval to see it.
+type LookNow struct{}
+
+func (LookNow) input()   {}
+func (LookNow) command() {}
+
 // SetFocus changes what the reviewers are told to look at, for every
 // review that has not started. An empty text tells them nothing.
 type SetFocus struct{ Text string }

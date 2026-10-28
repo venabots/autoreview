@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/venabots/autoreview/internal/proc"
+	"github.com/venabots/autoreview/internal/review"
 	"github.com/venabots/autoreview/internal/session"
 	"github.com/venabots/autoreview/internal/task"
 	"github.com/venabots/autoreview/internal/worktree"
@@ -137,8 +138,8 @@ func TestATaskRunsItsSkillInAWorktreeOfItsOwn(t *testing.T) {
 		if c.Dir != "/run/worktrees/pr-4" || !strings.HasSuffix(args, "-- /babysit-pr 4") || !strings.Contains(args, "--session-id ") {
 			t.Errorf("the task ran in %q as %q", c.Dir, args[max(len(args)-80, 0):])
 		}
-		if strings.Contains(args, "--append-system-prompt") || filepath.Base(filepath.Dir(c.Stdout)) != "fix" {
-			t.Errorf("a task was asked for a trailer, or wrote its files outside tasks/fix: %s", c.Stdout)
+		if !slices.Contains(c.Args, "--append-system-prompt="+review.TaskTrailerInstruction) || filepath.Base(filepath.Dir(c.Stdout)) != "fix" {
+			t.Errorf("a task was not asked for its report, or wrote its files outside tasks/fix: %s", c.Stdout)
 		}
 		job := taskOf(t, b, 4)
 		if job.State != JobRunning || job.Task != task.Fix || job.Worktree != "/run/worktrees/pr-4" || !session.UUIDShaped(job.Follow) {
