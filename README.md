@@ -157,6 +157,14 @@ row keeps the result: `fix pushed`, `fix pushed nothing` or `fix failed`. Your
 PRs are read again at once, so the row also shows what the task left. A task
 that could not start says why in the footer and in the right pane.
 
+**Alerts.** A run tells you what needs you while you look elsewhere: a fix
+that says `should close` or `needs you`, a fix that failed or timed out, a
+worktree kept with work in it, and each change in what the doctor would say.
+Inside [Herdr](https://herdr.dev) each one is a Herdr notification, with a
+sound when it needs you now. Outside Herdr nothing is sent.
+`notify.channels` in the [settings](#settings) chooses the channels, and `[]`
+turns alerts off.
+
 A task can end with nothing pushed on purpose. It then says why, and when the
 PR needs you, the row says so in yellow: `should close` when the PR should be
 closed, for example because its base already has the change, or `needs you`
