@@ -54,6 +54,13 @@ func (e *Engine) doctorChecked(r run, in doctorChecked) run {
 	before := r.snap.Health
 	h := in.health
 	r.snap.Health = &h
+	was := Health{}
+	if before != nil {
+		was = *before
+	}
+	if !slices.Equal(was.Problems, h.Problems) || was.Blocking != h.Blocking {
+		e.journal(HealthChanged{Before: was, After: h})
+	}
 	switch {
 	case len(h.Problems) > 0 && (before == nil || !slices.Equal(before.Problems, h.Problems)):
 		e.journal(Noted{Text: "doctor: " + strings.Join(h.Problems, "; ")})

@@ -22,12 +22,23 @@ type File struct {
 	// panelistsNamed says the file names panel.panelists. An empty list and
 	// a missing key decode alike, and only the first is a choice.
 	panelistsNamed bool
+	// notifyNamed says the file names notify.channels, for the same
+	// reason: an empty list turns alerts off.
+	notifyNamed bool
 
 	Review Review `toml:"review"`
 	Loop   Loop   `toml:"loop"`
 	PRs    PRs    `toml:"prs"`
 	Mine   Mine   `toml:"mine"`
 	Panel  Panel  `toml:"panel"`
+	Notify Notify `toml:"notify"`
+}
+
+// Notify is where alerts go.
+type Notify struct {
+	// Channels names each channel an alert goes to, such as "herdr".
+	// Empty turns alerts off.
+	Channels []string `toml:"channels"`
 }
 
 // Review is how each review runs.
@@ -108,6 +119,7 @@ func Parse(raw []byte, path string) (File, error) {
 		return File{}, fmt.Errorf("%s sets %s, which is not a setting", path, unknown[0])
 	}
 	f.panelistsNamed = md.IsDefined("panel", "panelists")
+	f.notifyNamed = md.IsDefined("notify", "channels")
 	return f, nil
 }
 
@@ -133,6 +145,7 @@ func (f File) keyed() []struct {
 		{"mine.autofix", f.Mine.Autofix != nil}, {"mine.autofix_cap", f.Mine.AutofixCap != nil},
 		{"mine.autofix_approved", f.Mine.AutofixApproved != nil},
 		{"panel.panelists", f.Panel.Panelists != nil || f.panelistsNamed}, {"panel.synth", f.Panel.Synth != nil},
+		{"notify.channels", f.Notify.Channels != nil || f.notifyNamed},
 	}
 }
 

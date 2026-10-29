@@ -35,6 +35,8 @@ type Values struct {
 	Panelists []string
 	Synth     string
 
+	NotifyChannels []string
+
 	// Set is the keys the person chose: in the form, or in the file before
 	// it. Every other key is written as a comment that shows the default,
 	// so a later default reaches a person who never chose a value.
@@ -119,6 +121,12 @@ var fileTemplate = template.Must(template.New("config.toml").Funcs(template.Func
 {{.Mark "panel.panelists"}}panelists = {{list .Panelists}}
 # The model that writes the synthesis of ` + "`autoreview panel`" + `.
 {{.Mark "panel.synth"}}synth = {{q .Synth}}
+
+[notify]
+# Where alerts go: a fix that needs you, a fix that failed, a panel that is
+# down. herdr shows them in Herdr, and does nothing outside it. An empty list
+# turns alerts off.
+{{.Mark "notify.channels"}}channels = {{list .NotifyChannels}}
 `))
 
 // Render is the settings file for v.

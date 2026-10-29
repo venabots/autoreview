@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -51,6 +52,18 @@ func TestTheRunAsksTheDoctorAtTheStartAndAgainLater(t *testing.T) {
 		}
 		time.Sleep(2 * DoctorEvery)
 		synctest.Wait()
+		changes := []string{}
+		b.mu.Lock()
+		events := slices.Clone(b.events)
+		b.mu.Unlock()
+		for _, ev := range events {
+			if c, ok := ev.(HealthChanged); ok {
+				changes = append(changes, fmt.Sprintf("%d->%d", len(c.Before.Problems), len(c.After.Problems)))
+			}
+		}
+		if !slices.Equal(changes, []string{"0->1", "1->0"}) {
+			t.Errorf("HealthChanged events %q, want one to down and one back", changes)
+		}
 		want := []string{"doctor: codex does not answer", "doctor: all clear again"}
 		if got := slices.DeleteFunc(b.notes(), func(n string) bool { return !slices.Contains(want, n) }); !slices.Equal(got, want) {
 			t.Errorf("notes %q, want the change to down once and back once", got)

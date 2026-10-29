@@ -18,6 +18,7 @@ import (
 	"github.com/venabots/autoreview/internal/gh"
 	"github.com/venabots/autoreview/internal/ledger"
 	"github.com/venabots/autoreview/internal/marks"
+	"github.com/venabots/autoreview/internal/notify"
 	"github.com/venabots/autoreview/internal/plain"
 	"github.com/venabots/autoreview/internal/proc"
 	"github.com/venabots/autoreview/internal/prs"
@@ -52,12 +53,18 @@ func runHeadless(cfg cli.Config, rc repo.Context, stdout, stderr io.Writer) int 
 // started is a run that is ready to go: its engine, and the printer that
 // writes what it does.
 type started struct {
-	engine  *engine.Engine
-	printer *plain.Printer
-	log     *os.File
+	engine   *engine.Engine
+	printer  *plain.Printer
+	notifier *notify.Notifier
+	log      *os.File
 }
 
+// close sends the alerts still queued, then closes the log: an alert that
+// fails is noted in the log.
 func (s started) close() {
+	if s.notifier != nil {
+		s.notifier.Close()
+	}
 	_ = s.log.Close()
 }
 
@@ -96,7 +103,8 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 	deps.Procs = proc.OS{}
 	deps.Run = prepared.run
 	deps.SkillsDir = prepared.skillsDir
-	deps.Journal = printer.Emit
+	notifier := newNotifier(cfg.Notify, rc.Name, os.Getenv, logFile)
+	deps.Journal = journal(printer, notifier)
 	deps.Sessions, deps.Transcript = sessions()
 	deps.Verdict = func(ctx context.Context, pr int, since time.Time) review.Readback {
 		return review.Verdict(ctx, gh.Exec, rc.Slug(), pr, rc.Me, since)
@@ -134,7 +142,7 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 
 	eng := engine.New(config, deps)
 	stopOnSignal(eng)
-	return started{engine: eng, printer: printer, log: logFile}, nil
+	return started{engine: eng, printer: printer, notifier: notifier, log: logFile}, nil
 }
 
 // prepared is what a run needs in place before its first review.

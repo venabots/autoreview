@@ -49,6 +49,9 @@ func sandbox(t *testing.T) (fixtures string) {
 	// A panel set in the person's shell would fill the settings form and
 	// seat the review panel: the tests must see the same on every machine.
 	t.Setenv("PANEL_REVIEW_PANELISTS", "")
+	// Alerts go to Herdr by default. A test run inside Herdr would put the
+	// fake PRs' alerts on the person's screen.
+	t.Setenv("HERDR_ENV", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// codex finds its skills under ~/.agents/skills, so the automatic
