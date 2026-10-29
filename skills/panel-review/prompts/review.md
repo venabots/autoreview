@@ -18,6 +18,14 @@ Review the diff below and report your findings.
 - Names and types that lie: a name that promises one thing and holds another, a
   type widened to make the compiler stop complaining, a comment that says "X but
   actually Y". Names are contracts; a reader in six months trusts them.
+- Comments that have not earned their place. A comment must prove it should
+  exist. One stays only for a bug or library workaround, an invariant the code
+  does not show, code that looks wrong and would be "fixed" into a bug, or what
+  a repository rule or linter requires. Flag any added comment outside these.
+  A wrong or stale comment is always a finding: correct or delete it. Otherwise
+  never ask to add, expand, reword or restore a comment or docstring unless the
+  code without it would lead a careful reader to break it: cite the line and
+  what breaks.
 
 ## How to report
 
