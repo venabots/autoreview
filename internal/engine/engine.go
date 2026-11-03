@@ -131,7 +131,7 @@ type Deps struct {
 	// SkillsDir is the staged skills, or empty when none were staged.
 	SkillsDir string
 	// Restage stages the skills again just before a reviewer that reads
-	// them starts. skills.Restage says why. It may be nil.
+	// them starts. skills.Staged.Again says why. It may be nil.
 	Restage func() error
 	// Record keeps a finished review in the ledger. It is nil when the
 	// ledger is off. It and Restage run on the engine's goroutine: they

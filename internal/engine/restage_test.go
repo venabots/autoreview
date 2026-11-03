@@ -40,14 +40,14 @@ func TestAReviewWhoseSkillsCannotBeStagedFailsWithoutStarting(t *testing.T) {
 			d.Restage = func() error {
 				restages++
 				if restages == 1 {
-					return errors.New("/my/skills no longer holds auto-review\x1b[2J")
+					return errors.New("making /run/agent/.claude/skills: permission denied\x1b[2J")
 				}
 				return nil
 			}
 		}})
 
 		nine := b.job(t, 9)
-		if want := "staging the review skills again: /my/skills no longer holds auto-review[2J"; nine.State != JobFailed || nine.Error != want {
+		if want := "staging the review skills again: making /run/agent/.claude/skills: permission denied[2J"; nine.State != JobFailed || nine.Error != want {
 			t.Errorf("PR #9: state %d, error %q; want failed with %q", nine.State, nine.Error, want)
 		}
 		if got := b.reviewer.commandsFor(9); len(got) != 0 {

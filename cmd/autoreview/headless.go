@@ -214,10 +214,9 @@ func prepare(cfg cli.Config, rc repo.Context) (prepared, error) {
 	if err != nil {
 		return prepared{}, err
 	}
-	if staged {
-		dir, names := p.run.Agent(), source.Names(bundle.Skills())
-		p.skillsDir = dir
-		p.restage = func() error { return skills.Restage(source, bundle.Skills(), dir, names) }
+	if staged.Dir != "" {
+		p.skillsDir = staged.Dir
+		p.restage = staged.Again
 	}
 	dirs := []string{
 		filepath.Join(session.ConfigDir(os.Getenv), "skills"),
