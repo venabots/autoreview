@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -100,17 +101,38 @@ func modeFor(name string, mode fs.FileMode) fs.FileMode {
 	return 0o644
 }
 
+// copyFile writes one file whole, under a temporary name, and renames it
+// into place. A run stages again before each review, while another review
+// may be reading the skills or running a helper script. Written in place,
+// the file would be empty or half written for a moment, and a shell reads
+// its script while it runs. A rename swaps in the whole file at once, and
+// a reader that has the old one open keeps reading the old one.
 func copyFile(tree fs.FS, from, to string, mode fs.FileMode) error {
 	raw, err := fs.ReadFile(tree, from)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", from, err)
 	}
-	if err := os.WriteFile(to, raw, mode); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(to), "."+filepath.Base(to)+".*")
+	if err != nil {
 		return fmt.Errorf("writing %s: %w", to, err)
 	}
-	// WriteFile's mode is cut by the umask, and a reviewer under a strict
-	// umask would find a script it cannot run.
-	return os.Chmod(to, mode)
+	if err := fill(tmp, raw, mode); err != nil {
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("writing %s: %w", to, err)
+	}
+	if err := os.Rename(tmp.Name(), to); err != nil {
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("writing %s: %w", to, err)
+	}
+	return nil
+}
+
+// fill writes the content, closes the file, and then sets the mode. A mode
+// given when a file is made is cut by the umask, and a reviewer under a
+// strict umask would find a script it cannot run.
+func fill(f *os.File, raw []byte, mode fs.FileMode) error {
+	_, err := f.Write(raw)
+	return errors.Join(err, f.Close(), os.Chmod(f.Name(), mode))
 }
 
 // ShadowNote is what to say when skills under any of dirs shadow the ones

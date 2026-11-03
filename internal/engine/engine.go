@@ -130,9 +130,12 @@ type Deps struct {
 	Run rundir.Run
 	// SkillsDir is the staged skills, or empty when none were staged.
 	SkillsDir string
+	// Restage stages the skills again just before a reviewer that reads
+	// them starts. skills.Restage says why. It may be nil.
+	Restage func() error
 	// Record keeps a finished review in the ledger. It is nil when the
-	// ledger is off. It runs on the engine's goroutine: it is the one
-	// write to a file that the goroutine makes itself.
+	// ledger is off. It and Restage run on the engine's goroutine: they
+	// are the writes to files that the goroutine makes itself.
 	Record func(Finished) error
 	// Prepare makes the worktree a task runs in, and Finish gives it back
 	// or says why it is kept. Pushed reads whether a PR's head moved from a

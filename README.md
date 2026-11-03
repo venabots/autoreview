@@ -282,6 +282,10 @@ The reviewer is a set of skills in [`skills/`](skills).
   they are missing.
 - `--skills DIR` runs the skills in a directory of your own, and
   `--skills installed` stages nothing.
+- The run copies the skills again before each review. Its folder is under
+  the temp directory, where macOS deletes files after three days, and a run
+  can watch for longer. A review whose skills cannot be copied fails and
+  says why.
 
 Use the skills yourself, outside a run:
 
