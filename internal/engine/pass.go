@@ -188,21 +188,9 @@ func (e *Engine) start(w workers, r run, i int) run {
 	}
 	request := e.request(j, r)
 	j.spec = review.SpecFor(request)
-	started, err := e.deps.Procs.Start(proc.Command{
-		Path:   j.spec.Path,
-		Args:   j.spec.Args,
-		Env:    j.spec.Env,
-		Dir:    j.spec.Dir,
-		Stdout: j.spec.Stdout,
-		Stderr: j.spec.Stderr,
-	})
+	started, err := e.launch(request, j.spec)
 	if err != nil {
-		j.view.State = JobFailed
-		j.view.Outcome = review.OutcomeWord(review.Exit{Code: exitNotStarted}, false)
-		j.view.Error = sanitize.Line(err.Error())
-		e.journal(JobFinished{Job: j.view})
-		e.clearMark(pr)
-		return e.counted(withJob(r, i, j), j)
+		return e.notStarted(r, i, j, err)
 	}
 	j.proc = started
 	j.view.State = JobRunning

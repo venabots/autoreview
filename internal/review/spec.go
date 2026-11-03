@@ -73,6 +73,14 @@ type Request struct {
 	Stdout, Stderr, Meta string
 }
 
+// ReadsStagedSkills says the reviewer is handed the staged directory, so
+// the skills must be there when it starts. Claude alone finds a skill
+// there. A task runs an installed skill, and an override is the person's
+// own command.
+func (r Request) ReadsStagedSkills() bool {
+	return r.SkillsDir != "" && r.Task == "" && r.Override == "" && r.Orchestrator.DiscoversStagedSkills()
+}
+
 // Spec is one process to start. It is data, so the code that starts a
 // process is the only place a test needs a fake.
 type Spec struct {
@@ -187,7 +195,7 @@ func dashpArgs(r Request) []string {
 	if o.SupportsSystemPrompt() {
 		args = append(args, "--append-system-prompt="+trailerInstruction(r))
 	}
-	if r.SkillsDir != "" && o.DiscoversStagedSkills() && r.Task == "" {
+	if r.ReadsStagedSkills() {
 		args = append(args, "--add-dir="+r.SkillsDir)
 	}
 	args = append(args, sessionArgs(r)...)

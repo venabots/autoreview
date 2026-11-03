@@ -103,6 +103,7 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 	deps.Procs = proc.OS{}
 	deps.Run = prepared.run
 	deps.SkillsDir = prepared.skillsDir
+	deps.Restage = prepared.restage
 	notifier := newNotifier(cfg.Notify, rc.Name, os.Getenv, logFile)
 	deps.Journal = journal(printer, notifier)
 	deps.Sessions, deps.Transcript = sessions()
@@ -150,6 +151,9 @@ type prepared struct {
 	run       rundir.Run
 	dashp     string
 	skillsDir string
+	// restage puts the staged skills back before each review, or is nil
+	// when nothing was staged.
+	restage func() error
 	// skills says which copy of the skills runs.
 	skills string
 	// fallback retries a review whose orchestrator failed, or is nil.
@@ -210,8 +214,9 @@ func prepare(cfg cli.Config, rc repo.Context) (prepared, error) {
 	if err != nil {
 		return prepared{}, err
 	}
-	if staged {
-		p.skillsDir = p.run.Agent()
+	if staged.Dir != "" {
+		p.skillsDir = staged.Dir
+		p.restage = staged.Again
 	}
 	dirs := []string{
 		filepath.Join(session.ConfigDir(os.Getenv), "skills"),

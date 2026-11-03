@@ -39,7 +39,8 @@ golangci-lint fmt                         # gofmt and goimports
 - Every reviewer starts through a `proc.Starter`. Engine tests hand in a fake
   whose reviews end when the test says so.
 - A review's monitor goroutine reads files and asks GitHub. The engine's own
-  goroutine does neither, except for the ledger append.
+  goroutine does neither, except for the ledger append and staging the
+  skills again before a review starts.
 - The ledger holds records that v1 wrote, and a machine may still run v1. `internal/ledger`
   writes v1's bytes exactly: call `Record.MarshalJSON()`, never
   `json.Marshal`, which escapes `<`, `>` and `&`.

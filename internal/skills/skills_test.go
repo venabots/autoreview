@@ -129,9 +129,9 @@ func TestNamesAreTheSkillsASourceStages(t *testing.T) {
 
 func TestStageWritesTheBundleWhereTheAgentLooks(t *testing.T) {
 	dir := t.TempDir()
-	ok, err := Stage(Source{Kind: Bundled}, bundle(), dir)
-	if err != nil || !ok {
-		t.Fatalf("Stage = %v, %v", ok, err)
+	out, err := Stage(Source{Kind: Bundled}, bundle(), dir)
+	if err != nil || out.Dir != dir {
+		t.Fatalf("Stage staged under %q, %v; want %q", out.Dir, err, dir)
 	}
 
 	want := []string{"auto-review/SKILL.md", "recheck-pr/SKILL.md", "recheck-pr/evals/cases.json", "recheck-pr/scripts/threads.sh"}
@@ -167,9 +167,9 @@ func TestStageCopiesADirectoryInPlaceOfTheBundle(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	ok, err := Stage(Source{Kind: FromDir, Dir: source}, bundle(), dir)
-	if err != nil || !ok {
-		t.Fatalf("Stage = %v, %v", ok, err)
+	out, err := Stage(Source{Kind: FromDir, Dir: source}, bundle(), dir)
+	if err != nil || out.Dir != dir {
+		t.Fatalf("Stage staged under %q, %v; want %q", out.Dir, err, dir)
 	}
 
 	want := []string{"linked/SKILL.md", "mine/SKILL.md", "mine/run"}
@@ -188,9 +188,9 @@ func TestStageCopiesADirectoryInPlaceOfTheBundle(t *testing.T) {
 
 func TestStageWritesNothingWhenTheReviewerUsesWhatIsInstalled(t *testing.T) {
 	dir := t.TempDir()
-	ok, err := Stage(Source{Kind: NotStaged}, bundle(), dir)
-	if err != nil || ok {
-		t.Fatalf("Stage = %v, %v; want nothing staged", ok, err)
+	out, err := Stage(Source{Kind: NotStaged}, bundle(), dir)
+	if err != nil || out.Dir != "" {
+		t.Fatalf("Stage staged under %q, %v; want nothing staged", out.Dir, err)
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Errorf("Stage wrote %d entries", len(entries))

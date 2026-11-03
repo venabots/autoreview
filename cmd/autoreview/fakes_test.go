@@ -143,6 +143,9 @@ func fakeDashp(args []string) int {
 			_ = f.Close()
 		}
 	}
+	if found := os.Getenv("FAKE_DASHP_PURGE_SKILLS"); found != "" {
+		purgeSkills(args, pr, found)
+	}
 	session := "00000000-0000-5000-a000-" + fmt.Sprintf("%012s", pr)
 	for i, arg := range args {
 		if (arg == "--session-id" || arg == "--resume") && i+1 < len(args) {
@@ -182,6 +185,31 @@ func fakeDashp(args []string) int {
 	}
 	printAnswer(said)
 	return 0
+}
+
+// purgeSkills notes in the file log how many staged skills this review was
+// handed, then deletes their SKILL.md files, as macOS does to what sits in
+// its temp directory for three days. With no staged directory it touches
+// nothing: a bare glob would match the repo's own skills.
+func purgeSkills(args []string, pr, log string) {
+	dir := ""
+	for _, arg := range args {
+		if value, ok := strings.CutPrefix(arg, "--add-dir="); ok {
+			dir = value
+		}
+	}
+	manifests := []string{}
+	if dir != "" {
+		manifests, _ = filepath.Glob(filepath.Join(dir, ".claude", "skills", "*", "SKILL.md"))
+	}
+	f, err := os.OpenFile(log, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err == nil {
+		_, _ = fmt.Fprintf(f, "#%s found %d\n", pr, len(manifests))
+		_ = f.Close()
+	}
+	for _, manifest := range manifests {
+		_ = os.Remove(manifest)
+	}
 }
 
 func trailer() string {
