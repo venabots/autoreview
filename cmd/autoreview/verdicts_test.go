@@ -78,6 +78,29 @@ func mkdir(t *testing.T, dir string) string {
 
 // Under --no-post the review runs panel-review, which gets no --verdicts:
 // an old copy of auto-review never runs, and must not stop the run.
+// A copy that knows --verdicts but not the level for a held author would
+// ignore the level, and could approve a PR the person holds for a check.
+func TestAHeldAuthorNeedsACopyThatKnowsTheLevelWithoutTheApproval(t *testing.T) {
+	fixtures := sandbox(t)
+	settingsFile(t, "[review]\nno_approve_authors = [\"@Alice\"]\n")
+	agents := filepath.Join(os.Getenv("HOME"), ".agents", "skills")
+	teachVerdicts(t, agents)
+
+	_, stderr, code := autoreview(t, "--orchestrator", "codex", "9")
+	want := filepath.Join(agents, "auto-review", "SKILL.md") + " does not know --verdicts request-changes-only"
+	if code != 1 || !strings.Contains(stderr, want) {
+		t.Fatalf("a copy without the level: exit %d, stderr %q, want %q", code, stderr, want)
+	}
+
+	for _, skill := range []string{"auto-review", "recheck-pr"} {
+		write(t, filepath.Join(agents, skill), "SKILL.md", "# "+skill+"\n\n--verdicts request-changes-only\n")
+	}
+	stdout, stderr, code := autoreview(t, "--orchestrator", "codex", "9")
+	if code != 0 || !calledWith(t, fixtures, "$auto-review 9 --verdicts request-changes-only") {
+		t.Errorf("a review of alice's PR: exit %d, stdout %q, stderr %q, calls %q", code, stdout, stderr, dashpCalls(t, fixtures))
+	}
+}
+
 func TestNoPostDoesNotCheckTheSkillsThatGiveAVerdict(t *testing.T) {
 	sandbox(t)
 	settingsFile(t, "[review]\nverdicts = \"approve-only\"\n")

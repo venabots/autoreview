@@ -222,6 +222,7 @@ without saving.
 | `review.budget`             | The most one review may spend, in USD, with claude. Empty is no cap                                                      | none                          | `--budget`                |
 | `review.focus`              | What the reviewers look at in every run                                                                                  | none                          | `--focus`                 |
 | `review.verdicts`           | `approve-and-request-changes`, `approve-only`, `comment-only` or `request-changes-only`                                  | `approve-and-request-changes` |                           |
+| `review.no_approve_authors` | The GitHub logins whose PRs a review never approves, such as `["pm-sam"]`. A person approves them                        | none                          |                           |
 | `loop.watch`                | The wait between two looks at the PR list. A bare number is minutes; `30m`, `1h` and `2d` also work                      | `2`                           | `--watch`                 |
 | `loop.rest`                 | How long a reviewed PR rests before it may be reviewed again                                                             | `30`                          | `--babysit`               |
 | `loop.max_passes`           | Reviews one PR gets in a run. While the run watches, a push starts the count again                                       | `3`                           | `--max-passes`            |
@@ -246,6 +247,12 @@ you approve by hand. The setting reaches `auto-review` and `recheck-pr` as a
 `--verdicts` option. If you installed your own copies of those skills, they
 need the option and the level too: a run stops before it starts and names the
 copy that does not know them.
+
+**Held authors.** `review.no_approve_authors` lists the GitHub logins whose PRs
+a person approves, such as a teammate whose PRs need a design check even when
+the code is fine. Their PRs are still reviewed, and a blocking finding still
+requests changes. A review that would approve posts the LGTM comment above
+instead. The logins match in any case, and a leading `@` is fine.
 
 **Panel models.** A review hands `panel.panelists` to `panel-review` through
 `$PANEL_REVIEW_PANELISTS`, unless you set that variable yourself. Name at least

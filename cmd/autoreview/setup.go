@@ -197,8 +197,8 @@ func valuesOf(file config.File) (config.Values, error) {
 	return config.Values{
 		Orchestrator: cfg.Orchestrator.Label(), Fallback: fallback,
 		Jobs: cfg.Jobs, Timeout: int(cfg.Timeout / time.Second), Budget: cfg.Budget, Focus: focus,
-		Verdicts: cfg.Verdicts.String(),
-		Watch:    cfg.Watch.Text, Rest: cfg.Babysit.Text, MaxPasses: cfg.MaxPasses, MaxIdle: cfg.MaxIdle, CIWait: cfg.CIWait.Text,
+		Verdicts: cfg.Verdicts.String(), NoApproveAuthors: cfg.NoApproveAuthors,
+		Watch: cfg.Watch.Text, Rest: cfg.Babysit.Text, MaxPasses: cfg.MaxPasses, MaxIdle: cfg.MaxIdle, CIWait: cfg.CIWait.Text,
 		Approved: cfg.All, Dependabot: cfg.Dependabot, Stacked: cfg.Stacked, SkipCI: cfg.SkipCI,
 		Autofix: !cfg.NoAutofix, AutofixCap: cfg.AutofixCap, AutofixApproved: cfg.AutofixApproved.String(), Panelists: file.Panel.Panelists, Synth: synth,
 		NotifyChannels: cfg.Notify,

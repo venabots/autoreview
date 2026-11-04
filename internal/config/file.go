@@ -53,6 +53,10 @@ type Review struct {
 	// Verdicts is approve-and-request-changes, approve-only or
 	// comment-only.
 	Verdicts *string `toml:"verdicts"`
+	// NoApproveAuthors is the GitHub logins whose PRs a review never
+	// approves. A review that would approve posts a comment instead, and
+	// a person gives the approval.
+	NoApproveAuthors []string `toml:"no_approve_authors"`
 }
 
 // Loop is when the run looks and when it reviews again. An interval is
@@ -137,6 +141,7 @@ func (f File) keyed() []struct {
 		{"review.jobs", f.Review.Jobs != nil}, {"review.timeout", f.Review.Timeout != nil},
 		{"review.budget", f.Review.Budget != nil}, {"review.focus", f.Review.Focus != nil},
 		{"review.verdicts", f.Review.Verdicts != nil},
+		{"review.no_approve_authors", f.Review.NoApproveAuthors != nil},
 		{"loop.watch", f.Loop.Watch != nil}, {"loop.rest", f.Loop.Rest != nil},
 		{"loop.max_passes", f.Loop.MaxPasses != nil}, {"loop.max_idle", f.Loop.MaxIdle != nil},
 		{"loop.ci_wait", f.Loop.CIWait != nil},

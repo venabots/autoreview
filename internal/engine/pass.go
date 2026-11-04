@@ -103,7 +103,7 @@ func (e *Engine) queued(row queue.Row, dir string) job {
 		Author:       row.PR.Author,
 		State:        JobQueued,
 		Orchestrator: e.cfg.Orchestrator,
-		Verdicts:     e.cfg.Verdicts,
+		Verdicts:     e.verdictsFor(row.PR.Author),
 		PassDir:      dir,
 	}}
 }
