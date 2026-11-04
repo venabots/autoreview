@@ -18,8 +18,8 @@ func TestAReviewGetsTheRunsVerdictLevelAndAVerdictItForbidsIsNoted(t *testing.T)
 		message string
 	}{
 		{review.VerdictsAll, "approved", false, "", ""},
-		{review.VerdictsCommentOnly, "approved", true, "--verdicts comment-only", `PR #9 got "approved", which review.verdicts = "comment-only" does not allow`},
-		{review.VerdictsApproveOnly, "changes requested", true, "--verdicts approve-only", `PR #9 got "changes requested", which review.verdicts = "approve-only" does not allow`},
+		{review.VerdictsCommentOnly, "approved", true, "--verdicts comment-only", `PR #9 got "approved", which its verdict level "comment-only" does not allow`},
+		{review.VerdictsApproveOnly, "changes requested", true, "--verdicts approve-only", `PR #9 got "changes requested", which its verdict level "approve-only" does not allow`},
 		{review.VerdictsApproveOnly, "approved", false, "--verdicts approve-only", ""},
 	}
 	for _, c := range cases {

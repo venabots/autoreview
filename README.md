@@ -213,37 +213,46 @@ without saving.
 - A run off a terminal never asks. With no file, it uses the built-in defaults.
 - `$AUTOREVIEW_CONFIG` names another file, or `off` reads none.
 
-| Key                     | What it sets                                                                                                             | Default                       | Same as                   |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ------------------------- |
-| `review.orchestrator`   | The agent that runs each review: `claude` or `codex`, with an optional model, as in `codex:gpt-5.5`                      | `claude`                      | `--orchestrator`          |
-| `review.fallback`       | The agent that retries a review whose agent failed: `auto`, `none`, or an agent                                          | `auto`                        | `--fallback`              |
-| `review.jobs`           | Reviews that run at once                                                                                                 | `2`                           | `--jobs`                  |
-| `review.timeout`        | Seconds before a review is stopped. `0` is no limit                                                                      | `3600`                        | `--timeout`               |
-| `review.budget`         | The most one review may spend, in USD, with claude. Empty is no cap                                                      | none                          | `--budget`                |
-| `review.focus`          | What the reviewers look at in every run                                                                                  | none                          | `--focus`                 |
-| `review.verdicts`       | `approve-and-request-changes`, `approve-only` or `comment-only`                                                          | `approve-and-request-changes` |                           |
-| `loop.watch`            | The wait between two looks at the PR list. A bare number is minutes; `30m`, `1h` and `2d` also work                      | `2`                           | `--watch`                 |
-| `loop.rest`             | How long a reviewed PR rests before it may be reviewed again                                                             | `30`                          | `--babysit`               |
-| `loop.max_passes`       | Reviews one PR gets in a run. While the run watches, a push starts the count again                                       | `3`                           | `--max-passes`            |
-| `loop.max_idle`         | Looks in a row that find nothing to review before `--babysit` stops                                                      | `3`                           | `--max-idle`              |
-| `loop.ci_wait`          | How long a run that looks once waits for checks that are still running                                                   | `30`                          | `$AUTOREVIEW_CI_WAIT`     |
-| `prs.approved`          | Review PRs that are approved already                                                                                     | `false`                       | `--all`                   |
-| `prs.dependabot`        | Review Dependabot's PRs                                                                                                  | `false`                       | `--dependabot`            |
-| `prs.stacked`           | Review a PR that sits on another open PR                                                                                 | `false`                       | `--stacked`               |
-| `prs.skip_ci`           | Review a PR whose checks have not passed, and do not wait for them                                                       | `false`                       | `--skip-wait-for-ci`      |
-| `mine.autofix`          | Start the view with autofix on for all your PRs                                                                          | `true`                        |                           |
-| `mine.autofix_cap`      | The most fixes in a row on one of your PRs while nobody else acts on it                                                  | `3`                           |                           |
-| `mine.autofix_approved` | What autofix still fixes on an approved PR: `conflicts`, `comments` (open review threads too) or `all` (a red build too) | `conflicts`                   |                           |
-| `panel.panelists`       | The models that review together, such as `["claude:opus-4.8", "codex"]`. Name at least 2                                 | every backend on `PATH`       | `$PANEL_REVIEW_PANELISTS` |
-| `panel.synth`           | The model that writes the synthesis of `autoreview panel`                                                                | `claude`                      |                           |
-| `notify.channels`       | Where alerts go: `herdr`. An empty list turns alerts off                                                                 | `["herdr"]`                   |                           |
+| Key                         | What it sets                                                                                                             | Default                       | Same as                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ------------------------- |
+| `review.orchestrator`       | The agent that runs each review: `claude` or `codex`, with an optional model, as in `codex:gpt-5.5`                      | `claude`                      | `--orchestrator`          |
+| `review.fallback`           | The agent that retries a review whose agent failed: `auto`, `none`, or an agent                                          | `auto`                        | `--fallback`              |
+| `review.jobs`               | Reviews that run at once                                                                                                 | `2`                           | `--jobs`                  |
+| `review.timeout`            | Seconds before a review is stopped. `0` is no limit                                                                      | `3600`                        | `--timeout`               |
+| `review.budget`             | The most one review may spend, in USD, with claude. Empty is no cap                                                      | none                          | `--budget`                |
+| `review.focus`              | What the reviewers look at in every run                                                                                  | none                          | `--focus`                 |
+| `review.verdicts`           | `approve-and-request-changes`, `approve-only`, `comment-only` or `request-changes-only`                                  | `approve-and-request-changes` |                           |
+| `review.no_approve_authors` | The GitHub logins whose PRs a review never approves, such as `["pm-sam"]`. A person approves them                        | none                          |                           |
+| `loop.watch`                | The wait between two looks at the PR list. A bare number is minutes; `30m`, `1h` and `2d` also work                      | `2`                           | `--watch`                 |
+| `loop.rest`                 | How long a reviewed PR rests before it may be reviewed again                                                             | `30`                          | `--babysit`               |
+| `loop.max_passes`           | Reviews one PR gets in a run. While the run watches, a push starts the count again                                       | `3`                           | `--max-passes`            |
+| `loop.max_idle`             | Looks in a row that find nothing to review before `--babysit` stops                                                      | `3`                           | `--max-idle`              |
+| `loop.ci_wait`              | How long a run that looks once waits for checks that are still running                                                   | `30`                          | `$AUTOREVIEW_CI_WAIT`     |
+| `prs.approved`              | Review PRs that are approved already                                                                                     | `false`                       | `--all`                   |
+| `prs.dependabot`            | Review Dependabot's PRs                                                                                                  | `false`                       | `--dependabot`            |
+| `prs.stacked`               | Review a PR that sits on another open PR                                                                                 | `false`                       | `--stacked`               |
+| `prs.skip_ci`               | Review a PR whose checks have not passed, and do not wait for them                                                       | `false`                       | `--skip-wait-for-ci`      |
+| `mine.autofix`              | Start the view with autofix on for all your PRs                                                                          | `true`                        |                           |
+| `mine.autofix_cap`          | The most fixes in a row on one of your PRs while nobody else acts on it                                                  | `3`                           |                           |
+| `mine.autofix_approved`     | What autofix still fixes on an approved PR: `conflicts`, `comments` (open review threads too) or `all` (a red build too) | `conflicts`                   |                           |
+| `panel.panelists`           | The models that review together, such as `["claude:opus-4.8", "codex"]`. Name at least 2                                 | every backend on `PATH`       | `$PANEL_REVIEW_PANELISTS` |
+| `panel.synth`               | The model that writes the synthesis of `autoreview panel`                                                                | `claude`                      |                           |
+| `notify.channels`           | Where alerts go: `herdr`. An empty list turns alerts off                                                                 | `["herdr"]`                   |                           |
 
 **Verdicts.** `approve-only` makes a review that would request changes a comment
 review with the same findings. `comment-only` makes every review a comment
-review. The setting reaches `auto-review` and `recheck-pr` as a `--verdicts`
-option. If you installed your own copies of those skills, they need the option
-too: a run with `approve-only` or `comment-only` stops before it starts and
-names the copy that does not know it.
+review. `request-changes-only` never approves: a review that would approve
+posts `LGTM. I want to do a manual check before the official approval.`, and
+you approve by hand. The setting reaches `auto-review` and `recheck-pr` as a
+`--verdicts` option. If you installed your own copies of those skills, they
+need the option and the level too: a run stops before it starts and names the
+copy that does not know them.
+
+**Held authors.** `review.no_approve_authors` lists the GitHub logins whose PRs
+a person approves, such as a teammate whose PRs need a design check even when
+the code is fine. Their PRs are still reviewed, and a blocking finding still
+requests changes. A review that would approve posts the LGTM comment above
+instead. The logins match in any case, and a leading `@` is fine.
 
 **Panel models.** A review hands `panel.panelists` to `panel-review` through
 `$PANEL_REVIEW_PANELISTS`, unless you set that variable yourself. Name at least

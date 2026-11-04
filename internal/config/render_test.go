@@ -10,7 +10,7 @@ import (
 func values() Values {
 	return Values{
 		Orchestrator: "codex:gpt-5.5", Fallback: "none", Jobs: 4, Timeout: 0, Budget: "2.50",
-		Focus: `the "fast" path \ and a tab	here`, Verdicts: "approve-only",
+		Focus: `the "fast" path \ and a tab	here`, Verdicts: "approve-only", NoApproveAuthors: []string{"pm-sam"},
 		Watch: "5m", Rest: "1h", MaxPasses: 2, MaxIdle: 7, CIWait: "45m",
 		Approved: true, Dependabot: false, Stacked: true, SkipCI: false,
 		Autofix: false, AutofixCap: 5, AutofixApproved: "comments", Panelists: []string{"claude:opus-4.8", "codex"}, Synth: "claude",
@@ -44,7 +44,7 @@ func TestARenderedFileReadsBackAsTheSameValues(t *testing.T) {
 	}
 	got := Values{
 		Orchestrator: *f.Review.Orchestrator, Fallback: *f.Review.Fallback, Jobs: *f.Review.Jobs, Timeout: *f.Review.Timeout,
-		Budget: *f.Review.Budget, Focus: *f.Review.Focus, Verdicts: *f.Review.Verdicts,
+		Budget: *f.Review.Budget, Focus: *f.Review.Focus, Verdicts: *f.Review.Verdicts, NoApproveAuthors: f.Review.NoApproveAuthors,
 		Watch: *f.Loop.Watch, Rest: *f.Loop.Rest, MaxPasses: *f.Loop.MaxPasses, MaxIdle: *f.Loop.MaxIdle, CIWait: *f.Loop.CIWait,
 		Approved: *f.PRs.Approved, Dependabot: *f.PRs.Dependabot, Stacked: *f.PRs.Stacked, SkipCI: *f.PRs.SkipCI,
 		Autofix: *f.Mine.Autofix, AutofixCap: *f.Mine.AutofixCap, AutofixApproved: *f.Mine.AutofixApproved, Panelists: f.Panel.Panelists, Synth: *f.Panel.Synth,

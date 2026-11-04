@@ -371,11 +371,15 @@ limit the verdicts. It changes only the event. Do not pass it on to
   requests changes.
 - `--verdicts comment-only`: rules 3 and 4 give `COMMENT`. The review never
   approves and never requests changes.
+- `--verdicts request-changes-only`: rule 4 gives `COMMENT` with the body
+  `LGTM. I want to do a manual check before the official approval.` Rule 3
+  applies as written, so a blocking finding still requests changes. A
+  person approves the PR by hand.
 - `--verdicts approve-and-request-changes`, or no `--verdicts`: the rules
   apply as they are written.
 
-A `COMMENT` that `--verdicts` caused has the body
-`Comments only. No decision.`, and every finding goes into the review as
+A `COMMENT` that `--verdicts approve-only` or `comment-only` caused has the
+body `Comments only. No decision.`, and every finding goes into the review as
 it would for the verdict that the option replaced. Report the verdict that
 you would have given.
 
@@ -415,6 +419,7 @@ fixed:
 | Comment: delta not reviewed    | `No decision: the new commits need a panel review, and it did not run.` |
 | Comment: one polish row open   | `No decision: 1 optional comment is still open.`                        |
 | Comment: caused by --verdicts  | `Comments only. No decision.`                                           |
+| Comment: approval held         | `LGTM. I want to do a manual check before the official approval.`       |
 | Comment: more polish rows open | `No decision: <n> optional comments are still open.`                    |
 
 - An approval with no user message takes `LGTM, just some small comments,

@@ -10,6 +10,7 @@ func TestTheVerdictLevelsReadAsTheSettingsFileWritesThem(t *testing.T) {
 		"approve-and-request-changes": VerdictsAll,
 		"approve-only":                VerdictsApproveOnly,
 		"comment-only":                VerdictsCommentOnly,
+		"request-changes-only":        VerdictsRequestChangesOnly,
 	} {
 		got, err := ParseVerdicts(raw)
 		if err != nil || got != want || got.String() != raw {
@@ -17,8 +18,27 @@ func TestTheVerdictLevelsReadAsTheSettingsFileWritesThem(t *testing.T) {
 		}
 	}
 	_, err := ParseVerdicts("never")
-	if err == nil || !strings.Contains(err.Error(), "approve-and-request-changes, approve-only or comment-only") {
-		t.Errorf("ParseVerdicts(never) = %v, want the three levels named", err)
+	if err == nil || !strings.Contains(err.Error(), "approve-and-request-changes, approve-only, comment-only or request-changes-only") {
+		t.Errorf("ParseVerdicts(never) = %v, want the four levels named", err)
+	}
+}
+
+// A PR held for a person still gets a request for changes on a blocking
+// finding. Only the approval is held back, so each level loses its
+// approval and keeps the rest.
+func TestALevelWithoutTheApprovalKeepsWhatElseItAllows(t *testing.T) {
+	for from, want := range map[Verdicts]Verdicts{
+		VerdictsAll:                VerdictsRequestChangesOnly,
+		VerdictsApproveOnly:        VerdictsCommentOnly,
+		VerdictsCommentOnly:        VerdictsCommentOnly,
+		VerdictsRequestChangesOnly: VerdictsRequestChangesOnly,
+	} {
+		if got := from.WithoutApproval(); got != want || got.Approves() {
+			t.Errorf("%s without approval = %s (approves %v), want %s", from, got, got.Approves(), want)
+		}
+	}
+	if !VerdictsRequestChangesOnly.Allows("changes requested") || VerdictsRequestChangesOnly.Allows("approved") {
+		t.Error("request-changes-only must allow a request for changes and no approval")
 	}
 }
 

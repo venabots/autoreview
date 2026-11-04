@@ -111,6 +111,11 @@ It changes only the event (see "The verdict"):
   user says "don't request changes".
 - `--verdicts comment-only`: the review never approves and never requests
   changes. The run is post-only (rule 1).
+- `--verdicts request-changes-only`: the review never approves. Rule 4
+  applies as written, so a blocking finding still requests changes. When
+  rule 5 would approve, the event is `COMMENT` with the body
+  `LGTM. I want to do a manual check before the official approval.` A
+  person approves the PR by hand.
 - `--verdicts approve-and-request-changes`, or no `--verdicts`: the rules
   apply as they are written.
 
@@ -369,9 +374,9 @@ first rule that matches wins, so every pass has exactly one verdict:
    or a should-fix finding (#3), a substantiated `Approach (questionable)`
    flag, or a verified `Purpose (stated, not served)` flag (#4).
 5. `APPROVE` — **the gate passes.** Rules 1-4 did not match, and coverage
-   (#1) and panel size (#2) hold. One exception: when a routing override
-   sends findings to a Linear that is not reachable, the event is
-   `COMMENT` (see step 2).
+   (#1) and panel size (#2) hold. Two exceptions give `COMMENT`: a routing
+   override that sends findings to a Linear that is not reachable (see
+   step 2), and `--verdicts request-changes-only`.
 6. `COMMENT` — **too few reviewers to decide.** Nothing blocks, but
    coverage (#1) or panel size (#2) failed. When both failed, use the
    coverage line when fewer panelists returned than were launched, and the
@@ -420,6 +425,7 @@ findings that cannot be inline.
 | Approve, LOW/polish posted    | `LGTM, just some small comments, nothing blocking`                              |
 | Request changes               | chosen by `auto-post-panel-review-comments` (see below)                         |
 | Comment: post-only            | `Comments only. No decision.`                                                   |
+| Comment: approval held        | `LGTM. I want to do a manual check before the official approval.`               |
 | Comment: your own PR          | `No decision: this is my own PR.`                                               |
 | Comment: draft                | `No decision: this PR is a draft.`                                              |
 | Comment: head moved           | `No decision: the head moved during the review. These comments are for <sha7>.` |

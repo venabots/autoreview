@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/venabots/autoreview/internal/cli"
@@ -29,18 +30,43 @@ var verdictSkills = []string{"auto-review", "recheck-pr"}
 func verdictCopies(cfg cli.Config, o review.Orchestrator, source skills.Source, repoRoot string) error {
 	// Under --no-post the review runs panel-review, which submits no
 	// verdict and is given no --verdicts.
-	if cfg.Verdicts == review.VerdictsAll || cfg.NoPost {
+	levels := runLevels(cfg)
+	if len(levels) == 0 || cfg.NoPost {
 		return nil
 	}
 	roots := task.SkillRoots(o, os.Getenv("HOME"), os.Getenv("CODEX_HOME"), session.ConfigDir(os.Getenv), repoRoot)
 	for _, name := range verdictSkills {
 		path, ok := copyThatRuns(o, name, roots, source)
-		if ok && !mentions(path, review.VerdictsFlag) {
+		if !ok {
+			continue
+		}
+		if !mentions(path, review.VerdictsFlag) {
 			return fmt.Errorf("review.verdicts is %s, but %s does not know %s; update that copy of %s, or remove it so the bundled one runs",
 				cfg.Verdicts, path, review.VerdictsFlag, name)
 		}
+		for _, level := range levels {
+			if !mentions(path, level.String()) {
+				return fmt.Errorf("%s does not know %s %s, which the settings need; update that copy of %s, or remove it so the bundled one runs",
+					path, review.VerdictsFlag, level, name)
+			}
+		}
 	}
 	return nil
+}
+
+// runLevels is every verdict level other than the default that a review
+// in this run can carry: the run's own, and the one without the approval
+// for a held author. A copy that knew --verdicts and not the level would
+// ignore it, and could approve a PR the person holds.
+func runLevels(cfg cli.Config) []review.Verdicts {
+	var out []review.Verdicts
+	if cfg.Verdicts != review.VerdictsAll {
+		out = append(out, cfg.Verdicts)
+	}
+	if held := cfg.Verdicts.WithoutApproval(); len(cfg.NoApproveAuthors) > 0 && !slices.Contains(out, held) {
+		out = append(out, held)
+	}
+	return out
 }
 
 // copyThatRuns is the SKILL.md the agent reads for name. It is false for

@@ -69,6 +69,9 @@ type Config struct {
 	Panelists []string
 	// Verdicts is which events a review may submit.
 	Verdicts review.Verdicts
+	// NoApproveAuthors is the GitHub logins whose PRs a review never
+	// approves: a person checks them before the approval.
+	NoApproveAuthors []string
 	// CIWait is how long a run that looks once waits for checks that are
 	// still running before it starts its pass. Zero means it does not wait.
 	CIWait time.Duration
