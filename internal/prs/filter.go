@@ -60,7 +60,7 @@ func hiddenReason(n node, opts Options) Hidden {
 		return HiddenDraft
 	case n.Author.Login == opts.Me:
 		return HiddenOwn
-	case !byAuthor(n.Author.Login, opts.Authors):
+	case !ByAuthor(n.Author.Login, opts.Authors):
 		return HiddenAuthor
 	case !opts.Dependabot && isBot(n.Author.Login):
 		return HiddenBot

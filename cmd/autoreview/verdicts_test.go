@@ -78,11 +78,12 @@ func mkdir(t *testing.T, dir string) string {
 
 // Under --no-post the review runs panel-review, which gets no --verdicts:
 // an old copy of auto-review never runs, and must not stop the run.
-// A copy that knows --verdicts but not the level for a held author would
-// ignore the level, and could approve a PR the person holds for a check.
-func TestAHeldAuthorNeedsACopyThatKnowsTheLevelWithoutTheApproval(t *testing.T) {
+// A copy that knows --verdicts but not the level for an author a review
+// may not approve would ignore the level, and could approve a PR the
+// person means to check first.
+func TestAnApproveListNeedsACopyThatKnowsTheLevelWithoutTheApproval(t *testing.T) {
 	fixtures := sandbox(t)
-	settingsFile(t, "[review]\nno_approve_authors = [\"@Alice\"]\n")
+	settingsFile(t, "[review]\napprove_authors = [\"@Bob\"]\n")
 	agents := filepath.Join(os.Getenv("HOME"), ".agents", "skills")
 	teachVerdicts(t, agents)
 
