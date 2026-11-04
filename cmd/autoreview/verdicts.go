@@ -56,14 +56,15 @@ func verdictCopies(cfg cli.Config, o review.Orchestrator, source skills.Source, 
 
 // runLevels is every verdict level other than the default that a review
 // in this run can carry: the run's own, and the one without the approval
-// for a held author. A copy that knew --verdicts and not the level would
-// ignore it, and could approve a PR the person holds.
+// for an author the settings do not let a review approve. A copy that
+// knew --verdicts and not the level would ignore it, and could approve a
+// PR the person means to check first.
 func runLevels(cfg cli.Config) []review.Verdicts {
 	var out []review.Verdicts
 	if cfg.Verdicts != review.VerdictsAll {
 		out = append(out, cfg.Verdicts)
 	}
-	if held := cfg.Verdicts.WithoutApproval(); len(cfg.NoApproveAuthors) > 0 && !slices.Contains(out, held) {
+	if held := cfg.Verdicts.WithoutApproval(); len(cfg.ApproveAuthors) > 0 && !slices.Contains(out, held) {
 		out = append(out, held)
 	}
 	return out

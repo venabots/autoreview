@@ -17,7 +17,7 @@ type Values struct {
 	Focus        string
 	Verdicts     string
 
-	NoApproveAuthors []string
+	ApproveAuthors []string
 
 	Watch     string
 	Rest      string
@@ -81,11 +81,12 @@ var fileTemplate = template.Must(template.New("config.toml").Funcs(template.Func
 # (a blocking finding is a comment review), comment-only (no verdict), or
 # request-changes-only (a review that would approve is a comment).
 {{.Mark "review.verdicts"}}verdicts = {{q .Verdicts}}
-# The GitHub logins whose PRs a review never approves, such as
-# ["pm-sam"]. A blocking finding still requests changes. A review that would
-# approve posts "LGTM. I want to do a manual check before the official
-# approval." instead, and you approve by hand.
-{{.Mark "review.no_approve_authors"}}no_approve_authors = {{list .NoApproveAuthors}}
+# The GitHub logins whose PRs a review may approve, such as ["alice", "bob"].
+# Empty is every author. The PR of anyone else is still reviewed, and a
+# blocking finding still requests changes, but a review that would approve
+# posts "LGTM. I want to do a manual check before the official approval."
+# instead, and you approve by hand.
+{{.Mark "review.approve_authors"}}approve_authors = {{list .ApproveAuthors}}
 
 [loop]
 # The wait between two looks at the PR list. A bare number is minutes; 30m,
