@@ -17,6 +17,7 @@ type Values struct {
 	Focus        string
 	Verdicts     string
 
+
 	Watch     string
 	Rest      string
 	MaxPasses int
@@ -76,7 +77,8 @@ var fileTemplate = template.Must(template.New("config.toml").Funcs(template.Func
 # What the reviewers look at in every run. Empty means nothing in particular.
 {{.Mark "review.focus"}}focus = {{q .Focus}}
 # The verdicts a review may post: approve-and-request-changes, approve-only
-# (a blocking finding is a comment review), or comment-only (no verdict).
+# (a blocking finding is a comment review), comment-only (no verdict), or
+# request-changes-only (a review that would approve is a comment).
 {{.Mark "review.verdicts"}}verdicts = {{q .Verdicts}}
 
 [loop]

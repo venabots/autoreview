@@ -84,6 +84,7 @@ func questionPages(s Start, a *answers) []page {
 				huh.NewOption("Approve, and request changes on a blocking finding", "approve-and-request-changes"),
 				huh.NewOption("Approve only: a blocking finding is a comment review", "approve-only"),
 				huh.NewOption("Comments only: never a verdict", "comment-only"),
+				huh.NewOption("Request changes only: a person gives each approval", "request-changes-only"),
 			).Value(&a.verdicts)},
 		{titleMaxPasses, sentences(
 			"After this many reviews of one PR, the run leaves that PR alone. While the run watches, a new push starts the count again.",

@@ -349,7 +349,7 @@ func (e *Engine) settled(w workers, r run, in jobSettled) run {
 	case state == review.Done:
 		j.view = e.finished(j.view, in.outcome)
 		if !j.view.Verdicts.Allows(j.view.Verdict) {
-			e.journal(Noted{Text: fmt.Sprintf("PR #%d got %q, which review.verdicts = %q does not allow: the review skill did not follow --verdicts", j.view.PR, j.view.Verdict, j.view.Verdicts)})
+			e.journal(Noted{Text: fmt.Sprintf("PR #%d got %q, which its verdict level %q does not allow: the review skill did not follow --verdicts", j.view.PR, j.view.Verdict, j.view.Verdicts)})
 		}
 	case state == review.TimedOut:
 		j.view.State = JobTimedOut

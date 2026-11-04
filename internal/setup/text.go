@@ -64,6 +64,8 @@ func verdictWords(level string) string {
 		return "approve only"
 	case "comment-only":
 		return "comments only"
+	case "request-changes-only":
+		return "request changes only"
 	}
 	return "approve, and request changes"
 }
