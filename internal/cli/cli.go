@@ -77,9 +77,9 @@ type Config struct {
 	// Verdicts is which events a review may submit. Only the settings file
 	// sets it.
 	Verdicts review.Verdicts
-	// NoApproveAuthors is the GitHub logins whose PRs a review never
-	// approves. Only the settings file sets it.
-	NoApproveAuthors []string
+	// ApproveAuthors is the GitHub logins whose PRs a review may approve,
+	// or empty for every author. Only the settings file sets it.
+	ApproveAuthors []string
 	// Panelists is the panel a review seats, each backend[:model], or nil
 	// for the one panel-review.sh picks: $PANEL_REVIEW_PANELISTS, or every
 	// backend on PATH.
@@ -255,7 +255,7 @@ func parseFlags(args []string, env func(string) string, file config.File) (Confi
 	cfg.View, cfg.Only, cfg.Watch = view, only, interval
 	given := func(name string) bool { return fs.Changed(name) }
 	cfg = withFileSwitches(cfg, set, given)
-	if cfg.NoApproveAuthors, err = noApproveAuthors(file); err != nil {
+	if cfg.ApproveAuthors, err = approveAuthors(file); err != nil {
 		return Config{}, err
 	}
 	if cfg.Notify, err = notifyChannels(file); err != nil {
