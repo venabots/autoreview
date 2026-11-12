@@ -354,7 +354,8 @@ The first rule that matches wins:
 
 1. `COMMENT` — **no verdict is possible on this PR.** It is your own PR
    (gate 5), or it is a draft (gate 4).
-2. `COMMENT` — **the head moved** since you adjudicated (gate 6).
+2. `COMMENT` — **the head moved** since you adjudicated (gate 6). A clean
+   merge of the base is not a move.
 3. `REQUEST_CHANGES` — **a finding blocks.** A row above polish (CRITICAL,
    HIGH or MEDIUM) is `OUTSTANDING` or `NEW`, or the delta has a
    substantiated questionable-approach flag.
@@ -533,10 +534,16 @@ Approve only if **every one** of these holds:
    author saying "not ready".
 5. **Not your own PR.** Compare `gh api user --jq '.login'` against the PR
    author. GitHub rejects a self-approval; don't attempt it.
-6. **Head unchanged since you started.** Re-fetch `headRefOid` immediately
-   before approving and confirm it still equals the `NEW` you adjudicated.
-   If the author pushed while you were reading, the current head is
-   unreviewed — withhold and say a re-check is needed.
+6. **No new code on the head since you started.** Immediately before you
+   decide, run this skill's `scripts/head-moved.sh <pr> <NEW>` in the
+   repository's clone, with the `NEW` you adjudicated. `same` means the
+   head is `NEW`. `base-merge` means the head moved only by clean merges
+   of the base branch, which add no code that you did not read. Either one
+   passes, and the review still pins `NEW`. On `moved`, or when the script
+   prints nothing and fails, the author pushed while you were reading, or
+   nobody can tell. The current head is unreviewed — withhold and say a
+   re-check is needed. A merge whose conflict was resolved by hand is
+   `moved`.
 
 Conditions 4-6 have no thread to leave a comment on; the first line of
 the review body names them. Conditions 1-3 always correspond to something
