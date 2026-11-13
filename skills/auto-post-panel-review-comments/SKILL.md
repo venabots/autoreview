@@ -269,10 +269,15 @@ changes the event:
   with `No decision: this is my own PR.` GitHub accepts no verdict from
   the author, and a comment review that still says `LGTM` reads as one.
 - **A head that moved.** When a caller pinned a commit and the event is
-  `APPROVE` or `REQUEST_CHANGES`, fetch `headRefOid` again immediately
-  before you submit. The caller decided minutes ago, and the reactions and
-  the Linear tickets take time too. When the head is no longer the pinned
-  commit, use `COMMENT` with the caller's head-moved first line
+  `APPROVE` or `REQUEST_CHANGES`, run this skill's
+  `scripts/head-moved.sh <pr> <pinned-sha>` in the repository's clone
+  immediately before you submit. The caller decided minutes ago, and the
+  reactions and the Linear tickets take time too. It prints `same` when
+  the head is the pinned commit, and `base-merge` when the head moved only
+  by clean merges of the base branch, which add no code that the review
+  did not cover. Both keep the event, and the review still pins the
+  caller's commit. On `moved`, or when the script prints nothing and
+  fails, use `COMMENT` with the caller's head-moved first line
   (`auto-review` and `recheck-pr` each define one). A verdict must not
   land on a head that nobody reviewed.
 

@@ -60,7 +60,7 @@ The first rule that matches wins:
 | --- | ------------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------- |
 | 1   | Post-only request                                            | `COMMENT`         | `Comments only. No decision.`                                                                     |
 | 2   | Your own PR, or a draft                                      | `COMMENT`         | `No decision: this is my own PR.` / `No decision: this PR is a draft.`                            |
-| 3   | The head moved during the review                             | `COMMENT`         | `No decision: the head moved during the review. These comments are for <sha7>.`                   |
+| 3   | The head moved during the review, beyond a clean base merge  | `COMMENT`         | `No decision: the head moved during the review. These comments are for <sha7>.`                   |
 | 4   | A must-fix or should-fix finding, or a questionable approach | `REQUEST_CHANGES` | `Just a few things I think we should update before this gets in.` (see below)                     |
 | 5   | The gate passes                                              | `APPROVE`         | `LGTM` / `LGTM, just some small comments, nothing blocking`                                       |
 | 6   | Nothing blocks, but too few reviewers answered               | `COMMENT`         | `Reviewed with <returned>, but <failed> failed, so I'm withholding approval for now.` (see below) |
@@ -73,7 +73,7 @@ Rule 4 comes before rule 6 on purpose. A short panel that found nothing has not 
 
 On a branch that requires reviews, a request for changes blocks the merge until a later pass approves. [`recheck-pr`](../recheck-pr) does that when the author fixes or explains every finding.
 
-The head is checked again immediately before the review is submitted. If the author pushed after the verdict was decided, the review is the head-moved comment review.
+The head is checked again immediately before the review is submitted. If the author pushed after the verdict was decided, the review is the head-moved comment review. A clean merge of the base is not a push.
 
 ## The approval gate
 
@@ -85,7 +85,7 @@ It approves **only when every one** of these holds:
 - **Sound approach, served purpose** — no substantiated `Approach (questionable)` flag, and no verified `Purpose (stated, not served)` flag. Code that does something other than what its description says is not auto-stamped. A `Purpose (unknown)` does not withhold approval: a thin description is bucketed LOW by `panel-review` and rides along as a polish comment. Same for `Proof (missing)` — bucketed LOW, except on auth, session handling, payments, schema migrations, crypto, or production infra, where it lands in must-fix and the blocking-findings gate withholds on it.
 - **Not a draft** — a draft PR is the author saying "not ready" (`gh pr view --json isDraft`); it gets comments and no verdict.
 - **Not your own PR** — GitHub accepts no approval and no request for changes from the author; your own PR gets comments and no verdict.
-- **Head unchanged** — the PR head SHA is re-fetched before the verdict and must still match the SHA that was reviewed; if the author pushed during the multi-minute review, there is no verdict (the current head was never reviewed).
+- **No new code on the head** — before the verdict, `scripts/head-moved.sh` compares the PR head with the SHA that was reviewed. The head must be that SHA, or have moved only by clean merges of the base: each a merge of a base commit whose tree is what git's own merge gives. If the author pushed anything else during the multi-minute review, including a merge whose conflict they resolved by hand, there is no verdict (the current head was never reviewed).
 
 ## The review body
 

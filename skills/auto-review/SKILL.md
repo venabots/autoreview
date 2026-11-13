@@ -87,9 +87,11 @@ front, and reuse the **same** PR for every later step.
 The head SHA matters because a panel review takes minutes — long enough
 for the author to push during it. Pin the SHA you reviewed: submit the
 review against that `commit_id`, and **before you decide the verdict,
-re-fetch the PR head and confirm it still matches** the reviewed SHA. If
-it changed, the current head was never reviewed — give no verdict on it,
-and report that a re-run is needed (this is gate condition #7 below).
+check that the head holds no new code** with `scripts/head-moved.sh`
+(gate condition #7 below). A head that moved only by a clean merge of the
+base still holds the change you reviewed. After any other move, the
+current head was never reviewed — give no verdict on it, and report that
+a re-run is needed.
 
 If the review ends up running against a non-PR target (`--uncommitted`,
 `--base`, a bare `--commit` with no PR), there's nothing to submit a
@@ -164,14 +166,14 @@ locked`, etc.) counts as **missing**. **Cross-check the count**: record
 
 A review carries its verdict, so decide it before anything is posted.
 Evaluate the **approval gate** (below), then choose the review event with
-the rules under "The verdict". Re-fetch the PR head now, immediately
-before you decide (gate #7).
+the rules under "The verdict". Run `scripts/head-moved.sh` now,
+immediately before you decide (gate #7).
 
 The head is checked once more at the submit. `auto-post-panel-review-comments`
-fetches it again immediately before it posts an `APPROVE` or a
-`REQUEST_CHANGES` review. When the head moved in between, it submits the
-head-moved comment review (verdict rule 3) in its place. Report that
-verdict, not the one you decided here.
+runs the same check immediately before it posts an `APPROVE` or a
+`REQUEST_CHANGES` review. When the head moved in between by more than a
+clean merge of the base, it submits the head-moved comment review (verdict
+rule 3) in its place. Report that verdict, not the one you decided here.
 
 An approval says that the whole review landed. When a routing override
 sends findings to Linear, check that Linear is reachable before you
@@ -351,12 +353,26 @@ locked`) is a **missing** reviewer, not a returned one. If you can't
 '.author.login'`); if they match, **don't approve**. GitHub rejects a
    request for changes from the author too, so your own PR gets comments
    and no verdict.
-7. **Head unchanged since review.** Re-fetch the PR head SHA and confirm
-   it still equals the `headRefOid` you captured before the review (see
-   "Target"). If the author pushed during the run, the current head was
-   never reviewed — **don't approve**, and don't request changes either:
-   the findings are for an older commit and can already be fixed. The
-   comments still post, anchored to the reviewed SHA.
+7. **No new code on the head since review.** Run this skill's
+   `scripts/head-moved.sh <pr> <reviewed-sha>` with the `headRefOid` you
+   captured before the review (see "Target"). Run it in the repository's
+   clone, where the review runs: it fetches the head and the base there.
+   It prints one word:
+   - `same` — the head is the reviewed commit. The condition holds.
+   - `base-merge` — the head moved only by clean merges of the base
+     branch. Each new commit is a merge of a base commit, and its tree is
+     exactly what git's own merge gives. The PR's own change is the one the
+     panel read, so the condition holds. The review still pins the
+     reviewed SHA, because its comments are on lines of that commit's diff.
+   - `moved`, or nothing and a non-zero exit — the author pushed during
+     the run, or the script could not tell. The current head was never
+     reviewed — **don't approve**, and don't request changes either: the
+     findings are for an older commit and can already be fixed. The
+     comments still post, anchored to the reviewed SHA.
+
+   A merge whose conflict was resolved by hand is `moved`: the resolution
+   is code that no panelist read. So is a merge with an edit folded in, a
+   merge of a branch that is not in the base, and a force-push.
 
 When the gate passes, Risk will be LOW by construction.
 
@@ -369,7 +385,8 @@ first rule that matches wins, so every pass has exactly one verdict:
    (see "Autonomy"), or it carries `--verdicts comment-only`.
 2. `COMMENT` — **no verdict is possible on this PR.** It is your own PR
    (#6), or it is a draft (#5).
-3. `COMMENT` — **the head moved** since the review (#7).
+3. `COMMENT` — **the head moved** since the review (#7). A clean merge of
+   the base is not a move.
 4. `REQUEST_CHANGES` — **a finding blocks.** The synthesis has a must-fix
    or a should-fix finding (#3), a substantiated `Approach (questionable)`
    flag, or a verified `Purpose (stated, not served)` flag (#4).
@@ -517,7 +534,9 @@ honest limits on that autonomy:
   between the review and the verdict (see "Target"), the review is a
   comment review — the comments still post, but an approval would cover
   code no panelist saw, and a request for changes can name a fault that is
-  already fixed.
+  already fixed. A clean merge of the base adds no code of the author's,
+  and `scripts/head-moved.sh` is what proves a merge clean. Do not judge
+  that from a commit message or a diff by eye.
 
 ## Gotchas
 
