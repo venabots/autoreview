@@ -39,7 +39,7 @@ All six must hold:
 3. If the delta needed a panel re-review, it actually ran.
 4. Not a draft.
 5. Not your own PR.
-6. Head SHA unchanged since you started reading.
+6. No new code on the head since you started reading: the head SHA is unchanged, or moved only by clean merges of the base.
 
 Fail any one and it doesn't approve. A finding above polish that is outstanding or new gets a request for changes. Every other failure (a draft, your own PR, a head that moved, a delta nobody reviewed, only optional comments open) gets a comment review that says why there is no decision.
 
