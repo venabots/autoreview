@@ -372,10 +372,11 @@ limit the verdicts. It changes only the event. Do not pass it on to
   requests changes.
 - `--verdicts comment-only`: rules 3 and 4 give `COMMENT`. The review never
   approves and never requests changes.
-- `--verdicts request-changes-only`: rule 4 gives `COMMENT` with the body
-  `LGTM. I want to do a manual check before the official approval.` Rule 3
-  applies as written, so a blocking finding still requests changes. A
-  person approves the PR by hand.
+- `--verdicts request-changes-only`: rule 4 gives `COMMENT`, and the
+  approval is held: the first line is one of the lines in
+  `auto-post-panel-review-comments`, "The held approval", chosen from the
+  PR number as that section says. Rule 3 applies as written, so a blocking
+  finding still requests changes. A person approves the PR by hand.
 - `--verdicts approve-and-request-changes`, or no `--verdicts`: the rules
   apply as they are written.
 
@@ -420,7 +421,7 @@ fixed:
 | Comment: delta not reviewed    | `No decision: the new commits need a panel review, and it did not run.` |
 | Comment: one polish row open   | `No decision: 1 optional comment is still open.`                        |
 | Comment: caused by --verdicts  | `Comments only. No decision.`                                           |
-| Comment: approval held         | `LGTM. I want to do a manual check before the official approval.`       |
+| Comment: approval held         | see "The held approval" in `auto-post-panel-review-comments`            |
 | Comment: more polish rows open | `No decision: <n> optional comments are still open.`                    |
 
 - An approval with no user message takes `LGTM, just some small comments,
@@ -447,8 +448,9 @@ dismiss your earlier request before you submit (see
 changes"; GitHub can refuse it, and the round continues when it does)
 when all three hold:
 
-- The event is `COMMENT` because the PR is a draft (rule 1), or because
-  only polish rows are still open (rule 5).
+- The event is `COMMENT` because the PR is a draft (rule 1), because
+  only polish rows are still open (rule 5), or because
+  `--verdicts request-changes-only` holds the approval (rule 4).
 - No row above polish is `OUTSTANDING` or `NEW`.
 - The delta did not need a panel, or the panel ran and returned.
 

@@ -73,6 +73,8 @@ Rule 4 comes before rule 6 on purpose. A short panel that found nothing has not 
 
 On a branch that requires reviews, a request for changes blocks the merge until a later pass approves. [`recheck-pr`](../recheck-pr) does that when the author fixes or explains every finding.
 
+When the settings let only a person approve this PR, rule 5 posts a comment review that says the PR looks good, in one of a few wordings. It first dismisses an earlier request for changes from this reviewer, so the PR is not blocked on it when the person approves.
+
 The head is checked again immediately before the review is submitted. If the author pushed after the verdict was decided, the review is the head-moved comment review. A clean merge of the base is not a push.
 
 ## The approval gate

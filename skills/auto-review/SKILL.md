@@ -115,9 +115,8 @@ It changes only the event (see "The verdict"):
   changes. The run is post-only (rule 1).
 - `--verdicts request-changes-only`: the review never approves. Rule 4
   applies as written, so a blocking finding still requests changes. When
-  rule 5 would approve, the event is `COMMENT` with the body
-  `LGTM. I want to do a manual check before the official approval.` A
-  person approves the PR by hand.
+  rule 5 would approve, the event is `COMMENT` and the approval is held
+  (see "The held approval" below). A person approves the PR by hand.
 - `--verdicts approve-and-request-changes`, or no `--verdicts`: the rules
   apply as they are written.
 
@@ -442,7 +441,7 @@ findings that cannot be inline.
 | Approve, LOW/polish posted    | `LGTM, just some small comments, nothing blocking`                              |
 | Request changes               | chosen by `auto-post-panel-review-comments` (see below)                         |
 | Comment: post-only            | `Comments only. No decision.`                                                   |
-| Comment: approval held        | `LGTM. I want to do a manual check before the official approval.`               |
+| Comment: approval held        | see "The held approval" below                                                   |
 | Comment: your own PR          | `No decision: this is my own PR.`                                               |
 | Comment: draft                | `No decision: this PR is a draft.`                                              |
 | Comment: head moved           | `No decision: the head moved during the review. These comments are for <sha7>.` |
@@ -452,7 +451,21 @@ findings that cannot be inline.
 
 Use those bodies as-is (don't vary the wording — a stable body keeps the
 review auditable). `<sha7>` is the first seven characters of the reviewed
-SHA.
+SHA. The held approval is the one exception.
+
+### The held approval
+
+The held approval takes one of the lines in `auto-post-panel-review-comments`,
+"The held approval", chosen from the PR number as that section says.
+
+Before you submit it, withdraw your earlier request for changes on this PR
+(`auto-post-panel-review-comments`, "Withdrawing your earlier request for
+changes"). An earlier pass can have requested changes, and a `COMMENT`
+review does not replace it. The gate passed, so nothing blocks, and the
+person who approves by hand must not find the PR still blocked on your
+request. Tell `auto-post-panel-review-comments` to withdraw it. When GitHub
+refuses the dismissal, submit the review anyway and report that the
+earlier request is still in force.
 
 ### The coverage line
 
@@ -603,6 +616,9 @@ review for real (it's read-only) but submit nothing. Write:
   `{ "approve": false, "event": "REQUEST_CHANGES", "reason": "1 should-fix finding", "body": "Just one thing I think we should update before this gets in.", "coverage": "3/3" }`,
   and on a pass with one panelist lost:
   `{ "approve": true, "event": "APPROVE", "reason": "clean: LOW/polish only, quorum 3/4", "body": "LGTM, just some small comments, nothing blocking", "coverage": "3/4" }`.
+  `withdraw_earlier_request` is `true` when the review would dismiss your
+  earlier request for changes first (a held approval), and `false`
+  otherwise.
 - `./report.md` — auto-review's **final consolidated** report (review
   summary + posting disposition + verdict). The single
   authoritative report; auto-post's posting detail lives in

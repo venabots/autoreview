@@ -241,12 +241,14 @@ without saving.
 
 **Verdicts.** `approve-only` makes a review that would request changes a comment
 review with the same findings. `comment-only` makes every review a comment
-review. `request-changes-only` never approves: a review that would approve
-posts `LGTM. I want to do a manual check before the official approval.`, and
-you approve by hand. The setting reaches `auto-review` and `recheck-pr` as a
-`--verdicts` option. If you installed your own copies of those skills, they
-need the option and the level too: a run stops before it starts and names the
-copy that does not know them.
+review. `request-changes-only` never approves: a review that would approve posts
+a comment that says the PR looks good and that you check it first, such as
+`LGTM. I want to do a manual check before the official approval.` The wording
+changes from PR to PR. The review also dismisses its own earlier request for
+changes, so the PR is not blocked on it, and you approve by hand. The setting
+reaches `auto-review` and `recheck-pr` as a `--verdicts` option. If you
+installed your own copies of those skills, they need the option and the level
+too: a run stops before it starts and names the copy that does not know them.
 
 **Approved authors.** `review.approve_authors` lists the GitHub logins whose PRs
 a review may approve. Empty, the default, is every author. Set it when some PRs
