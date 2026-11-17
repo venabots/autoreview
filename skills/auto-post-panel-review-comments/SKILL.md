@@ -306,6 +306,30 @@ the review.
 A caller can hand you a different first line for any event (`recheck-pr`
 does for a second round). Use the caller's line verbatim.
 
+#### The held approval
+
+`auto-review` and `recheck-pr` hold an approval when the settings do not
+let a review approve this PR (`--verdicts request-changes-only`). The
+event is `COMMENT`, and the PR is ready for a person to approve. The
+first line is one of these:
+
+1. `LGTM. I want to do a manual check before the official approval.`
+2. `LGTM. I'll give it one more look myself before I approve.`
+3. `Looks good to me. I want to check it by hand before the approval.`
+4. `Nothing blocking from the review. I'll approve after a manual pass.`
+5. `LGTM so far. The approval comes after I look it over myself.`
+6. `Looks good. I'll do a quick manual check, then approve.`
+
+Take line `(N mod 6) + 1`, where `N` is the PR number. A team that sees
+many held approvals in a day then reads different words, and every pass
+on one PR uses the same line, so the repeat check below still finds a
+repeat. Use the line as written.
+
+A held approval always withdraws your earlier request for changes (see
+"Withdrawing your earlier request for changes"). The review found nothing
+that blocks, so a request from an earlier pass no longer stands. If it
+stays, the PR stays blocked when the person approves.
+
 Only three things can follow the first line, each after a blank line:
 
 - **Lines that the caller supplies.** `recheck-pr` adds one line for each
@@ -465,7 +489,8 @@ that you did, in three cases:
   nothing.
 - The event is `COMMENT`, there is no inline comment and no body block,
   and your latest review on this PR already has the same body at the same
-  commit. Check with
+  commit. Any two lines of "The held approval" count as the same body.
+  Check with
   `gh api "repos/{owner}/{repo}/pulls/<N>/reviews" --paginate | jq -s 'add | map(select(.user.login == "<you>")) | last | {id, state, body, commit_id}'`.
   Note the `id` whatever the answer: it is how you tell an old review from
   this run's after a call that failed.
@@ -507,9 +532,12 @@ review is the failure this skill exists to prevent.
 
 ### Withdrawing your earlier request for changes
 
-Only when a caller says its earlier request for changes no longer stands
-(`recheck-pr` does, when the author fixed every blocking finding but the
-round cannot approve).
+Only when a caller says its earlier request for changes no longer stands:
+
+- `recheck-pr`, when the author fixed every blocking finding but the round
+  cannot approve.
+- `auto-review` or `recheck-pr`, when it holds an approval (see "The held
+  approval"). Do this even when the caller forgets to say so.
 
 A new `APPROVE` or `REQUEST_CHANGES` review replaces your earlier verdict
 by itself. A `COMMENT` review does not: GitHub keeps your earlier request

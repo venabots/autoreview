@@ -28,7 +28,7 @@ If you don't name a PR, it auto-detects from your current branch.
 - **Runs another `panel-review`** over the new commits when the delta is significant enough that your read of it isn't adequate review on its own: structural rework, unrelated work carried along, risk-carrying surface (auth, payments, migrations, CI), a force-push, or just size.
 - **Replies and resolves** — one confirmation reply on each satisfied thread that hasn't been replied to yet, then resolves it. Skips threads that are already resolved, and never touches threads you didn't open.
 - **Submits one review, last.** It approves when the gate passes, requests changes when a finding above polish is outstanding or new, and submits a comment review that says why when no decision is possible. New findings in the delta are inline comments in that review. `approve-pr` then does the follow-up after an approval.
-- **Withdraws a request it no longer makes.** When the author fixed every blocking finding but the round cannot approve, it dismisses its earlier request for changes, so the PR is not blocked on it.
+- **Withdraws a request it no longer makes.** When the author fixed every blocking finding but the round cannot approve, it dismisses its earlier request for changes, so the PR is not blocked on it. It does the same when the settings hold the approval for a person.
 
 ## The approval gate
 
