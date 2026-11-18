@@ -90,3 +90,40 @@ func TestTheRiskCeilingIsAnOptionOfTheSkillsThatGiveAVerdict(t *testing.T) {
 		}
 	}
 }
+
+// A check that never answered is the zero value, and a failed one has no
+// rating: both hold the approval. Only a repository that names no script,
+// or a rating at or below the ceiling, lets the review decide.
+func TestARiskCheckHoldsUnlessItRatesWithinTheCeiling(t *testing.T) {
+	cases := []struct {
+		name  string
+		check RiskCheck
+		holds bool
+	}{
+		{"no answer", RiskCheck{}, true},
+		{"no script", RiskCheck{NoScript: true}, false},
+		{"failed", RiskCheck{Script: "bin/pr-risk", Why: "exit 1"}, true},
+		{"low", RiskCheck{Script: "bin/pr-risk", Risk: RiskLow}, false},
+		{"medium", RiskCheck{Script: "bin/pr-risk", Risk: RiskMedium}, false},
+		{"high", RiskCheck{Script: "bin/pr-risk", Risk: RiskHigh}, true},
+	}
+	for _, c := range cases {
+		if got := c.check.Holds(RiskMedium); got != c.holds {
+			t.Errorf("%s under medium: holds %v, want %v", c.name, got, c.holds)
+		}
+	}
+}
+
+// A script prints the word alone. Anything more on the line is no rating.
+func TestARiskScriptsRatingIsTheWordAlone(t *testing.T) {
+	for line, want := range map[string]Risk{"HIGH": RiskHigh, " low \r": RiskLow, "Medium": RiskMedium} {
+		if got, ok := ParseRating(line); !ok || got != want {
+			t.Errorf("%q reads as %s, %v", line, got, ok)
+		}
+	}
+	for _, line := range []string{"", "HIGH: migrations", "**HIGH**", "LOWISH", "high risk"} {
+		if got, ok := ParseRating(line); ok {
+			t.Errorf("%q reads as %s", line, got)
+		}
+	}
+}

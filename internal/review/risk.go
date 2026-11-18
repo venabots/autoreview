@@ -97,3 +97,40 @@ func maxRiskOption(r Request) string {
 	}
 	return MaxRiskFlag + " " + r.MaxRisk.String()
 }
+
+// RiskCheck is what a repository's own risk script said about one head of
+// a PR, before its review starts. A model rates risk by reading, and it can
+// rate a migration MEDIUM; a script rates by rules the repository wrote,
+// and it says the same thing every time.
+//
+// The zero value holds the approval: a check that never answered, or
+// failed, must not let one through.
+type RiskCheck struct {
+	// NoScript says the repository names no risk script: its base branch
+	// has no REVIEW.md, or the file names none.
+	NoScript bool
+	// Script is the path that REVIEW.md names.
+	Script string
+	// Risk is the script's rating, or RiskNone when the check failed.
+	Risk Risk
+	// Why is the script's reason, or why the check failed, sanitized.
+	Why string
+}
+
+// Holds says the check keeps the approval of a PR under the ceiling for a
+// person: the script rated it above the ceiling, or gave no rating.
+func (c RiskCheck) Holds(ceiling Risk) bool {
+	return !c.NoScript && (c.Risk == RiskNone || c.Risk > ceiling)
+}
+
+// ParseRating reads the line a risk script prints first. A script is a
+// program, so the line must be the word and nothing else, in any case.
+func ParseRating(line string) (Risk, bool) {
+	word := strings.TrimSpace(line)
+	for _, r := range []Risk{RiskLow, RiskMedium, RiskHigh, RiskCritical} {
+		if strings.EqualFold(word, r.String()) {
+			return r, true
+		}
+	}
+	return RiskNone, false
+}

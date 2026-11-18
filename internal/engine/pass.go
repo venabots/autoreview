@@ -88,16 +88,21 @@ func (e *Engine) startPass(w workers, r run, rows []queue.Row) run {
 	r.snap.Phase = Reviewing
 	r.jobs = make([]job, len(rows))
 	for i, row := range rows {
-		r.jobs[i] = e.queued(row, pass.Dir)
+		r.jobs[i] = e.queued(row, pass.Dir, r.risks)
 	}
 	e.journal(PassStarted{Pass: r.snap.Pass, Reviews: len(rows), Limit: e.cfg.Jobs, Dir: pass.Dir})
 	return e.fill(w, r)
 }
 
 // queued is a review of the row that waits for a slot in the pass that
-// writes to dir.
-func (e *Engine) queued(row queue.Row, dir string) job {
+// writes to dir. A review the risk check holds gets the run's level without
+// the approval, so no model is asked to hold it.
+func (e *Engine) queued(row queue.Row, dir string, risks map[int]riskAsk) job {
 	verdicts, ceiling := e.levelFor(row.PR.Author)
+	if why, held := e.heldByRisk(row.PR, ceiling, risks); held {
+		e.journal(Noted{Text: why})
+		verdicts, ceiling = e.cfg.Verdicts.WithoutApproval(), review.RiskNone
+	}
 	return job{head: row.PR.Head, view: Job{
 		PR:           row.PR.Number,
 		Title:        row.PR.Title,
@@ -530,7 +535,7 @@ func (e *Engine) reviewNow(w workers, r run, pr int) run {
 		i := indexOf(r.jobs, pr)
 		switch {
 		case i < 0:
-			r.jobs = movedFirst(append(slices.Clone(r.jobs), e.queued(asked[0], r.pass.Dir)), len(r.jobs))
+			r.jobs = movedFirst(append(slices.Clone(r.jobs), e.queued(asked[0], r.pass.Dir, r.risks)), len(r.jobs))
 			e.journal(Noted{Text: fmt.Sprintf("PR #%d joins pass %d, ahead of the reviews that wait", pr, r.snap.Pass)})
 			return e.fill(w, r)
 		case r.jobs[i].view.State.Settled():

@@ -278,6 +278,26 @@ approve_authors = ["alice", "bob"]
 approve_others_up_to = "medium"
 ```
 
+**Risk script.** A model's rating can be wrong. To rate by rules instead, name a
+script in a `REVIEW.md` at the repository root, on a line of its own:
+
+```markdown
+Risk script: `bin/pr-risk`
+```
+
+With a ceiling set, a run runs that script on the PR of each author outside
+`review.approve_authors`, before its review, once for each head. It reads the
+script and `REVIEW.md` from the PR's base branch, so a PR cannot edit the rules
+it is judged by. The script runs in the checkout's top directory. It reads the
+PR's changed paths on stdin, the old path of a rename too, and gets
+`$AUTOREVIEW_REPO`, `$AUTOREVIEW_PR`, `$AUTOREVIEW_BASE` and `$AUTOREVIEW_HEAD`.
+It prints `LOW`, `MEDIUM`, `HIGH` or `CRITICAL` alone on its first line, and why
+on the lines after. Above the ceiling, the reviewer is told before it starts
+that it may not approve, and the log says why. A script that fails, runs over a
+minute or prints anything else first holds the approval the same way, and so
+does a `REVIEW.md` or script that GitHub does not serve. At or below the
+ceiling, the panel's rating still applies.
+
 **Panel models.** A review hands `panel.panelists` to `panel-review` through
 `$PANEL_REVIEW_PANELISTS`, unless you set that variable yourself. Name at least
 2, because `auto-review` approves only when several models review. With codex as

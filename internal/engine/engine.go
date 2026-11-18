@@ -165,6 +165,10 @@ type Deps struct {
 	// should, and says where that stands. It is nil when the run asks
 	// nothing, and then a Dependabot PR is reviewed like any other.
 	Rebase func(ctx context.Context, pr prs.PR) (rebase.State, error)
+	// Risk runs the repository's own risk script on one head of a PR whose
+	// approval stops at a risk. It is nil when the run checks nothing, and
+	// then the review alone rates the risk.
+	Risk func(ctx context.Context, pr prs.PR) review.RiskCheck
 	// Journal takes each event as it happens. It must not block: the
 	// engine calls it from its own goroutine. It may be nil.
 	Journal func(Event)
@@ -246,6 +250,8 @@ type run struct {
 	// asks is what the run found when it asked about rebasing each
 	// Dependabot PR, for the head it asked about.
 	asks map[int]queue.Ask
+	// risks is what each PR's risk script said, for the head it rated.
+	risks map[int]riskAsk
 	// idle counts the looks in a row that found nothing to review.
 	// passEnded says a pass ended since the last look: the look straight
 	// after a pass is not idle, it is the first chance to see an answer.
@@ -324,10 +330,13 @@ func (e *Engine) handle(w workers, r run, in input) run {
 		return e.quit(w, r)
 	case listed:
 		r.pending--
-		r = e.askRebases(w, e.withListing(r, in))
+		r = e.askRisks(w, e.askRebases(w, e.withListing(r, in)))
 	case rebaseAnswered:
 		r.pending--
 		return e.rebaseAnswered(r, in)
+	case riskChecked:
+		r.pending--
+		return riskCheckedInto(r, in)
 	case mineListed:
 		r.pending--
 		return e.mineListed(w, r, in)

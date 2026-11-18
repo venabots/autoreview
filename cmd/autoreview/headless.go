@@ -25,6 +25,7 @@ import (
 	"github.com/venabots/autoreview/internal/rebase"
 	"github.com/venabots/autoreview/internal/repo"
 	"github.com/venabots/autoreview/internal/review"
+	"github.com/venabots/autoreview/internal/riskcheck"
 	"github.com/venabots/autoreview/internal/rundir"
 	"github.com/venabots/autoreview/internal/sanitize"
 	"github.com/venabots/autoreview/internal/session"
@@ -114,6 +115,11 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 	// Under --no-post the run still decides, and says what it would post.
 	deps.Rebase = func(ctx context.Context, pr prs.PR) (rebase.State, error) {
 		return rebase.Check(ctx, gh.Exec, rc.Slug(), rc.Me, pr, !cfg.NoPost)
+	}
+	if cfg.ApproveOthersUpTo != review.RiskNone {
+		// The repository's own script rates another author's PR before its
+		// review, so the ceiling does not rest on a model's rating alone.
+		deps.Risk = riskcheck.Checker{GH: gh.Exec, Repo: rc, Dir: prepared.run.Root, Run: riskcheck.Exec}.Check
 	}
 	if !cfg.NoPost {
 		// --no-post promises to leave the PR alone, the reaction too.

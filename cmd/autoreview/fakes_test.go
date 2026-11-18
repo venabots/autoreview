@@ -78,6 +78,17 @@ func fakeGh(args []string) int {
 	case strings.HasPrefix(joined, "api --method POST repos/acme/widgets/issues/") && strings.HasSuffix(joined, "/comments -f body=@dependabot rebase --silent"):
 		appendLine(filepath.Join(dir, "posted.log"), joined)
 		return 0
+	case strings.HasPrefix(joined, "api --method GET -H Accept: application/vnd.github.raw repos/acme/widgets/contents/"):
+		return baseFile(dir, args)
+	case strings.HasPrefix(joined, "api --paginate repos/acme/widgets/pulls/") && strings.Contains(joined, "/files?"):
+		// The PR's changed files, as tab-separated name and old name: none
+		// unless the test wrote them.
+		if pr := firstNumber.FindString(args[2]); pr != "" {
+			if _, err := os.Stat(filepath.Join(dir, "files-"+pr+".tsv")); err == nil {
+				return serve(dir, "files-"+pr+".tsv")
+			}
+		}
+		return 0
 	case len(args) == 7 && joined == "pr view "+args[2]+" --repo acme/widgets --json latestReviews":
 		fmt.Println(latestReviews(args[2]))
 		return 0
@@ -89,6 +100,17 @@ func fakeGh(args []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "fake gh: unhandled: %s\n", firstChars(joined, 80))
 	return 1
+}
+
+// baseFile is a file of the repository as the base has it: the one the
+// test wrote under $FAKE_GH_DIR/base, or GitHub's 404.
+func baseFile(dir string, args []string) int {
+	path := strings.TrimPrefix(args[5], "repos/acme/widgets/contents/")
+	if _, err := os.Stat(filepath.Join(dir, "base", path)); err != nil {
+		fmt.Fprintln(os.Stderr, "gh: Not Found (HTTP 404)")
+		return 1
+	}
+	return serve(dir, filepath.Join("base", path))
 }
 
 // latestReviews is what GitHub says landed on a PR: the review named for it

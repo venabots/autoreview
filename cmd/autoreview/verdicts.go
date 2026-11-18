@@ -72,23 +72,27 @@ func knowsLevels(cfg cli.Config, path, name string, levels []review.Verdicts) er
 
 // runLevels is every verdict level other than the default that a review
 // in this run can carry, and the risk ceiling it can carry, or RiskNone.
-// They are the levels of a named author's PR and of anyone else's. A copy
-// that knew --verdicts and not the level would ignore it, and one that
-// did not know --max-risk would approve a migration: either one approves a
-// PR the person means to check first.
+// They are the levels of a named author's PR and of anyone else's, and,
+// under a ceiling, the level without the approval that the risk script
+// gives a PR it holds. A copy that knew --verdicts and not the level would
+// ignore it, and one that did not know --max-risk would approve a
+// migration: either one approves a PR the person means to check first.
 func runLevels(cfg cli.Config) ([]review.Verdicts, review.Risk) {
 	var out []review.Verdicts
 	ceiling := review.RiskNone
-	add := func(named bool) {
-		level, risk := review.LevelFor(named, cfg.Verdicts, cfg.ApproveOthersUpTo)
+	add := func(level review.Verdicts) {
 		if level != review.VerdictsAll && !slices.Contains(out, level) {
 			out = append(out, level)
 		}
-		ceiling = max(ceiling, risk)
 	}
-	add(true)
+	level, _ := review.LevelFor(true, cfg.Verdicts, cfg.ApproveOthersUpTo)
+	add(level)
 	if len(cfg.ApproveAuthors) > 0 {
-		add(false)
+		level, ceiling = review.LevelFor(false, cfg.Verdicts, cfg.ApproveOthersUpTo)
+		add(level)
+	}
+	if ceiling != review.RiskNone {
+		add(cfg.Verdicts.WithoutApproval())
 	}
 	return out, ceiling
 }
