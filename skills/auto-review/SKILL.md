@@ -122,6 +122,16 @@ It changes only the event (see "The verdict"):
 
 In each case, report the verdict that you would have given.
 
+`--max-risk low` or `--max-risk medium` is also an option of this skill. Do
+not pass it on either. `autoreview` adds it on the PR of an author whom the
+person does not trust with an approval at any risk. It is the highest
+synthesized Risk at which the review may approve. It adds gate condition #8,
+and changes only the approval: when rule 5 would approve and the Risk is
+above it, the event is `COMMENT` with the body
+`LGTM. This PR is <risk> risk, so a person approves it.`, where `<risk>` is
+the synthesized Risk in lower case, or `unknown`. A blocking finding still
+requests changes (rule 4). With no `--max-risk`, the Risk does not hold an approval.
+
 ## The pipeline
 
 ### 1. Review — run `panel-review` (kept separate)
@@ -232,8 +242,8 @@ flag (#4) — makes you request changes but isn't already in the PR-bound
 posting set, add it before posting: at its root-cause `file:line` when it
 has one, otherwise in the review body. (This is only about findings; the
 structural reasons — draft #5, self-authored #6, head-moved #7, coverage
-#1 and #2 — have no finding to post. The first line of the review body
-names them.) A request for changes whose reason the author can't see on
+#1 and #2, risk #8 — have no finding to post. The first line of the review
+body names them.) A request for changes whose reason the author can't see on
 the PR is a silent block; never request changes on a finding you didn't
 post.
 
@@ -373,7 +383,17 @@ locked`) is a **missing** reviewer, not a returned one. If you can't
    is code that no panelist read. So is a merge with an edit folded in, a
    merge of a branch that is not in the base, and a force-push.
 
-When the gate passes, Risk will be LOW by construction.
+8. **Risk within the ceiling** — only under `--max-risk`. Read the first
+   word under the synthesis's `### Risk` heading: `LOW`, `MEDIUM`, `HIGH`
+   or `CRITICAL`. It must be at or below the ceiling, in that order. A
+   Risk that is missing, or is not one of those four words, is above every
+   ceiling. Do not rate the risk yourself, and do not lower the
+   synthesis's rating: the panel rated it, and a rating lowered here is an
+   approval nobody else saw. A clean, tested change can still be `HIGH`:
+   the rubric rates a migration or a change to money movement HIGH
+   however good the code is, so a person looks at it before it merges.
+
+Without `--max-risk`, a clean change at any Risk can pass the gate.
 
 ## The verdict
 
@@ -390,9 +410,10 @@ first rule that matches wins, so every pass has exactly one verdict:
    or a should-fix finding (#3), a substantiated `Approach (questionable)`
    flag, or a verified `Purpose (stated, not served)` flag (#4).
 5. `APPROVE` — **the gate passes.** Rules 1-4 did not match, and coverage
-   (#1) and panel size (#2) hold. Two exceptions give `COMMENT`: a routing
-   override that sends findings to a Linear that is not reachable (see
-   step 2), and `--verdicts request-changes-only`.
+   (#1) and panel size (#2) hold. Three exceptions give `COMMENT`: a
+   routing override that sends findings to a Linear that is not reachable
+   (see step 2), `--verdicts request-changes-only`, and a Risk above
+   `--max-risk` (#8).
 6. `COMMENT` — **too few reviewers to decide.** Nothing blocks, but
    coverage (#1) or panel size (#2) failed. When both failed, use the
    coverage line when fewer panelists returned than were launched, and the
@@ -442,6 +463,7 @@ findings that cannot be inline.
 | Request changes               | chosen by `auto-post-panel-review-comments` (see below)                         |
 | Comment: post-only            | `Comments only. No decision.`                                                   |
 | Comment: approval held        | see "The held approval" below                                                   |
+| Comment: risk above ceiling   | `LGTM. This PR is <risk> risk, so a person approves it.`                        |
 | Comment: your own PR          | `No decision: this is my own PR.`                                               |
 | Comment: draft                | `No decision: this PR is a draft.`                                              |
 | Comment: head moved           | `No decision: the head moved during the review. These comments are for <sha7>.` |
@@ -451,12 +473,17 @@ findings that cannot be inline.
 
 Use those bodies as-is (don't vary the wording — a stable body keeps the
 review auditable). `<sha7>` is the first seven characters of the reviewed
-SHA. The held approval is the one exception.
+SHA. `<risk>` is the synthesized Risk in lower case, such as `high`, or
+`unknown` when the synthesis gave none. The held approval is the one
+exception.
 
 ### The held approval
 
 The held approval takes one of the lines in `auto-post-panel-review-comments`,
-"The held approval", chosen from the PR number as that section says.
+"The held approval", chosen from the PR number as that section says. A
+Risk above `--max-risk` holds the approval too, with the line
+`LGTM. This PR is <risk> risk, so a person approves it.` in place of those
+lines, and the rest of this section applies to it.
 
 Before you submit it, withdraw your earlier request for changes on this PR
 (`auto-post-panel-review-comments`, "Withdrawing your earlier request for
@@ -614,10 +641,12 @@ review for real (it's read-only) but submit nothing. Write:
   quorum ≥ 75% passes — e.g. `"3/4"`). Examples:
   `{ "approve": false, "event": "COMMENT", "reason": "coverage 2/4 below 75%", "body": "Reviewed with claude (all clear) and codex (all clear), but grok and glm-5.3 both failed, so I'm withholding approval for now.", "coverage": "2/4" }`,
   `{ "approve": false, "event": "REQUEST_CHANGES", "reason": "1 should-fix finding", "body": "Just one thing I think we should update before this gets in.", "coverage": "3/3" }`,
+  `{ "approve": false, "event": "COMMENT", "reason": "risk HIGH above --max-risk medium: a migration in packages/db", "body": "LGTM. This PR is high risk, so a person approves it.", "coverage": "3/3" }`,
   and on a pass with one panelist lost:
   `{ "approve": true, "event": "APPROVE", "reason": "clean: LOW/polish only, quorum 3/4", "body": "LGTM, just some small comments, nothing blocking", "coverage": "3/4" }`.
   `withdraw_earlier_request` is `true` when the review would dismiss your
-  earlier request for changes first (a held approval), and `false`
+  earlier request for changes first (a held approval, a Risk above
+  `--max-risk` included), and `false`
   otherwise.
 - `./report.md` — auto-review's **final consolidated** report (review
   summary + posting disposition + verdict). The single

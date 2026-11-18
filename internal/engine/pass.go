@@ -97,13 +97,15 @@ func (e *Engine) startPass(w workers, r run, rows []queue.Row) run {
 // queued is a review of the row that waits for a slot in the pass that
 // writes to dir.
 func (e *Engine) queued(row queue.Row, dir string) job {
+	verdicts, ceiling := e.levelFor(row.PR.Author)
 	return job{head: row.PR.Head, view: Job{
 		PR:           row.PR.Number,
 		Title:        row.PR.Title,
 		Author:       row.PR.Author,
 		State:        JobQueued,
 		Orchestrator: e.cfg.Orchestrator,
-		Verdicts:     e.verdictsFor(row.PR.Author),
+		Verdicts:     verdicts,
+		MaxRisk:      ceiling,
 		PassDir:      dir,
 	}}
 }
@@ -276,6 +278,7 @@ func (e *Engine) request(j job, r run) review.Request {
 		Dashp:        e.cfg.Dashp,
 		Panelists:    e.cfg.Panelists,
 		Verdicts:     j.view.Verdicts,
+		MaxRisk:      j.view.MaxRisk,
 		Dir:          e.cfg.Repo.Root,
 		Stdout:       r.pass.Stdout(pr),
 		Stderr:       r.pass.Stderr(pr),
@@ -351,6 +354,9 @@ func (e *Engine) settled(w workers, r run, in jobSettled) run {
 		if !j.view.Verdicts.Allows(j.view.Verdict) {
 			e.journal(Noted{Text: fmt.Sprintf("PR #%d got %q, which its verdict level %q does not allow: the review skill did not follow --verdicts", j.view.PR, j.view.Verdict, j.view.Verdicts)})
 		}
+		if note := aboveCeiling(j.view); note != "" {
+			e.journal(Noted{Text: note})
+		}
 	case state == review.TimedOut:
 		j.view.State = JobTimedOut
 	default:
@@ -398,7 +404,7 @@ func (e *Engine) retried(w workers, r run, i int, out outcome) run {
 	}
 	j = job{head: j.head, view: Job{
 		PR: j.view.PR, Title: j.view.Title, Author: j.view.Author, State: JobQueued,
-		Orchestrator: *e.cfg.Fallback, Verdicts: j.view.Verdicts, PassDir: j.view.PassDir, First: first,
+		Orchestrator: *e.cfg.Fallback, Verdicts: j.view.Verdicts, MaxRisk: j.view.MaxRisk, PassDir: j.view.PassDir, First: first,
 	}}
 	e.journal(JobRetrying{Job: j.view})
 	r = withJob(r, i, j)

@@ -30,8 +30,8 @@ var verdictSkills = []string{"auto-review", "recheck-pr"}
 func verdictCopies(cfg cli.Config, o review.Orchestrator, source skills.Source, repoRoot string) error {
 	// Under --no-post the review runs panel-review, which submits no
 	// verdict and is given no --verdicts.
-	levels := runLevels(cfg)
-	if len(levels) == 0 || cfg.NoPost {
+	levels, ceiling := runLevels(cfg)
+	if len(levels) == 0 && ceiling == review.RiskNone || cfg.NoPost {
 		return nil
 	}
 	roots := task.SkillRoots(o, os.Getenv("HOME"), os.Getenv("CODEX_HOME"), session.ConfigDir(os.Getenv), repoRoot)
@@ -40,34 +40,57 @@ func verdictCopies(cfg cli.Config, o review.Orchestrator, source skills.Source, 
 		if !ok {
 			continue
 		}
-		if !mentions(path, review.VerdictsFlag) {
-			return fmt.Errorf("review.verdicts is %s, but %s does not know %s; update that copy of %s, or remove it so the bundled one runs",
-				cfg.Verdicts, path, review.VerdictsFlag, name)
+		if err := knowsLevels(cfg, path, name, levels); err != nil {
+			return err
 		}
-		for _, level := range levels {
-			if !mentions(path, level.String()) {
-				return fmt.Errorf("%s does not know %s %s, which the settings need; update that copy of %s, or remove it so the bundled one runs",
-					path, review.VerdictsFlag, level, name)
-			}
+		if ceiling != review.RiskNone && !mentions(path, review.MaxRiskFlag) {
+			return fmt.Errorf("review.approve_others_up_to is %s, but %s does not know %s; update that copy of %s, or remove it so the bundled one runs",
+				ceiling, path, review.MaxRiskFlag, name)
+		}
+	}
+	return nil
+}
+
+// knowsLevels refuses a copy at path that does not know --verdicts, or one
+// of the levels, when the run carries any.
+func knowsLevels(cfg cli.Config, path, name string, levels []review.Verdicts) error {
+	if len(levels) == 0 {
+		return nil
+	}
+	if !mentions(path, review.VerdictsFlag) {
+		return fmt.Errorf("review.verdicts is %s, but %s does not know %s; update that copy of %s, or remove it so the bundled one runs",
+			cfg.Verdicts, path, review.VerdictsFlag, name)
+	}
+	for _, level := range levels {
+		if !mentions(path, level.String()) {
+			return fmt.Errorf("%s does not know %s %s, which the settings need; update that copy of %s, or remove it so the bundled one runs",
+				path, review.VerdictsFlag, level, name)
 		}
 	}
 	return nil
 }
 
 // runLevels is every verdict level other than the default that a review
-// in this run can carry: the run's own, and the one without the approval
-// for an author the settings do not let a review approve. A copy that
-// knew --verdicts and not the level would ignore it, and could approve a
+// in this run can carry, and the risk ceiling it can carry, or RiskNone.
+// They are the levels of a named author's PR and of anyone else's. A copy
+// that knew --verdicts and not the level would ignore it, and one that
+// did not know --max-risk would approve a migration: either one approves a
 // PR the person means to check first.
-func runLevels(cfg cli.Config) []review.Verdicts {
+func runLevels(cfg cli.Config) ([]review.Verdicts, review.Risk) {
 	var out []review.Verdicts
-	if cfg.Verdicts != review.VerdictsAll {
-		out = append(out, cfg.Verdicts)
+	ceiling := review.RiskNone
+	add := func(named bool) {
+		level, risk := review.LevelFor(named, cfg.Verdicts, cfg.ApproveOthersUpTo)
+		if level != review.VerdictsAll && !slices.Contains(out, level) {
+			out = append(out, level)
+		}
+		ceiling = max(ceiling, risk)
 	}
-	if held := cfg.Verdicts.WithoutApproval(); len(cfg.ApproveAuthors) > 0 && !slices.Contains(out, held) {
-		out = append(out, held)
+	add(true)
+	if len(cfg.ApproveAuthors) > 0 {
+		add(false)
 	}
-	return out
+	return out, ceiling
 }
 
 // copyThatRuns is the SKILL.md the agent reads for name. It is false for

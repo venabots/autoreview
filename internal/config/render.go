@@ -17,7 +17,8 @@ type Values struct {
 	Focus        string
 	Verdicts     string
 
-	ApproveAuthors []string
+	ApproveAuthors    []string
+	ApproveOthersUpTo string
 
 	Watch     string
 	Rest      string
@@ -87,6 +88,12 @@ var fileTemplate = template.Must(template.New("config.toml").Funcs(template.Func
 # posts an LGTM comment instead, withdraws its own earlier request for
 # changes, and you approve by hand.
 {{.Mark "review.approve_authors"}}approve_authors = {{list .ApproveAuthors}}
+# The highest risk at which a review still approves the PR of an author that
+# approve_authors does not name: none, low or medium. A review rates a change
+# HIGH when a mistake in it costs money or data, or a revert does not undo
+# it. Above the ceiling, the review posts "LGTM" and the risk instead,
+# withdraws its own earlier request for changes, and a person approves.
+{{.Mark "review.approve_others_up_to"}}approve_others_up_to = {{q .ApproveOthersUpTo}}
 
 [loop]
 # The wait between two looks at the PR list. A bare number is minutes; 30m,

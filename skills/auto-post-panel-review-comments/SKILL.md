@@ -330,6 +330,11 @@ many held approvals in a day then reads different words, and every pass
 on one PR uses the same line, so the repeat check below still finds a
 repeat. Use the line as written.
 
+An approval held because the PR's Risk is above `--max-risk` has the
+first line `LGTM. This PR is <risk> risk, so a person approves it.`
+instead, which the caller hands you. It is a held approval in every other
+way.
+
 A held approval always withdraws your earlier request for changes (see
 "Withdrawing your earlier request for changes"). The review found nothing
 that blocks, so a request from an earlier pass no longer stands. If it

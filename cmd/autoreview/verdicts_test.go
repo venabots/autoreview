@@ -102,6 +102,33 @@ func TestAnApproveListNeedsACopyThatKnowsTheLevelWithoutTheApproval(t *testing.T
 	}
 }
 
+// With a risk ceiling, another author's PR keeps the run's level and
+// carries --max-risk. A copy that did not know the option would ignore it
+// and approve a migration, so the run refuses it before a review starts.
+func TestARiskCeilingNeedsACopyThatKnowsMaxRisk(t *testing.T) {
+	fixtures := sandbox(t)
+	settingsFile(t, "[review]\napprove_authors = [\"@Bob\"]\napprove_others_up_to = \"medium\"\n")
+	agents := filepath.Join(os.Getenv("HOME"), ".agents", "skills")
+	teachVerdicts(t, agents)
+
+	_, stderr, code := autoreview(t, "--orchestrator", "codex", "9")
+	want := "review.approve_others_up_to is medium, but " + filepath.Join(agents, "auto-review", "SKILL.md") + " does not know --max-risk"
+	if code != 1 || !strings.Contains(stderr, want) {
+		t.Fatalf("a copy without --max-risk: exit %d, stderr %q, want %q", code, stderr, want)
+	}
+	if calls := dashpCalls(t, fixtures); len(calls) != 0 {
+		t.Errorf("a review ran with a copy that does not know the ceiling: %q", calls)
+	}
+
+	for _, skill := range []string{"auto-review", "recheck-pr"} {
+		write(t, filepath.Join(agents, skill), "SKILL.md", "# "+skill+"\n\n--max-risk low | medium\n")
+	}
+	stdout, stderr, code := autoreview(t, "--orchestrator", "codex", "9")
+	if code != 0 || !calledWith(t, fixtures, "$auto-review 9 --max-risk medium") {
+		t.Errorf("a review of alice's PR: exit %d, stdout %q, stderr %q, calls %q", code, stdout, stderr, dashpCalls(t, fixtures))
+	}
+}
+
 func TestNoPostDoesNotCheckTheSkillsThatGiveAVerdict(t *testing.T) {
 	sandbox(t)
 	settingsFile(t, "[review]\nverdicts = \"approve-only\"\n")

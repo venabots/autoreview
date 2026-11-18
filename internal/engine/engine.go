@@ -73,6 +73,10 @@ type Config struct {
 	// or empty for every author. A person checks the PR of anyone else
 	// before the approval.
 	ApproveAuthors []string
+	// ApproveOthersUpTo is the highest risk at which a review may approve
+	// the PR of an author ApproveAuthors does not name. RiskNone approves
+	// none of them.
+	ApproveOthersUpTo review.Risk
 	// CIWait is how long a run that looks once waits for checks that are
 	// still running before it starts its pass. Zero means it does not wait.
 	CIWait time.Duration

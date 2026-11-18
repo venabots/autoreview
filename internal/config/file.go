@@ -57,6 +57,9 @@ type Review struct {
 	// Empty is every author. On the PR of anyone else, a review that would
 	// approve posts a comment instead, and a person gives the approval.
 	ApproveAuthors []string `toml:"approve_authors"`
+	// ApproveOthersUpTo is the highest risk at which a review approves the
+	// PR of an author ApproveAuthors does not name: none, low or medium.
+	ApproveOthersUpTo *string `toml:"approve_others_up_to"`
 }
 
 // Loop is when the run looks and when it reviews again. An interval is
@@ -142,6 +145,7 @@ func (f File) keyed() []struct {
 		{"review.budget", f.Review.Budget != nil}, {"review.focus", f.Review.Focus != nil},
 		{"review.verdicts", f.Review.Verdicts != nil},
 		{"review.approve_authors", f.Review.ApproveAuthors != nil},
+		{"review.approve_others_up_to", f.Review.ApproveOthersUpTo != nil},
 		{"loop.watch", f.Loop.Watch != nil}, {"loop.rest", f.Loop.Rest != nil},
 		{"loop.max_passes", f.Loop.MaxPasses != nil}, {"loop.max_idle", f.Loop.MaxIdle != nil},
 		{"loop.ci_wait", f.Loop.CIWait != nil},
