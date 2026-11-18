@@ -437,7 +437,9 @@ When _not_ to use:
      - a verified `Proof (missing):` on a change that touches auth, session
        handling, payments, schema migrations, crypto, or production infra;
      - the change touches auth, session handling, payments, schema migrations,
-       crypto, or production infra;
+       crypto, or production infra, or it moves or computes money, writes or
+       backfills stored data, deletes data, or removes an API field that
+       clients read;
      - panelists disagreed substantially on what the change does;
      - the diff is unusually large (>500 lines) AND lacks a clear goal or a
        stated purpose.
@@ -447,6 +449,16 @@ When _not_ to use:
      regardless of the area touched. A verified `Approach (questionable):` that
      ALSO independently satisfies another HIGH trigger (e.g. wrong-layer fix in
      auth/payments code) lands here too.
+
+   **The panelists' ratings set a floor.** Each panelist rates the change on a
+   `Risk (low):`, `Risk (medium):` or `Risk (high):` line. Your rating is at
+   least the highest one a panelist gave, unless you read the diff and it
+   shows that rating wrong. When you rate below a panelist, say which one and
+   why in the justification, in a few words (for example `codex (gpt-5.5)
+   rated high for packages/money/; the diff only renames a test there`). A
+   `Risk (unknown):` line, or no line, is no rating. `auto-review` can hold an
+   approval on this rating alone, so a rating you lower without a reason is an
+   approval you gave in silence.
 
    **Rendering defects cap at LOW.** A defect whose whole effect is visual —
    spacing, alignment, color, a stray scrollbar, a transient flash, a

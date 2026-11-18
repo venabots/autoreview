@@ -984,7 +984,7 @@ print_section() {
 
   # A panelist that exits non-zero OR produces no stdout has failed to deliver a
   # review (the prompt mandates at least the Model:/Goal:/Approach:/Purpose:/
-  # Proof: header lines, or NO_FINDINGS).
+  # Proof:/Risk: header lines, or NO_FINDINGS).
   # Treat both as failures so the run's exit code and the heartbeat stay honest —
   # an empty panelist on exit 0 (e.g. a swallowed provider error) is the silent
   # case this is meant to catch.

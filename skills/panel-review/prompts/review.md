@@ -29,9 +29,9 @@ Review the diff below and report your findings.
 
 ## How to report
 
-Your output has six parts in this order: a **Model** line, a **Goal** line, an
-**Approach** line, a **Purpose** line, a **Proof** line, and the **findings**
-list.
+Your output has seven parts in this order: a **Model** line, a **Goal** line,
+an **Approach** line, a **Purpose** line, a **Proof** line, a **Risk** line, and
+the **findings** list.
 
 ### 0. Model (mandatory, single line, FIRST line of your output)
 
@@ -154,7 +154,29 @@ Use one of these exact prefixes:
 the diff and the description contain. Do not tag `Proof (missing):` because you
 could not run something; tag it because nothing shows the behavior works.
 
-### 5. Findings
+### 5. Risk (mandatory, one line, immediately after the Proof line)
+
+Rate what a mistake in this change would cost, whether or not you found one. A
+clean change to the code that moves money is still high risk: the rating says
+how closely a person must look, not how good the code is. The coordinator can
+hold an approval on this line alone.
+
+Use one of these exact prefixes, then one sentence that names the surface: the
+path, and what a mistake there costs.
+
+- `Risk (low):` — docs, tests, comments, formatting, or a refactor that changes
+  no behavior.
+- `Risk (medium):` — the change alters behavior, and a revert undoes any damage.
+- `Risk (high):` — a mistake here costs money or data, or a revert does not
+  undo it: auth or session handling, payments or any code that moves or
+  computes money, a schema migration, a write or backfill to stored data,
+  crypto, production infra or the deploy pipeline, deleting data, or removing
+  an API field that clients read.
+
+When the change spans several, rate it by its riskiest part. When you cannot
+tell, take the higher rating and say why.
+
+### 6. Findings
 
 For every finding, use this exact shape so the panel coordinator can merge
 results:
@@ -196,13 +218,14 @@ Do not push items up the scale to make the finding feel weightier.
 If multiple findings share a file, list them as separate bullets.
 
 If you find nothing meaningful, still output the `Model:`, `Goal:`,
-`Approach:`, `Purpose:`, and `Proof:` lines first, then on the next line output:
+`Approach:`, `Purpose:`, `Proof:`, and `Risk:` lines first, then on the next
+line output:
 
 ```text
 NO_FINDINGS — <one sentence on what you checked>
 ```
 
-i.e. the synthesizer always sees all five header lines from every panelist,
+i.e. the synthesizer always sees all six header lines from every panelist,
 even when there are zero findings.
 
 ## How to write
@@ -225,8 +248,8 @@ summary of them.
   initiation".
 
 Keep the fixed labels above exactly as specified (`Model:`, `Goal (clear):`,
-`Approach (sound):`, `Purpose (stated, served):`, `Proof (shown):`, `[HIGH]`,
-`Fix:`) — the coordinator matches on them.
+`Approach (sound):`, `Purpose (stated, served):`, `Proof (shown):`,
+`Risk (high):`, `[HIGH]`, `Fix:`) — the coordinator matches on them.
 
 ## Hard constraints
 
@@ -239,8 +262,8 @@ Keep the fixed labels above exactly as specified (`Model:`, `Goal (clear):`,
 - Do not paraphrase the diff back at the reader. The `Goal:` line is one or two
   sentences of intent, not a diff summary.
 - Do not write any preamble, summary, or sign-off beyond the `Model:`, `Goal:`,
-  `Approach:`, `Purpose:`, and `Proof:` lines and the bulleted findings (or
-  `NO_FINDINGS`).
+  `Approach:`, `Purpose:`, `Proof:`, and `Risk:` lines and the bulleted
+  findings (or `NO_FINDINGS`).
 - Skip style nits a formatter or linter would catch. Do not emit per-line
   "consider adding a test" findings; missing evidence is reported once, in the
   `Proof:` line. A finding is still correct when a real bug hides behind the
