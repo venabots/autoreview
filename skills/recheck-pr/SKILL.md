@@ -562,9 +562,11 @@ Approve only if **every one** of these holds:
    higher of two ratings: the first word under `### Risk` in the prior
    review's synthesis, and the same word in the fresh panel's synthesis
    when step 4 ran one. Each is `LOW`, `MEDIUM`, `HIGH` or `CRITICAL`, in
-   that order. The Risk must be at or below the ceiling. When neither
-   rating is in context, the Risk is unknown, and unknown is above every
-   ceiling. Do not rate the risk yourself, and do not lower a rating: a
+   that order. The Risk must be at or below the ceiling. A word that is not
+   exactly one of those four, with nothing joined to it (`LOWISH`,
+   `LOW-ish`, `low/medium`, `Low?`), is no rating. When a rating that you
+   need is missing or is no rating, the Risk is unknown, and unknown is
+   above every ceiling. Do not rate the risk yourself, and do not lower a rating: a
    fix that removes the risky code still leaves a PR that a person was
    asked to check, and the person approves it.
 

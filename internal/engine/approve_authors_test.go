@@ -86,16 +86,19 @@ func TestAnotherAuthorsPRCarriesTheRiskCeilingInsteadOfLosingItsApproval(t *test
 }
 
 // The approval has landed by the time the review reports its risk. When
-// that risk is above the ceiling, the skill did not hold the approval, and
-// the log says so, as it does for a verdict the level forbids.
-func TestAnApprovalAboveTheRiskCeilingIsNoted(t *testing.T) {
+// that risk is above the ceiling, or is no rating at all, the skill did not
+// hold the approval, and the log says so, as it does for a verdict the
+// level forbids.
+func TestAnApprovalAboveTheRiskCeilingOrWithoutARatingIsNoted(t *testing.T) {
+	const above = "PR #9 was approved at risk high, above its ceiling of medium: the review skill did not follow --max-risk"
 	cases := []struct {
-		risk  string
-		noted bool
+		risk string
+		note string
 	}{
-		{"HIGH", true},
-		{"MEDIUM", false},
-		{"", false},
+		{"HIGH", above},
+		{"MEDIUM", ""},
+		{"LOWISH", `PR #9 was approved with the risk "LOWISH", which is not a rating, under a ceiling of medium: the review skill did not follow --max-risk`},
+		{"", `PR #9 was approved with the risk "", which is not a rating, under a ceiling of medium: the review skill did not follow --max-risk`},
 	}
 	for _, c := range cases {
 		synctest.Test(t, func(t *testing.T) {
@@ -109,9 +112,9 @@ func TestAnApprovalAboveTheRiskCeilingIsNoted(t *testing.T) {
 			synctest.Wait()
 			b.reviewer.finish(t, 9, 0, strings.Replace(answer(9, "approved"), `"risk":"LOW"`, `"risk":"`+c.risk+`"`, 1))
 			<-b.results
-			want := "PR #9 was approved at risk high, above its ceiling of medium: the review skill did not follow --max-risk"
-			if noted := slices.Contains(b.notes(), want); noted != c.noted {
-				t.Errorf("approved at %q: notes %q", c.risk, b.notes())
+			noted := slices.ContainsFunc(b.notes(), func(n string) bool { return strings.Contains(n, "--max-risk") })
+			if noted != (c.note != "") || c.note != "" && !slices.Contains(b.notes(), c.note) {
+				t.Errorf("approved at %q: notes %q, want %q", c.risk, b.notes(), c.note)
 			}
 		})
 	}

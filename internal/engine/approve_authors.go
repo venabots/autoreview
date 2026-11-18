@@ -17,19 +17,25 @@ func (e *Engine) levelFor(author string) (review.Verdicts, review.Risk) {
 	return review.LevelFor(prs.ByAuthor(author, e.cfg.ApproveAuthors), e.cfg.Verdicts, e.cfg.ApproveOthersUpTo)
 }
 
-// aboveCeiling is the note for an approval that the review reported at a
-// risk above the PR's ceiling, or "". The approval has landed by then, so
-// the note is how the person learns that the skill did not hold it. A
-// review that reports no risk gets no note: codex writes no trailer, and a
-// note on each of its approvals would be noise.
+// aboveCeiling is the note for an approval that broke the PR's ceiling,
+// or "". The approval has landed by then, so the note is how the person
+// learns that the skill did not hold it. A review that reported a risk
+// above the ceiling broke it, and so did one that reported no rating this
+// can read: the gate holds the approval on a missing or garbled rating. A
+// review with no trailer gets no note: codex writes none, and a note on
+// each of its approvals would be noise.
 func aboveCeiling(j Job) string {
 	if j.Verdict != "approved" || j.MaxRisk == review.RiskNone || j.Trailer == nil {
 		return ""
 	}
 	risk, ok := review.ParseRisk(j.Trailer.Risk)
-	if !ok || risk <= j.MaxRisk {
-		return ""
+	switch {
+	case !ok:
+		return fmt.Sprintf("PR #%d was approved with the risk %q, which is not a rating, under a ceiling of %s: the review skill did not follow %s",
+			j.PR, j.Trailer.Risk, j.MaxRisk, review.MaxRiskFlag)
+	case risk > j.MaxRisk:
+		return fmt.Sprintf("PR #%d was approved at risk %s, above its ceiling of %s: the review skill did not follow %s",
+			j.PR, risk, j.MaxRisk, review.MaxRiskFlag)
 	}
-	return fmt.Sprintf("PR #%d was approved at risk %s, above its ceiling of %s: the review skill did not follow %s",
-		j.PR, risk, j.MaxRisk, review.MaxRiskFlag)
+	return ""
 }

@@ -3,7 +3,6 @@ package review
 import (
 	"fmt"
 	"strings"
-	"unicode"
 )
 
 // Risk is a rating on the scale that the synthesis rates a change by. A
@@ -50,16 +49,20 @@ func ParseCeiling(raw string) (Risk, error) {
 	return RiskNone, fmt.Errorf("expects none, low or medium, got %q", raw)
 }
 
-// ParseRisk reads the rating a reviewer reported, as the first word of
-// the text in any case: "HIGH", or "HIGH — touches a migration". A text
-// that does not start with a rating is false.
+// ParseRisk reads the rating a reviewer reported: its first word, in any
+// case, with markdown emphasis and a trailing colon or comma trimmed, as in
+// "HIGH", "**high**" or "HIGH — touches a migration". The word must be a
+// rating and nothing else. "LOWISH", "LOW-ish" and "low/medium" are false:
+// read as LOW, any of them would let an approval through that the review
+// never rated.
 func ParseRisk(raw string) (Risk, bool) {
-	fields := strings.FieldsFunc(raw, func(c rune) bool { return !unicode.IsLetter(c) })
+	fields := strings.Fields(raw)
 	if len(fields) == 0 {
 		return RiskNone, false
 	}
+	word := strings.Trim(fields[0], "*_`:,.")
 	for _, r := range []Risk{RiskLow, RiskMedium, RiskHigh, RiskCritical} {
-		if strings.EqualFold(fields[0], r.String()) {
+		if strings.EqualFold(word, r.String()) {
 			return r, true
 		}
 	}

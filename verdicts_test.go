@@ -27,9 +27,10 @@ func TestTheBundledSkillsThatGiveAVerdictKnowTheVerdictsOption(t *testing.T) {
 }
 
 // The bundled copies are trusted to know the ceiling, as they are trusted
-// to know the level. A copy that read a missing Risk as low would approve
-// the PR whose rating it lost, so each one says a missing Risk is above
-// every ceiling, and gives the body that names the risk.
+// to know the level. A copy that read a missing Risk, or a word like
+// LOWISH, as low would approve the PR whose rating it lost, so each one
+// says a missing or garbled Risk is above every ceiling, and gives the body
+// that names the risk.
 func TestTheBundledSkillsThatGiveAVerdictKnowTheRiskCeiling(t *testing.T) {
 	for _, skill := range []string{"auto-review", "recheck-pr"} {
 		raw, err := fs.ReadFile(Skills(), skill+"/SKILL.md")
@@ -41,6 +42,7 @@ func TestTheBundledSkillsThatGiveAVerdictKnowTheRiskCeiling(t *testing.T) {
 			review.MaxRiskFlag + " low",
 			review.MaxRiskFlag + " medium",
 			"above every ceiling",
+			"`LOWISH`, `LOW-ish`, `low/medium`",
 			"`LGTM. This PR is <risk> risk, so a person approves it.`",
 			"Risk within the ceiling",
 		} {

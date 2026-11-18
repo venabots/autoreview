@@ -385,9 +385,11 @@ locked`) is a **missing** reviewer, not a returned one. If you can't
 
 8. **Risk within the ceiling** — only under `--max-risk`. Read the first
    word under the synthesis's `### Risk` heading: `LOW`, `MEDIUM`, `HIGH`
-   or `CRITICAL`. It must be at or below the ceiling, in that order. A
-   Risk that is missing, or is not one of those four words, is above every
-   ceiling. Do not rate the risk yourself, and do not lower the
+   or `CRITICAL`. It must be at or below the ceiling, in that order. The
+   word must be exactly one of those four, with nothing joined to it:
+   `LOWISH`, `LOW-ish`, `low/medium` and `Low?` are no rating. A Risk that
+   is missing, or is no rating, is above every ceiling, and `<risk>` in the
+   body is then `unknown`. Do not rate the risk yourself, and do not lower the
    synthesis's rating: the panel rated it, and a rating lowered here is an
    approval nobody else saw. A clean, tested change can still be `HIGH`:
    the rubric rates a migration or a change to money movement HIGH

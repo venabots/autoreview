@@ -19,7 +19,8 @@ func TestTheRiskCeilingReadsAsTheSettingsFileWritesIt(t *testing.T) {
 }
 
 // A reviewer writes the rating as the synthesis does, in capitals and
-// often with its reason after it. Only a known word is a rating.
+// often with its reason after it. Only a known word, whole, is a rating: a
+// word with more joined to it is no rating, so it can never read as LOW.
 func TestAReportedRiskIsReadFromItsFirstWord(t *testing.T) {
 	cases := []struct {
 		raw  string
@@ -33,6 +34,10 @@ func TestAReportedRiskIsReadFromItsFirstWord(t *testing.T) {
 		{"", RiskNone, false},
 		{"unknown", RiskNone, false},
 		{"higher than usual", RiskNone, false},
+		{"LOWISH", RiskNone, false},
+		{"LOW-ish", RiskNone, false},
+		{"low/medium", RiskNone, false},
+		{"Low?", RiskNone, false},
 	}
 	for _, c := range cases {
 		if got, ok := ParseRisk(c.raw); got != c.want || ok != c.ok {
