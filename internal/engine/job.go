@@ -47,6 +47,9 @@ type Job struct {
 	Orchestrator review.Orchestrator
 	// Verdicts is which events the review was allowed to submit.
 	Verdicts review.Verdicts
+	// MaxRisk is the highest risk at which the review was allowed to
+	// approve, or RiskNone for no ceiling.
+	MaxRisk review.Risk
 	// Resumed is true for a second look in an earlier session.
 	Resumed bool
 	// StartedAt is zero until the review starts.

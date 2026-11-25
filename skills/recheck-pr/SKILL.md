@@ -359,7 +359,8 @@ The first rule that matches wins:
 3. `REQUEST_CHANGES` — **a finding blocks.** A row above polish (CRITICAL,
    HIGH or MEDIUM) is `OUTSTANDING` or `NEW`, or the delta has a
    substantiated questionable-approach flag.
-4. `APPROVE` — **the gate passes.**
+4. `APPROVE` — **the gate passes.** Under `--max-risk`, a Risk above it
+   (gate 7) gives `COMMENT` instead.
 5. `COMMENT` — **no decision.** Nothing above polish is open, but the gate
    failed: the delta needed a panel that did not run or did not return
    (gate 3), or only polish rows are still open (gate 1).
@@ -384,6 +385,15 @@ A `COMMENT` that `--verdicts approve-only` or `comment-only` caused has the
 body `Comments only. No decision.`, and every finding goes into the review as
 it would for the verdict that the option replaced. Report the verdict that
 you would have given.
+
+**`--max-risk`.** `autoreview` adds `--max-risk low` or `--max-risk medium`
+on the PR of an author whom the person does not trust with an approval at
+any risk. It is the highest Risk at which the round may approve (gate 7).
+Do not pass it on to `panel-review`. When rule 4 would approve and the
+Risk is above it, the event is `COMMENT` with the body
+`LGTM. This PR is <risk> risk, so a person approves it.`, where `<risk>` is
+the Risk in lower case, or `unknown`. Rule 3 applies as written. With no
+`--max-risk`, the Risk does not hold an approval.
 
 **What goes in the review.** Every row with the status `NEW` is an inline
 comment in the review, at its `file:line`. An `OUTSTANDING` row that has a
@@ -422,6 +432,7 @@ fixed:
 | Comment: one polish row open   | `No decision: 1 optional comment is still open.`                        |
 | Comment: caused by --verdicts  | `Comments only. No decision.`                                           |
 | Comment: approval held         | see "The held approval" in `auto-post-panel-review-comments`            |
+| Comment: risk above ceiling    | `LGTM. This PR is <risk> risk, so a person approves it.`                |
 | Comment: more polish rows open | `No decision: <n> optional comments are still open.`                    |
 
 - An approval with no user message takes `LGTM, just some small comments,
@@ -450,7 +461,8 @@ when all three hold:
 
 - The event is `COMMENT` because the PR is a draft (rule 1), because
   only polish rows are still open (rule 5), or because
-  `--verdicts request-changes-only` holds the approval (rule 4).
+  `--verdicts request-changes-only` or a Risk above `--max-risk` holds the
+  approval (rule 4).
 - No row above polish is `OUTSTANDING` or `NEW`.
 - The delta did not need a panel, or the panel ran and returned.
 
@@ -546,8 +558,19 @@ Approve only if **every one** of these holds:
    nobody can tell. The current head is unreviewed — withhold and say a
    re-check is needed. A merge whose conflict was resolved by hand is
    `moved`.
+7. **Risk within the ceiling** — only under `--max-risk`. The Risk is the
+   higher of two ratings: the first word under `### Risk` in the prior
+   review's synthesis, and the same word in the fresh panel's synthesis
+   when step 4 ran one. Each is `LOW`, `MEDIUM`, `HIGH` or `CRITICAL`, in
+   that order. The Risk must be at or below the ceiling. A word that is not
+   exactly one of those four, with nothing joined to it (`LOWISH`,
+   `LOW-ish`, `low/medium`, `Low?`), is no rating. When a rating that you
+   need is missing or is no rating, the Risk is unknown, and unknown is
+   above every ceiling. Do not rate the risk yourself, and do not lower a rating: a
+   fix that removes the risky code still leaves a PR that a person was
+   asked to check, and the person approves it.
 
-Conditions 4-6 have no thread to leave a comment on; the first line of
+Conditions 4-7 have no thread to leave a comment on; the first line of
 the review body names them. Conditions 1-3 always correspond to something
 the author can see: an open thread, or a `NEW` finding you must surface —
 it is an inline comment in the round's review, at its `file:line` (or a

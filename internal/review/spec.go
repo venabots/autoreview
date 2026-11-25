@@ -67,6 +67,9 @@ type Request struct {
 	Panelists []string
 	// Verdicts is which events the review may submit.
 	Verdicts Verdicts
+	// MaxRisk is the highest risk at which the review may approve, or
+	// RiskNone for no ceiling.
+	MaxRisk Risk
 	// Dir is the working directory: the repo root.
 	Dir string
 	// Stdout, Stderr and Meta are files in the run directory.
@@ -152,7 +155,8 @@ func Skill(r Request) string {
 }
 
 // Prompt is the prompt for one review: the skill by name, then the verdict
-// level when it is not the default, then the focus.
+// level when it is not the default, then the risk ceiling when there is
+// one, then the focus.
 //
 // The focus travels as the `--focus` option that panel-review and
 // auto-review define, and not as prose a skill would have to interpret.
@@ -160,8 +164,10 @@ func Skill(r Request) string {
 // one line, because it is one argv element and one line in a call log.
 func Prompt(r Request) string {
 	base := r.Orchestrator.SkillPrompt(Skill(r), r.PR)
-	if option := verdictOption(r); option != "" {
-		base += " " + option
+	for _, option := range []string{verdictOption(r), maxRiskOption(r)} {
+		if option != "" {
+			base += " " + option
+		}
 	}
 	if r.Focus == "" || r.Task != "" {
 		return base

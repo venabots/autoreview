@@ -80,6 +80,10 @@ type Config struct {
 	// ApproveAuthors is the GitHub logins whose PRs a review may approve,
 	// or empty for every author. Only the settings file sets it.
 	ApproveAuthors []string
+	// ApproveOthersUpTo is the highest risk at which a review approves the
+	// PR of an author ApproveAuthors does not name. RiskNone, the default,
+	// approves none of them. Only the settings file sets it.
+	ApproveOthersUpTo review.Risk
 	// Panelists is the panel a review seats, each backend[:model], or nil
 	// for the one panel-review.sh picks: $PANEL_REVIEW_PANELISTS, or every
 	// backend on PATH.
@@ -256,6 +260,9 @@ func parseFlags(args []string, env func(string) string, file config.File) (Confi
 	given := func(name string) bool { return fs.Changed(name) }
 	cfg = withFileSwitches(cfg, set, given)
 	if cfg.ApproveAuthors, err = approveAuthors(file); err != nil {
+		return Config{}, err
+	}
+	if cfg.ApproveOthersUpTo, err = approveOthersUpTo(file, cfg.ApproveAuthors); err != nil {
 		return Config{}, err
 	}
 	if cfg.Notify, err = notifyChannels(file); err != nil {
