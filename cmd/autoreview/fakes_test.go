@@ -60,6 +60,10 @@ func fakeGh(args []string) int {
 		return serve(dir, "bots.json")
 	case strings.HasPrefix(joined, "api graphql ") && strings.Contains(joined, "search("):
 		return serve(dir, "mine.json")
+	case strings.HasPrefix(joined, "api graphql ") && strings.Contains(joined, "target { oid }"):
+		// The default branch, which the risk check reads its files at.
+		fmt.Printf(`{"data":{"repository":{"defaultBranchRef":{"name":"main","target":{"oid":%q}}}}}`+"\n", fakeTrustedCommit)
+		return 0
 	case strings.HasPrefix(joined, "api graphql -F owner=acme -F name=widgets "):
 		return serve(dir, "prs.json")
 	case strings.HasPrefix(joined, "api repos/acme/widgets/issues/") && strings.Contains(joined, "/reactions"):
@@ -79,7 +83,7 @@ func fakeGh(args []string) int {
 		appendLine(filepath.Join(dir, "posted.log"), joined)
 		return 0
 	case strings.HasPrefix(joined, "api --method GET -H Accept: application/vnd.github.raw repos/acme/widgets/contents/"):
-		return baseFile(dir, args)
+		return fileAt(dir, args)
 	case strings.HasPrefix(joined, "api --paginate repos/acme/widgets/pulls/") && strings.Contains(joined, "/files?"):
 		// The PR's changed files, as tab-separated name and old name: none
 		// unless the test wrote them.
@@ -102,15 +106,23 @@ func fakeGh(args []string) int {
 	return 1
 }
 
-// baseFile is a file of the repository as the base has it: the one the
-// test wrote under $FAKE_GH_DIR/base, or GitHub's 404.
-func baseFile(dir string, args []string) int {
+// fakeTrustedCommit is the commit the fake GitHub's default branch is at.
+const fakeTrustedCommit = "0123456789abcdef0123456789abcdef01234567"
+
+// fileAt is a file of the repository as one ref has it: the one the test
+// wrote under $FAKE_GH_DIR/at/<ref>, or GitHub's 404.
+func fileAt(dir string, args []string) int {
 	path := strings.TrimPrefix(args[5], "repos/acme/widgets/contents/")
-	if _, err := os.Stat(filepath.Join(dir, "base", path)); err != nil {
+	ref := ""
+	if len(args) == 8 && args[6] == "-f" {
+		ref = strings.TrimPrefix(args[7], "ref=")
+	}
+	file := filepath.Join("at", ref, path)
+	if _, err := os.Stat(filepath.Join(dir, file)); ref == "" || err != nil {
 		fmt.Fprintln(os.Stderr, "gh: Not Found (HTTP 404)")
 		return 1
 	}
-	return serve(dir, filepath.Join("base", path))
+	return serve(dir, file)
 }
 
 // latestReviews is what GitHub says landed on a PR: the review named for it

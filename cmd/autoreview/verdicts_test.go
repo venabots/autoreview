@@ -108,7 +108,7 @@ func TestAnApproveListNeedsACopyThatKnowsTheLevelWithoutTheApproval(t *testing.T
 // approve a migration, so the run refuses it before a review starts.
 func TestARiskCeilingNeedsACopyThatKnowsMaxRisk(t *testing.T) {
 	fixtures := sandbox(t)
-	withBases(t, fixtures)
+	withBases(t, fixtures, "main")
 	settingsFile(t, "[review]\napprove_authors = [\"@Bob\"]\napprove_others_up_to = \"medium\"\n")
 	agents := filepath.Join(os.Getenv("HOME"), ".agents", "skills")
 	for _, skill := range []string{"auto-review", "recheck-pr"} {

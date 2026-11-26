@@ -21,17 +21,17 @@ var (
 	plainPath = regexp.MustCompile(`^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$`)
 )
 
-// scriptPath is the script that REVIEW.md on the base names, or false when
-// the base has no REVIEW.md or the file names no script. A line that tries
-// to name one and does not is an error, not "no script": read as none, a
-// typo would drop the check without a word.
-func (c Checker) scriptPath(ctx context.Context, base string) (string, bool, error) {
-	raw, err := c.fetch(ctx, "REVIEW.md", base)
+// scriptPath is the script that REVIEW.md at the trusted commit names, or
+// false when the commit has no REVIEW.md or the file names no script. A
+// line that tries to name one and does not is an error, not "no script":
+// read as none, a typo would drop the check without a word.
+func (c Checker) scriptPath(ctx context.Context, at trusted) (string, bool, error) {
+	raw, err := c.fetch(ctx, "REVIEW.md", at.commit)
 	if notFound(err) {
 		return "", false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("reading REVIEW.md from %s: %w", base, err)
+		return "", false, fmt.Errorf("reading REVIEW.md from %s: %w", at, err)
 	}
 	return namedScript(string(raw))
 }

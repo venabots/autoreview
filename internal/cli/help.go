@@ -117,4 +117,6 @@ still running (default 30 minutes). $AUTOREVIEW_CMD names a shell command that
 replaces the built-in reviewer; the PR number replaces each {} in it, or is
 added at the end. $AUTOREVIEW_LEDGER names the file that records each review;
 "off" records nothing. $DASHP_BIN names a dash-p binary to use.
+$AUTOREVIEW_RISK_GH_TOKEN is a GitHub token that a repository's risk script
+gets as $GH_TOKEN; unset, the script gets no token.
 `

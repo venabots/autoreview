@@ -287,16 +287,33 @@ Risk script: `bin/pr-risk`
 
 With a ceiling set, a run runs that script on the PR of each author outside
 `review.approve_authors`, before its review, once for each head. It reads the
-script and `REVIEW.md` from the PR's base branch, so a PR cannot edit the rules
-it is judged by. The script runs in the checkout's top directory. It reads the
-PR's changed paths on stdin, the old path of a rename too, and gets
-`$AUTOREVIEW_REPO`, `$AUTOREVIEW_PR`, `$AUTOREVIEW_BASE` and `$AUTOREVIEW_HEAD`.
-It prints `LOW`, `MEDIUM`, `HIGH` or `CRITICAL` alone on its first line, and why
-on the lines after. Above the ceiling, the reviewer is told before it starts
-that it may not approve, and the log says why. A script that fails, runs over a
-minute or prints anything else first holds the approval the same way, and so
-does a `REVIEW.md` or script that GitHub does not serve. At or below the
-ceiling, the panel's rating still applies.
+script and `REVIEW.md` from the repository's default branch, at the commit the
+branch is at when the check begins, whatever branch the PR is based on. A PR
+cannot edit the rules it is judged by, and neither can anyone who pushes to the
+branch under a stacked PR. The script runs in the checkout's top directory. It
+reads the PR's changed paths on stdin, the old path of a rename too, and gets
+`$AUTOREVIEW_REPO`, `$AUTOREVIEW_PR`, `$AUTOREVIEW_BASE` (the PR's base branch),
+`$AUTOREVIEW_HEAD` (the PR's head commit) and `$AUTOREVIEW_TRUSTED_REF` (the
+commit the script was read at). A script that reads another file of the
+repository, such as `.github/CODEOWNERS`, should read it at
+`$AUTOREVIEW_TRUSTED_REF` too. It prints `LOW`, `MEDIUM`, `HIGH` or `CRITICAL`
+alone on its first line, and why on the lines after. Above the ceiling, the
+reviewer is told before it starts that it may not approve, and the log says
+why. A script that fails, runs over a minute or prints anything else first
+holds the approval the same way, and so does a `REVIEW.md` or script that
+GitHub does not serve. At or below the ceiling, the panel's rating still
+applies.
+
+The script does not get autoreview's environment, which holds a token that can
+approve PRs and the agents' credentials. It gets `$PATH`, `$HOME`, `$USER`,
+`$LOGNAME`, `$SHELL`, `$TMPDIR`, `$TZ`, `$LANG` and the `$LC_` variables, the
+variables above, and a `$GH_CONFIG_DIR` of its own that is empty, so `gh` in the
+script cannot sign in with autoreview's login. A script that reads GitHub needs
+a token of its own: set `$AUTOREVIEW_RISK_GH_TOKEN` to a token that can only
+read the repository, and the script gets it as `$GH_TOKEN`. Without it, a
+script that calls `gh` fails, and the approval is held. This is not a sandbox:
+the script can still read any file that autoreview can, under `$HOME` too. What
+keeps a PR's author out of it is that it comes from the default branch.
 
 **Panel models.** A review hands `panel.panelists` to `panel-review` through
 `$PANEL_REVIEW_PANELISTS`, unless you set that variable yourself. Name at least

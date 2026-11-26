@@ -119,7 +119,8 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 	if cfg.ApproveOthersUpTo != review.RiskNone {
 		// The repository's own script rates another author's PR before its
 		// review, so the ceiling does not rest on a model's rating alone.
-		deps.Risk = riskcheck.Checker{GH: gh.Exec, Repo: rc, Dir: prepared.run.Root, Run: riskcheck.Exec}.Check
+		// It gets a few of the run's variables, never its tokens.
+		deps.Risk = riskcheck.Checker{GH: gh.Exec, Repo: rc, Dir: prepared.run.Root, Environ: os.Environ(), Run: riskcheck.Exec}.Check
 	}
 	if !cfg.NoPost {
 		// --no-post promises to leave the PR alone, the reaction too.
