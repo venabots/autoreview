@@ -10,14 +10,16 @@
 // begins, never from the PR or from the PR's base: a PR that edits the
 // script to print LOW is judged by the copy before it, and so is a PR whose
 // base is a branch that anyone who can push it could have changed. The
-// script runs in the checkout's top directory. It gets the PR's changed
-// paths on stdin, one to a line, with the old path of a rename too, and
-// $AUTOREVIEW_REPO, $AUTOREVIEW_PR, $AUTOREVIEW_BASE, $AUTOREVIEW_HEAD and
-// $AUTOREVIEW_TRUSTED_REF, the commit it was read at, from which it can
-// read its companion files. Its environment is built from a short list of
-// names, never autoreview's own, which holds a token that can approve PRs:
-// see env. It prints LOW, MEDIUM, HIGH or CRITICAL alone on its first line,
-// and its reasons on the lines after.
+// script runs in the checkout's top directory, on whatever branch the
+// checkout is on, so a file it reads there need not be the default branch's
+// copy. It gets the PR's changed paths on stdin, one to a line, with the
+// old path of a rename too, and $AUTOREVIEW_REPO, $AUTOREVIEW_PR,
+// $AUTOREVIEW_BASE, $AUTOREVIEW_HEAD and $AUTOREVIEW_TRUSTED_REF, the
+// commit it was read at, at which it should read its companion files. Its
+// environment is built from a short list of names, never autoreview's own,
+// which holds a token that can approve PRs: see env. It prints LOW, MEDIUM,
+// HIGH or CRITICAL alone on its first line, and its reasons on the lines
+// after.
 package riskcheck
 
 import (

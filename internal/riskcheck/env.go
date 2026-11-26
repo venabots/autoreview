@@ -31,7 +31,10 @@ var passed = []string{
 // that TokenVariable names as $GH_TOKEN, and what autoreview tells the
 // script. $GH_CONFIG_DIR points gh at ghConfig, an empty directory, because
 // gh would otherwise sign in with the login that autoreview's own gh calls
-// use, which it finds under $HOME.
+// use, which it finds under $HOME. That stops gh from signing in by itself,
+// not a script that goes looking: the script runs as autoreview's user, and
+// the login stays where that user can reach it, in $HOME, in the system
+// keyring, and through git where gh is git's credential helper.
 func (c Checker) env(pr prs.PR, at trusted, ghConfig string) []string {
 	var env []string
 	for _, entry := range c.Environ {

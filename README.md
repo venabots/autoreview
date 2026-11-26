@@ -290,30 +290,40 @@ With a ceiling set, a run runs that script on the PR of each author outside
 script and `REVIEW.md` from the repository's default branch, at the commit the
 branch is at when the check begins, whatever branch the PR is based on. A PR
 cannot edit the rules it is judged by, and neither can anyone who pushes to the
-branch under a stacked PR. The script runs in the checkout's top directory. It
-reads the PR's changed paths on stdin, the old path of a rename too, and gets
-`$AUTOREVIEW_REPO`, `$AUTOREVIEW_PR`, `$AUTOREVIEW_BASE` (the PR's base branch),
-`$AUTOREVIEW_HEAD` (the PR's head commit) and `$AUTOREVIEW_TRUSTED_REF` (the
-commit the script was read at). A script that reads another file of the
-repository, such as `.github/CODEOWNERS`, should read it at
-`$AUTOREVIEW_TRUSTED_REF` too. It prints `LOW`, `MEDIUM`, `HIGH` or `CRITICAL`
-alone on its first line, and why on the lines after. Above the ceiling, the
-reviewer is told before it starts that it may not approve, and the log says
-why. A script that fails, runs over a minute or prints anything else first
-holds the approval the same way, and so does a `REVIEW.md` or script that
-GitHub does not serve. At or below the ceiling, the panel's rating still
-applies.
+branch under a stacked PR. The default branch is trusted as far as its own rules
+go: where it takes a push without a reviewed PR, whoever can push there can
+change the script. The script runs in the checkout's top directory as it stands,
+on whatever branch the checkout is on, so the files there need not be the
+default branch's. It reads the PR's changed paths on stdin, the old path of a
+rename too, and gets `$AUTOREVIEW_REPO`, `$AUTOREVIEW_PR`, `$AUTOREVIEW_BASE`
+(the PR's base branch), `$AUTOREVIEW_HEAD` (the PR's head commit) and
+`$AUTOREVIEW_TRUSTED_REF` (the commit the script was read at). A script that
+reads or runs another file of the repository, such as `.github/CODEOWNERS` or a
+helper of its own, should read it at `$AUTOREVIEW_TRUSTED_REF` too, not from the
+checkout. It prints `LOW`, `MEDIUM`, `HIGH` or `CRITICAL` alone on its first
+line, and why on the lines after. Above the ceiling, the reviewer is told before
+it starts that it may not approve, and the log says why. A script that fails,
+runs over a minute or prints anything else first holds the approval the same
+way, and so does a `REVIEW.md` or script that GitHub does not serve. At or below
+the ceiling, the panel's rating still applies.
 
 The script does not get autoreview's environment, which holds a token that can
 approve PRs and the agents' credentials. It gets `$PATH`, `$HOME`, `$USER`,
-`$LOGNAME`, `$SHELL`, `$TMPDIR`, `$TZ`, `$LANG` and the `$LC_` variables, the
-variables above, and a `$GH_CONFIG_DIR` of its own that is empty, so `gh` in the
-script cannot sign in with autoreview's login. A script that reads GitHub needs
-a token of its own: set `$AUTOREVIEW_RISK_GH_TOKEN` to a token that can only
-read the repository, and the script gets it as `$GH_TOKEN`. Without it, a
-script that calls `gh` fails, and the approval is held. This is not a sandbox:
-the script can still read any file that autoreview can, under `$HOME` too. What
-keeps a PR's author out of it is that it comes from the default branch.
+`$LOGNAME`, `$SHELL`, `$TMPDIR`, `$TZ`, `$LANG`, the locale's `$LC_ALL`,
+`$LC_COLLATE`, `$LC_CTYPE`, `$LC_MESSAGES`, `$LC_MONETARY`, `$LC_NUMERIC` and
+`$LC_TIME`, the variables above, and a `$GH_CONFIG_DIR` of its own that is
+empty, so `gh` in the script does not sign in with autoreview's login of its own
+accord. A script that reads GitHub needs a token of its own: set
+`$AUTOREVIEW_RISK_GH_TOKEN` to a token that can only read the repository, and
+the script gets it as `$GH_TOKEN`. Without it, a script that calls `gh api`
+fails, and the approval is held. This is not a sandbox. The script runs as
+autoreview's user and can reach what that user can: any file under `$HOME`,
+`gh`'s own settings among them, and the system keyring (the keychain on macOS),
+where `gh auth token` still finds autoreview's login. So can git: where `gh auth
+setup-git` has made `gh` git's credential helper, a `git fetch` in the script
+signs in as autoreview. What keeps a PR's author out of the script is that it is
+read from the default branch, and out of what the script reads, that it reads it
+at `$AUTOREVIEW_TRUSTED_REF`.
 
 **Panel models.** A review hands `panel.panelists` to `panel-review` through
 `$PANEL_REVIEW_PANELISTS`, unless you set that variable yourself. Name at least

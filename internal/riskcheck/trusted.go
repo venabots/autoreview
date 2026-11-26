@@ -17,14 +17,15 @@ const trustedQuery = `
         }
       }`
 
-// commitID is a whole commit id, SHA-1 or SHA-256. Anything else would be
-// read by GitHub as a branch name, which anyone who can push may move.
+// commitID is a whole commit id, SHA-1 or SHA-256. GitHub would read
+// anything else as the name of a branch or a tag, which a push can move.
 var commitID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
 // trusted is where REVIEW.md and the script are read: one commit of the
 // default branch, fixed for the whole check. A PR's base can be any branch,
 // and anyone who can push to that branch could rewrite the rules the PR is
-// judged by. The default branch is the one whose changes are reviewed.
+// judged by. The default branch is trusted as far as its rules go: where
+// they require a reviewed PR, a change reaches it only through a review.
 type trusted struct {
 	branch string
 	commit string
