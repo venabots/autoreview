@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -49,5 +50,39 @@ func TestAScriptThatHangsIsKilledAtTheDeadline(t *testing.T) {
 	}
 	if took := time.Since(start); took > 5*time.Second {
 		t.Errorf("the script was killed after %s", took)
+	}
+}
+
+// The script's environment is the one it is handed and nothing more. An
+// empty one stays empty: left to os/exec, a nil one would be autoreview's
+// whole environment, tokens and all.
+func TestARealScriptSeesOnlyTheEnvironmentItIsHanded(t *testing.T) {
+	t.Setenv("GH_TOKEN", "ghp_approving")
+	t.Setenv("AUTOREVIEW_TEST_SECRET", "secret")
+	path := shellScript(t, "echo LOW; /usr/bin/env\n")
+	cases := []struct {
+		name string
+		env  []string
+		want []string
+	}{
+		{"a few variables", []string{"PATH=/usr/bin:/bin", "AUTOREVIEW_PR=9"}, []string{"PATH=/usr/bin:/bin", "AUTOREVIEW_PR=9"}},
+		{"none", nil, nil},
+	}
+	for _, c := range cases {
+		out, err := Exec(context.Background(), Script{Path: path, Dir: t.TempDir(), Env: c.env})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")[1:]
+		for _, line := range lines {
+			if strings.Contains(line, "ghp_approving") || strings.Contains(line, "secret") {
+				t.Errorf("%s: the script saw %q", c.name, line)
+			}
+		}
+		for _, want := range c.want {
+			if !slices.Contains(lines, want) {
+				t.Errorf("%s: the script's environment %q lacks %s", c.name, lines, want)
+			}
+		}
 	}
 }

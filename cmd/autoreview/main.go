@@ -22,6 +22,7 @@ import (
 	"github.com/venabots/autoreview/internal/mine"
 	"github.com/venabots/autoreview/internal/prs"
 	"github.com/venabots/autoreview/internal/repo"
+	"github.com/venabots/autoreview/internal/riskcheck"
 	"github.com/venabots/autoreview/internal/sanitize"
 	"github.com/venabots/autoreview/internal/session"
 	"github.com/venabots/autoreview/internal/stats"
@@ -38,6 +39,9 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	// Before anything starts, so that no process started from here on
+	// inherits it. The risk script gets it handed in.
+	riskToken := withhold(riskcheck.TokenVariable)
 	// A subcommand is the first argument and nothing else. A PR number can
 	// never be read as one, and a flag before it is an error cli.Parse names.
 	if len(args) > 0 && args[0] == cli.Stats {
@@ -103,9 +107,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if !screen {
-		return runHeadless(cfg, rc, stdout, stderr)
+		return runHeadless(cfg, rc, riskToken, stdout, stderr)
 	}
-	return runScreen(cfg, rc, stdout, stderr)
+	return runScreen(cfg, rc, riskToken, stdout, stderr)
+}
+
+// withhold takes name out of autoreview's environment and returns what it
+// held. Every process autoreview starts inherits that environment, but for
+// the risk script, which is handed one of its own, and a reviewer or a
+// panelist runs a PR's code: a token left in it would be the PR's author's
+// to read. It keeps the token out of what a child inherits only: the
+// environment autoreview was started with stays where a program of the same
+// user can read it, in /proc/<pid>/environ on Linux and through ps -E on
+// macOS.
+func withhold(name string) string {
+	value := os.Getenv(name)
+	_ = os.Unsetenv(name)
+	return value
 }
 
 // say writes a message for a person. A failed write has nowhere better to

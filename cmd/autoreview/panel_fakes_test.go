@@ -19,7 +19,9 @@ func isPanelCall(args []string) bool {
 
 // fakePanelist is one panelist, or the synthesis, that takes no time. It
 // logs its argv to $FAKE_PANEL_DIR/calls and keeps the prompt it read on
-// stdin, so a test can check what it was asked. The knobs list backends:
+// stdin, so a test can check what it was asked. With $FAKE_PANEL_ENV set,
+// it keeps the environment it was started with too. The knobs list
+// backends:
 //
 //   - $FAKE_PANEL_EMPTY: nothing on the first attempt, a review on the
 //     second.
@@ -37,8 +39,12 @@ func fakePanelist(args []string) int {
 	}
 	appendLine(filepath.Join(dir, "calls"), strings.Join(args, " "))
 	prompt, _ := io.ReadAll(os.Stdin)
-	kept := filepath.Join(dir, fmt.Sprintf("stdin-%s-%d", backend, os.Getpid()))
+	self := fmt.Sprintf("%s-%d", backend, os.Getpid())
+	kept := filepath.Join(dir, "stdin-"+self)
 	_ = os.WriteFile(kept, prompt, 0o600)
+	if os.Getenv("FAKE_PANEL_ENV") != "" {
+		_ = os.WriteFile(filepath.Join(dir, "env-"+self), []byte(strings.Join(os.Environ(), "\n")), 0o600)
+	}
 	attempt := nextAttempt(filepath.Join(dir, "tries-"+backend))
 
 	if strings.Contains(string(prompt), "Panel synthesis request") {

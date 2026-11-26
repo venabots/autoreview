@@ -38,8 +38,8 @@ const envDashp = "DASHP_BIN"
 // runHeadless makes one pass off a terminal: it reviews every PR that is
 // ready, prints one line for each step, and exits with a status a script
 // can trust.
-func runHeadless(cfg cli.Config, rc repo.Context, stdout, stderr io.Writer) int {
-	run, err := start(cfg, rc, false, stdout, stderr)
+func runHeadless(cfg cli.Config, rc repo.Context, riskToken string, stdout, stderr io.Writer) int {
+	run, err := start(cfg, rc, false, riskToken, stdout, stderr)
 	if err != nil {
 		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
 		return engine.ExitFailed
@@ -75,8 +75,9 @@ func (s started) close() {
 // covers it.
 //
 // A held run is the view's: it stays open after its pass, and its lines go
-// to the run log only, because the view owns the terminal.
-func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer) (started, error) {
+// to the run log only, because the view owns the terminal. riskToken is the
+// risk script's GitHub token, which nothing else the run starts may hold.
+func start(cfg cli.Config, rc repo.Context, held bool, riskToken string, stdout, stderr io.Writer) (started, error) {
 	prepared, err := prepare(cfg, rc)
 	if err != nil {
 		return started{}, err
@@ -119,7 +120,9 @@ func start(cfg cli.Config, rc repo.Context, held bool, stdout, stderr io.Writer)
 	if cfg.ApproveOthersUpTo != review.RiskNone {
 		// The repository's own script rates another author's PR before its
 		// review, so the ceiling does not rest on a model's rating alone.
-		deps.Risk = riskcheck.Checker{GH: gh.Exec, Repo: rc, Dir: prepared.run.Root, Run: riskcheck.Exec}.Check
+		// It gets a few of the run's variables, never its tokens, and the
+		// token named for it.
+		deps.Risk = riskcheck.Checker{GH: gh.Exec, Repo: rc, Dir: prepared.run.Root, Environ: os.Environ(), Token: riskToken, Run: riskcheck.Exec}.Check
 	}
 	if !cfg.NoPost {
 		// --no-post promises to leave the PR alone, the reaction too.

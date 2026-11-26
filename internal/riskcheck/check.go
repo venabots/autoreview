@@ -5,20 +5,28 @@
 //
 //	Risk script: `bin/pr-risk`
 //
-// The run reads REVIEW.md and the script from the PR's base branch as GitHub
-// has them, never from the PR: a PR that edits the script to print LOW is
-// judged by the copy before it. The script runs in the checkout's top
-// directory. It gets the PR's changed paths on stdin, one to a line, with
-// the old path of a rename too, and $AUTOREVIEW_REPO, $AUTOREVIEW_PR,
-// $AUTOREVIEW_BASE and $AUTOREVIEW_HEAD. It prints LOW, MEDIUM, HIGH or
-// CRITICAL alone on its first line, and its reasons on the lines after.
+// The run reads REVIEW.md and the script as GitHub has them on the
+// repository's default branch, at one commit it asks for when the check
+// begins, never from the PR or from the PR's base: a PR that edits the
+// script to print LOW is judged by the copy before it, and so is a PR whose
+// base is a branch that anyone who can push it could have changed. The
+// script runs in the checkout's top directory, on whatever branch the
+// checkout is on, so a file it reads there need not be the default branch's
+// copy. It gets the PR's changed paths on stdin, one to a line, with the
+// old path of a rename too, and $AUTOREVIEW_REPO, $AUTOREVIEW_PR,
+// $AUTOREVIEW_BASE, $AUTOREVIEW_HEAD and $AUTOREVIEW_TRUSTED_REF, the
+// commit it was read at, at which it should read its companion files. Its
+// environment is built from a short list of names, never autoreview's own,
+// which holds a token that can approve PRs: see env. It prints LOW, MEDIUM,
+// HIGH or CRITICAL alone on its first line, and its reasons on the lines
+// after.
 package riskcheck
 
 import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -44,14 +52,22 @@ type Checker struct {
 	// Dir is where each script is written before it runs: a directory of
 	// the run.
 	Dir string
+	// Environ is autoreview's own environment, as os.Environ gives it. The
+	// script gets only the parts of it that env names.
+	Environ []string
+	// Token is the GitHub token the script gets as $GH_TOKEN, or "" for
+	// none.
+	Token string
 	// Run runs one script. Exec runs it for real.
 	Run func(ctx context.Context, s Script) (stdout []byte, err error)
 }
 
 // Script is one run of a risk script.
 type Script struct {
-	Path  string
-	Dir   string
+	Path string
+	Dir  string
+	// Env is the script's whole environment. Nothing else of autoreview's
+	// reaches it.
 	Env   []string
 	Stdin []byte
 }
@@ -64,58 +80,55 @@ func (c Checker) Check(ctx context.Context, pr prs.PR) review.RiskCheck {
 	if pr.Base == "" || pr.Head == "" {
 		return failed("", "GitHub gave no base branch or head for the PR")
 	}
-	path, named, err := c.scriptPath(ctx, pr.Base)
+	at, err := c.trusted(ctx)
+	if err != nil {
+		return failed("", err.Error())
+	}
+	path, named, err := c.scriptPath(ctx, at)
 	switch {
 	case err != nil:
 		return failed("", err.Error())
 	case !named:
 		return review.RiskCheck{NoScript: true}
 	}
-	body, err := c.fetch(ctx, path, pr.Base)
+	body, err := c.fetch(ctx, path, at.commit)
 	if err != nil {
-		return failed(path, fmt.Sprintf("reading %s from %s: %v", path, pr.Base, err))
+		return failed(path, fmt.Sprintf("reading %s from %s: %v", path, at, err))
 	}
 	paths, err := c.changed(ctx, pr.Number)
 	if err != nil {
 		return failed(path, err.Error())
 	}
-	out, err := c.run(ctx, pr, body, paths)
+	out, err := c.run(ctx, pr, at.commit, body, paths)
 	if err != nil {
 		return failed(path, fmt.Sprintf("%s failed: %v", path, err))
 	}
 	return rated(path, out)
 }
 
-// run writes the base's copy of the script into the run's directory and
-// runs it there, so the copy in the checkout, which may be any branch,
-// never runs.
-func (c Checker) run(ctx context.Context, pr prs.PR, body []byte, paths []string) ([]byte, error) {
-	f, err := os.CreateTemp(c.Dir, "risk-script-*")
+// run writes the default branch's copy of the script into a directory of
+// the run's own and runs it from there, so the copy in the checkout, which
+// may be any branch, never runs. gh gets an empty directory of settings
+// beside it, and both are gone after the one run.
+func (c Checker) run(ctx context.Context, pr prs.PR, commit string, body []byte, paths []string) ([]byte, error) {
+	dir, err := os.MkdirTemp(c.Dir, "risk-*")
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = os.Remove(f.Name()) }()
-	_, err = f.Write(body)
-	if closeErr := f.Close(); err == nil {
-		err = closeErr
+	defer func() { _ = os.RemoveAll(dir) }()
+	script, ghConfig := filepath.Join(dir, "script"), filepath.Join(dir, "gh")
+	if err := os.WriteFile(script, body, 0o700); err != nil {
+		return nil, err
 	}
-	if err == nil {
-		err = os.Chmod(f.Name(), 0o700)
-	}
-	if err != nil {
+	if err := os.Mkdir(ghConfig, 0o700); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	return c.Run(ctx, Script{
-		Path: f.Name(),
-		Dir:  c.Repo.Root,
-		Env: []string{
-			"AUTOREVIEW_REPO=" + c.Repo.Owner + "/" + c.Repo.Name,
-			"AUTOREVIEW_PR=" + strconv.Itoa(pr.Number),
-			"AUTOREVIEW_BASE=" + pr.Base,
-			"AUTOREVIEW_HEAD=" + pr.Head,
-		},
+		Path:  script,
+		Dir:   c.Repo.Root,
+		Env:   c.env(pr, commit, ghConfig),
 		Stdin: []byte(strings.Join(paths, "\n") + "\n"),
 	})
 }

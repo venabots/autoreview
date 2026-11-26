@@ -53,7 +53,7 @@ func panelSandbox(t *testing.T) panelBox {
 	t.Setenv("FAKE_PANEL_DIR", b.dir)
 	t.Setenv("AUTOREVIEW_LEDGER", filepath.Join(b.dir, "ledger.jsonl"))
 	t.Setenv("AUTOREVIEW_CONFIG", "off")
-	for _, name := range []string{"DASHP_BIN", "PANEL_TIMEOUT", "PANEL_SYNTH", "FAKE_PANEL_EMPTY", "FAKE_PANEL_ALWAYS_EMPTY", "FAKE_PANEL_HANG", "FAKE_PANEL_DIRTY_EXIT"} {
+	for _, name := range []string{"DASHP_BIN", "PANEL_TIMEOUT", "PANEL_SYNTH", "FAKE_PANEL_EMPTY", "FAKE_PANEL_ALWAYS_EMPTY", "FAKE_PANEL_HANG", "FAKE_PANEL_DIRTY_EXIT", "FAKE_PANEL_ENV"} {
 		t.Setenv(name, "")
 	}
 	return b
@@ -71,7 +71,7 @@ func (b panelBox) git(args ...string) {
 // what the last run left in the box.
 func (b panelBox) panel(args ...string) (stdout, stderr string, code int) {
 	b.t.Helper()
-	for _, pattern := range []string{"calls", "tries-*", "stdin-*", "synthesis-prompt-path"} {
+	for _, pattern := range []string{"calls", "tries-*", "stdin-*", "env-*", "synthesis-prompt-path"} {
 		matches, _ := filepath.Glob(filepath.Join(b.dir, pattern))
 		for _, path := range matches {
 			_ = os.Remove(path)
@@ -87,6 +87,21 @@ func (b panelBox) read(name string) string {
 }
 
 func (b panelBox) calls() string { return b.read("calls") }
+
+// environments are what each panelist was started with, one entry each,
+// when the panel ran with $FAKE_PANEL_ENV set.
+func (b panelBox) environments() []string {
+	matches, _ := filepath.Glob(filepath.Join(b.dir, "env-*"))
+	var all []string
+	for _, path := range matches {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			b.t.Fatal(err)
+		}
+		all = append(all, string(raw))
+	}
+	return all
+}
 
 // prompt is what the backend's panelist read on stdin.
 func (b panelBox) prompt(backend string) string {

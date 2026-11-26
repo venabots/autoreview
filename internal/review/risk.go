@@ -106,8 +106,8 @@ func maxRiskOption(r Request) string {
 // The zero value holds the approval: a check that never answered, or
 // failed, must not let one through.
 type RiskCheck struct {
-	// NoScript says the repository names no risk script: its base branch
-	// has no REVIEW.md, or the file names none.
+	// NoScript says the repository names no risk script: its default
+	// branch has no REVIEW.md, or the file names none.
 	NoScript bool
 	// Script is the path that REVIEW.md names.
 	Script string
