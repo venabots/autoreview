@@ -138,6 +138,7 @@ func TestAStackedPRIsRatedByTheDefaultBranchsCopy(t *testing.T) {
 		}
 		if len(s.got) != 1 || s.got[0].body != c.ran {
 			t.Errorf("%s: ran %+v, want the default branch's copy", c.name, s.got)
+			continue
 		}
 		if !slices.Contains(s.got[0].Env, "AUTOREVIEW_BASE=feature/below") {
 			t.Errorf("%s: the script was not told the PR's base: %q", c.name, s.got[0].Env)
