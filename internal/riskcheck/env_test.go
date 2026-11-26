@@ -43,7 +43,8 @@ func autoreviewsEnv(extra ...string) []string {
 // the whole of autoreview's environment, which holds a token that can
 // approve PRs and the agents' credentials. A GitHub token reaches it only
 // when the operator names one for it, and then as $GH_TOKEN, which gh
-// reads.
+// reads. It arrives as Token only: the operator's variable left in
+// Environ does not reach the script.
 func TestAScriptGetsNoneOfAutoreviewsTokensUnlessOneIsNamedForIt(t *testing.T) {
 	kept := []string{
 		"PATH=/usr/bin:/bin", "HOME=/home/bot", "USER=bot", "LOGNAME=bot", "SHELL=/bin/bash",
@@ -56,23 +57,25 @@ func TestAScriptGetsNoneOfAutoreviewsTokensUnlessOneIsNamedForIt(t *testing.T) {
 	cases := []struct {
 		name  string
 		extra []string
-		token []string
+		token string
+		want  []string
 	}{
-		{"no token named", nil, nil},
-		{"an empty token", []string{tokenVariable + "="}, nil},
-		{"a token named", []string{tokenVariable + "=github_pat_read_only"}, []string{"GH_TOKEN=github_pat_read_only"}},
+		{"no token named", nil, "", nil},
+		{"a token named", nil, "github_pat_read_only", []string{"GH_TOKEN=github_pat_read_only"}},
+		{"the operator's variable left in the environment", []string{TokenVariable + "=github_pat_read_only"}, "", nil},
 	}
 	for _, c := range cases {
 		s := &script{out: "LOW\n"}
 		ck := checker(t, scripted(), s)
 		ck.Environ = autoreviewsEnv(c.extra...)
+		ck.Token = c.token
 		before := slices.Clone(ck.Environ)
 		ck.Check(context.Background(), pr9())
 		if len(s.got) != 1 {
 			t.Fatalf("%s: the script ran %d times", c.name, len(s.got))
 		}
 		env := slices.DeleteFunc(slices.Clone(s.got[0].Env), func(v string) bool { return strings.HasPrefix(v, "GH_CONFIG_DIR=") })
-		want := slices.Concat(kept, c.token, told)
+		want := slices.Concat(kept, c.want, told)
 		if !slices.Equal(env, want) {
 			t.Errorf("%s: the script's environment is\n%q\nwant\n%q", c.name, env, want)
 		}

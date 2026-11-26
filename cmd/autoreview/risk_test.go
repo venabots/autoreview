@@ -54,7 +54,8 @@ func riskScript(rating string) string {
 // its review starts, whatever branch the PR is based on: a branch below a
 // stack can be pushed by anyone who can push, and its copy must not decide.
 // The script reads the PR's changed paths, the old path of a rename too, and
-// none of the run's tokens: only the one named for it reaches it. A rating
+// none of the run's tokens: only the one named for it reaches it, and that
+// one reaches nothing else, the review included. A rating
 // above the ceiling takes the approval away before the reviewer runs, and
 // the run says why; a rating within it leaves the review to decide. A
 // repository with no REVIEW.md leaves the review to decide too.
@@ -85,6 +86,8 @@ func TestTheDefaultBranchsRiskScriptSetsWhatTheReviewMayPost(t *testing.T) {
 			settingsFile(t, "[review]\napprove_authors = [\"@Bob\"]\napprove_others_up_to = \"medium\"\n\n[prs]\nstacked = true\n")
 			t.Setenv("GH_TOKEN", "ghp_approving")
 			t.Setenv("AUTOREVIEW_RISK_GH_TOKEN", c.token)
+			reviewEnv := filepath.Join(t.TempDir(), "env")
+			t.Setenv("FAKE_DASHP_ENV", reviewEnv)
 			write(t, fixtures, "files-9.tsv", "packages/db/src/migrations/0123.ts\t\napps/money.ts\tapps/old-money.ts\n")
 			// The PR's base names a script that passes everything. It is
 			// never the one that runs.
@@ -105,6 +108,42 @@ func TestTheDefaultBranchsRiskScriptSetsWhatTheReviewMayPost(t *testing.T) {
 			if strings.Contains(said, "ghp_approving") {
 				t.Errorf("the script saw the run's own token:\n%s", said)
 			}
+			env, err := os.ReadFile(reviewEnv)
+			if err != nil || !strings.Contains(string(env), "PATH=") {
+				t.Fatalf("the review did not say what it was started with: %v", err)
+			}
+			if holdsRiskToken(string(env), c.token) {
+				t.Errorf("the review was started with the risk script's token")
+			}
 		})
 	}
+}
+
+// The risk script's token is for the risk script alone. A panelist runs a
+// PR's code, so the PR's author could read whatever it holds: a panel that
+// a person starts with the token set starts every panelist without it.
+func TestNoPanelistIsStartedWithTheRiskScriptsToken(t *testing.T) {
+	b := panelSandbox(t)
+	t.Setenv("FAKE_PANEL_ENV", "1")
+	t.Setenv("AUTOREVIEW_RISK_GH_TOKEN", "github_pat_read_only")
+	if _, stderr, code := b.panel("--base", "main"); code != 0 {
+		t.Fatalf("exit %d\nstderr:\n%s", code, stderr)
+	}
+	envs := b.environments()
+	if len(envs) != 4 {
+		t.Fatalf("%d panelists said what they were started with, want 3 and the synthesis", len(envs))
+	}
+	for i, env := range envs {
+		if holdsRiskToken(env, "github_pat_read_only") {
+			t.Errorf("panelist %d of %d was started with the risk script's token", i+1, len(envs))
+		}
+	}
+}
+
+// holdsRiskToken tells whether env, a child's environment, holds the risk
+// script's variable or token, a value that can be "". It says no more than
+// that: the rest of the environment can hold the credentials of whoever
+// runs the tests, which a failure must not print.
+func holdsRiskToken(env, token string) bool {
+	return strings.Contains("\n"+env, "\nAUTOREVIEW_RISK_GH_TOKEN=") || token != "" && strings.Contains(env, token)
 }

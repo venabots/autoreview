@@ -26,8 +26,8 @@ const exitCrashed = 2
 // The engine decides when the run is over. The view closes on the engine's
 // last snapshot, and a view that dies first still ends the run: the Quit
 // after it is what guarantees nothing is left running behind a dead screen.
-func runScreen(cfg cli.Config, rc repo.Context, stdout, stderr io.Writer) int {
-	run, err := start(cfg, rc, true, stdout, stderr)
+func runScreen(cfg cli.Config, rc repo.Context, riskToken string, stdout, stderr io.Writer) int {
+	run, err := start(cfg, rc, true, riskToken, stdout, stderr)
 	if err != nil {
 		say(stderr, "error: %s\n", sanitize.Line(err.Error()))
 		return engine.ExitFailed

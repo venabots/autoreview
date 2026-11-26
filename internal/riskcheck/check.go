@@ -55,6 +55,9 @@ type Checker struct {
 	// Environ is autoreview's own environment, as os.Environ gives it. The
 	// script gets only the parts of it that env names.
 	Environ []string
+	// Token is the GitHub token the script gets as $GH_TOKEN, or "" for
+	// none.
+	Token string
 	// Run runs one script. Exec runs it for real.
 	Run func(ctx context.Context, s Script) (stdout []byte, err error)
 }

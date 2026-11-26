@@ -167,6 +167,8 @@ var firstNumber = regexp.MustCompile(`[0-9]+`)
 //     sets it, so a person can watch a review run.
 //   - $FAKE_DASHP_HANG names a file. The review writes its pid there and
 //     then hangs for a minute.
+//   - $FAKE_DASHP_ENV names a file. The review adds the environment it was
+//     started with there, one variable to a line.
 func fakeDashp(args []string) int {
 	prompt := args[len(args)-1]
 	pr := firstNumber.FindString(prompt)
@@ -176,6 +178,9 @@ func fakeDashp(args []string) int {
 			_, _ = fmt.Fprintln(f, strings.ReplaceAll(strings.Join(args, " "), "\n", "\\n"))
 			_ = f.Close()
 		}
+	}
+	if envFile := os.Getenv("FAKE_DASHP_ENV"); envFile != "" {
+		appendLine(envFile, strings.Join(os.Environ(), "\n"))
 	}
 	if found := os.Getenv("FAKE_DASHP_PURGE_SKILLS"); found != "" {
 		purgeSkills(args, pr, found)
