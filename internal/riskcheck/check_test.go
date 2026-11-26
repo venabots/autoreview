@@ -17,10 +17,7 @@ import (
 // answers 503 included: read as "no REVIEW.md", it would drop the check on
 // the day GitHub is slow.
 func TestACheckThatEndsWithoutARatingHoldsTheApproval(t *testing.T) {
-	named := github{lookup: onMain, at("REVIEW.md", trustedCommit): ok(names)}
-	branch := func(name, oid string) answer {
-		return ok(`{"data":{"repository":{"defaultBranchRef":{"name":"` + name + `","target":{"oid":"` + oid + `"}}}}}`)
-	}
+	reviewMD := func(a answer) github { return scripted().with(at("REVIEW.md", trustedCommit), a) }
 	cases := []struct {
 		name     string
 		gh       github
@@ -31,17 +28,17 @@ func TestACheckThatEndsWithoutARatingHoldsTheApproval(t *testing.T) {
 		why      string
 	}{
 		{"no REVIEW.md", github{lookup: onMain}, pr9(), "", nil, true, ""},
-		{"no script named", named.with(at("REVIEW.md", trustedCommit), ok("# Review guidance\n")), pr9(), "", nil, true, ""},
+		{"no script named", reviewMD(ok("# Review guidance\n")), pr9(), "", nil, true, ""},
 		{"the default branch does not answer", scripted().with(lookup, fails("gh api: gh: Bad Gateway (HTTP 502)")), pr9(), "", nil, false, "asking GitHub for the default branch: gh api: gh: Bad Gateway (HTTP 502)"},
 		{"an answer that is not JSON", scripted().with(lookup, ok("<html>")), pr9(), "", nil, false, "reading GitHub's answer for the default branch"},
 		{"no default branch", scripted().with(lookup, ok(`{"data":{"repository":{"defaultBranchRef":null}}}`)), pr9(), "", nil, false, "GitHub gave no default branch"},
-		{"a branch name for a commit", scripted().with(lookup, branch("main", "main")), pr9(), "", nil, false, `GitHub gave "main" as the commit of main`},
-		{"a short commit", scripted().with(lookup, branch("main", "0123456")), pr9(), "", nil, false, `GitHub gave "0123456" as the commit of main`},
-		{"GitHub answers 503", named.with(at("REVIEW.md", trustedCommit), fails("gh api: gh: Server Error (HTTP 503)")), pr9(), "", nil, false, "reading REVIEW.md from main at 0123456789ab: gh api: gh: Server Error (HTTP 503)"},
-		{"no backticks", named.with(at("REVIEW.md", trustedCommit), ok("Risk script: bin/pr-risk\n")), pr9(), "", nil, false, "not a plain path"},
-		{"outside the repository", named.with(at("REVIEW.md", trustedCommit), ok("Risk script: `../pr-risk`\n")), pr9(), "", nil, false, "not a plain path"},
-		{"two scripts", named.with(at("REVIEW.md", trustedCommit), ok(names+"Risk script: `bin/other`\n")), pr9(), "", nil, false, "more than one"},
-		{"the script is not on the default branch", named, pr9(), "", nil, false, "reading bin/pr-risk from main at 0123456789ab"},
+		{"a branch name for a commit", scripted().with(lookup, defaultBranch("main", "main")), pr9(), "", nil, false, `GitHub gave "main" as the commit of main`},
+		{"a short commit", scripted().with(lookup, defaultBranch("main", "0123456")), pr9(), "", nil, false, `GitHub gave "0123456" as the commit of main`},
+		{"GitHub answers 503", reviewMD(fails("gh api: gh: Server Error (HTTP 503)")), pr9(), "", nil, false, "reading REVIEW.md from main at 0123456789ab: gh api: gh: Server Error (HTTP 503)"},
+		{"no backticks", reviewMD(ok("Risk script: bin/pr-risk\n")), pr9(), "", nil, false, "not a plain path"},
+		{"outside the repository", reviewMD(ok("Risk script: `../pr-risk`\n")), pr9(), "", nil, false, "not a plain path"},
+		{"two scripts", reviewMD(ok(names + "Risk script: `bin/other`\n")), pr9(), "", nil, false, "more than one"},
+		{"the script is not on the default branch", github{lookup: onMain, at("REVIEW.md", trustedCommit): ok(names)}, pr9(), "", nil, false, "reading bin/pr-risk from main at 0123456789ab"},
 		{"the files do not list", scripted().with(files, fails("gh api: rate limited")), pr9(), "", nil, false, "listing the PR's files"},
 		{"too many files", scripted().with(files, ok(strings.Repeat("f.ts\t\n", maxFiles))), pr9(), "", nil, false, "3000 files or more"},
 		{"the script fails", scripted(), pr9(), "", errors.New("exit status 2: no such command"), false, "bin/pr-risk failed: exit status 2"},

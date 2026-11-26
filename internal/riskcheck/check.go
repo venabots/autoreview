@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -95,44 +96,36 @@ func (c Checker) Check(ctx context.Context, pr prs.PR) review.RiskCheck {
 	if err != nil {
 		return failed(path, err.Error())
 	}
-	out, err := c.run(ctx, pr, at, body, paths)
+	out, err := c.run(ctx, pr, at.commit, body, paths)
 	if err != nil {
 		return failed(path, fmt.Sprintf("%s failed: %v", path, err))
 	}
 	return rated(path, out)
 }
 
-// run writes the default branch's copy of the script into the run's
-// directory and runs it there, so the copy in the checkout, which may be any
-// branch, never runs. gh gets an empty directory of settings of its own for
-// the one run.
-func (c Checker) run(ctx context.Context, pr prs.PR, at trusted, body []byte, paths []string) ([]byte, error) {
-	f, err := os.CreateTemp(c.Dir, "risk-script-*")
+// run writes the default branch's copy of the script into a directory of
+// the run's own and runs it from there, so the copy in the checkout, which
+// may be any branch, never runs. gh gets an empty directory of settings
+// beside it, and both are gone after the one run.
+func (c Checker) run(ctx context.Context, pr prs.PR, commit string, body []byte, paths []string) ([]byte, error) {
+	dir, err := os.MkdirTemp(c.Dir, "risk-*")
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = os.Remove(f.Name()) }()
-	_, err = f.Write(body)
-	if closeErr := f.Close(); err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Chmod(f.Name(), 0o700)
-	}
-	if err != nil {
+	defer func() { _ = os.RemoveAll(dir) }()
+	script, ghConfig := filepath.Join(dir, "script"), filepath.Join(dir, "gh")
+	if err := os.WriteFile(script, body, 0o700); err != nil {
 		return nil, err
 	}
-	ghConfig, err := os.MkdirTemp(c.Dir, "risk-gh-*")
-	if err != nil {
+	if err := os.Mkdir(ghConfig, 0o700); err != nil {
 		return nil, err
 	}
-	defer func() { _ = os.RemoveAll(ghConfig) }()
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	return c.Run(ctx, Script{
-		Path:  f.Name(),
+		Path:  script,
 		Dir:   c.Repo.Root,
-		Env:   c.env(pr, at, ghConfig),
+		Env:   c.env(pr, commit, ghConfig),
 		Stdin: []byte(strings.Join(paths, "\n") + "\n"),
 	})
 }

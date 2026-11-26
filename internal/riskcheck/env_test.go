@@ -59,8 +59,8 @@ func TestAScriptGetsNoneOfAutoreviewsTokensUnlessOneIsNamedForIt(t *testing.T) {
 		token []string
 	}{
 		{"no token named", nil, nil},
-		{"an empty token", []string{TokenVariable + "="}, nil},
-		{"a token named", []string{TokenVariable + "=github_pat_read_only"}, []string{"GH_TOKEN=github_pat_read_only"}},
+		{"an empty token", []string{tokenVariable + "="}, nil},
+		{"a token named", []string{tokenVariable + "=github_pat_read_only"}, []string{"GH_TOKEN=github_pat_read_only"}},
 	}
 	for _, c := range cases {
 		s := &script{out: "LOW\n"}
@@ -85,23 +85,38 @@ func TestAScriptGetsNoneOfAutoreviewsTokensUnlessOneIsNamedForIt(t *testing.T) {
 // gh finds the login that autoreview's own gh calls use under $HOME, and a
 // script that runs gh would sign in with it. The script's gh is pointed at
 // an empty directory of the run's own for the one run, and the directory is
-// gone after it.
+// gone after it, with the copy of the script beside it.
 func TestTheScriptsGhHasEmptySettingsOfItsOwn(t *testing.T) {
-	s := &script{out: "LOW\n"}
-	ck := checker(t, scripted(), s)
+	var dir string
+	entries := -1
+	ck := checker(t, scripted(), &script{})
 	ck.Environ = autoreviewsEnv()
+	ck.Run = func(_ context.Context, sc Script) ([]byte, error) {
+		dir, _ = variable(sc.Env, "GH_CONFIG_DIR")
+		if listed, err := os.ReadDir(dir); err == nil {
+			entries = len(listed)
+		}
+		return []byte("LOW\n"), nil
+	}
 	ck.Check(context.Background(), pr9())
-	if len(s.got) != 1 {
-		t.Fatalf("the script ran %d times", len(s.got))
+	if dir == "" || filepath.Dir(filepath.Dir(dir)) != ck.Dir {
+		t.Fatalf("GH_CONFIG_DIR is %q, want a directory of the run's own in %s", dir, ck.Dir)
 	}
-	dir, found := variable(s.got[0].Env, "GH_CONFIG_DIR")
-	if !found || filepath.Dir(dir) != ck.Dir {
-		t.Fatalf("GH_CONFIG_DIR is %q, want a directory in %s", dir, ck.Dir)
+	if entries != 0 {
+		t.Errorf("the script's gh settings held %d entries, want an empty directory", entries)
 	}
-	if s.got[0].ghConfig != 0 {
-		t.Errorf("the script's gh settings held %d entries, want an empty directory", s.got[0].ghConfig)
+	if left, err := os.ReadDir(ck.Dir); err != nil || len(left) != 0 {
+		t.Errorf("%s holds %v after the run (%v), want nothing", ck.Dir, left, err)
 	}
-	if _, err := os.Stat(dir); !os.IsNotExist(err) {
-		t.Errorf("%s is still there after the run: %v", dir, err)
+}
+
+// variable is the value env gives name, as a program would read it.
+func variable(env []string, name string) (string, bool) {
+	value, found := "", false
+	for _, entry := range env {
+		if n, v, cut := strings.Cut(entry, "="); cut && n == name {
+			value, found = v, true
+		}
 	}
+	return value, found
 }

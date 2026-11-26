@@ -24,8 +24,13 @@ const (
 
 const names = "# Review guidance\n\nRisk script: `bin/pr-risk`\n"
 
-// onMain is GitHub's answer for the default branch: main, at trustedCommit.
-var onMain = ok(`{"data":{"repository":{"defaultBranchRef":{"name":"main","target":{"oid":"` + trustedCommit + `"}}}}}`)
+// defaultBranch is GitHub's answer for the default branch: name, at oid.
+func defaultBranch(name, oid string) answer {
+	return ok(`{"data":{"repository":{"defaultBranchRef":{"name":"` + name + `","target":{"oid":"` + oid + `"}}}}}`)
+}
+
+// onMain is the default branch of the repository the tests start from.
+var onMain = defaultBranch("main", trustedCommit)
 
 type answer struct {
 	out string
@@ -89,13 +94,11 @@ func scripted() github {
 	}
 }
 
-// ran is one run of the fake script: what it was handed, the script's
-// text, and what its gh settings directory held then, or -1 when there was
-// none.
+// ran is one run of the fake script: what it was handed and the script's
+// text.
 type ran struct {
 	Script
-	body     string
-	ghConfig int
+	body string
 }
 
 // script is a fake run of the script: it keeps what it was handed and
@@ -108,25 +111,8 @@ type script struct {
 
 func (s *script) run(_ context.Context, sc Script) ([]byte, error) {
 	body, _ := os.ReadFile(sc.Path)
-	entries := -1
-	if dir, found := variable(sc.Env, "GH_CONFIG_DIR"); found {
-		if listed, err := os.ReadDir(dir); err == nil {
-			entries = len(listed)
-		}
-	}
-	s.got = append(s.got, ran{Script: sc, body: string(body), ghConfig: entries})
+	s.got = append(s.got, ran{Script: sc, body: string(body)})
 	return []byte(s.out), s.err
-}
-
-// variable is the value env gives name, as a program would read it.
-func variable(env []string, name string) (string, bool) {
-	value, found := "", false
-	for _, entry := range env {
-		if n, v, cut := strings.Cut(entry, "="); cut && n == name {
-			value, found = v, true
-		}
-	}
-	return value, found
 }
 
 func pr9() prs.PR { return prs.PR{Number: 9, Base: "main", Head: "abc123"} }
