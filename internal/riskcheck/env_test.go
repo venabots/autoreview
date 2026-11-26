@@ -34,6 +34,7 @@ func autoreviewsEnv(extra ...string) []string {
 		"AUTOREVIEW_CONFIG=/etc/autoreview.toml",
 		"AUTOREVIEW_CMD=sh -c reviewer",
 		"PANEL_REVIEW_PANELISTS=claude,codex",
+		"LC_GH_TOKEN=ghp_approving",
 		"no equals sign",
 	}, extra...)
 }

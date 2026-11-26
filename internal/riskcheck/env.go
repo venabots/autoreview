@@ -15,11 +15,17 @@ import (
 const TokenVariable = "AUTOREVIEW_RISK_GH_TOKEN"
 
 // passed are the variables of autoreview's own environment that reach a
-// risk script, with every LC_ variable: what a program needs to find its
-// tools, its home and its locale. autoreview runs with a token that can
-// approve PRs and with the agents' credentials, and a script handed the
-// whole environment would hold them all.
-var passed = []string{"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TZ", "LANG"}
+// risk script: what a program needs to find its tools, its home and its
+// locale. autoreview runs with a token that can approve PRs and with the
+// agents' credentials, and a script handed the whole environment would hold
+// them all. The locale's variables are named one by one, not as every LC_
+// name: the stock sshd_config of macOS, Debian and Ubuntu accepts LC_*
+// from the client, so people carry their own values in names such as
+// LC_GH_TOKEN.
+var passed = []string{
+	"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TZ", "LANG",
+	"LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME",
+}
 
 // env is the script's whole environment: the variables in passed, the token
 // that TokenVariable names as $GH_TOKEN, and what autoreview tells the
@@ -36,7 +42,7 @@ func (c Checker) env(pr prs.PR, at trusted, ghConfig string) []string {
 			if value != "" {
 				env = append(env, "GH_TOKEN="+value)
 			}
-		case slices.Contains(passed, name) || strings.HasPrefix(name, "LC_"):
+		case slices.Contains(passed, name):
 			env = append(env, entry)
 		}
 	}
